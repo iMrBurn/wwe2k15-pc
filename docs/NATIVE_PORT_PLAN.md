@@ -27,7 +27,9 @@ The extracted game folder contains 674 files totaling about 8.2 GB. The largest 
 
 Initial header samples show several immediately distinguishable formats: `default.xex` and `.lex` modules start with `XEX2`; one `.pac` starts with `EPAC`, `_startup.pac` starts with `PACH`, and another PAC starts with XCompress/LZX magic `0x0FF512ED`; BK2 video starts with `KB2i`; sound banks start with `AKPK`; `.xzp` starts with `BDES`; the `.def` file is text beginning `;PAC_LIST_ARC_EPAC_BIG`; the `.arc` begins with a table of four-character tags such as `AUDE` and `BORD`; `.xtt` begins with `xttf`. These are signature observations, not complete format specifications. PAC needs separate unpackers for its variants.
 
-Next, inspect file headers and identify container/codecs for PAC, BK2, PCK, XZP, and the executable modules. Keep the inventory as metadata only; do not copy game data into Git. Do not start by changing the ReXGlue allocator: those failures belong to the prototype path.
+`native/tools/inspect_game_data.py` performs the read-only inventory and prints samples grouped by detected signature. For EPAC it reports candidate list/data sizes and checks bounds; for PACH it reports candidate table count and the first five entries. The PAC layout hypothesis is based on community reverse-engineered definitions in [Keshire's WWE2K15-Tools](https://github.com/Keshire/WWE2K15-Tools/blob/master/structures/WWE2K15-PAC.hsl) and needs validation against all variants. Keep the inventory as metadata only; do not copy game data into Git.
+
+Next, build bounded parsers for the EPAC index and PACH table, then investigate decompression of LZX/XCompress and the other PAC variants. Inspect BK2 and AKPK as separate subsystems. Do not start by changing the ReXGlue allocator: those failures belong to the prototype path.
 
 ## Constraints and risks
 
