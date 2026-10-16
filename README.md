@@ -10,6 +10,16 @@ This repository contains project code and documentation only. It does not contai
 
 A complete native port needs the original game source or a substantial reverse-engineering and engine-reimplementation effort. The Xbox executable alone cannot be turned into a clean PC game by patching allocator errors. The project will keep the Xbox executable and extracted game data outside Git.
 
+## Asset research
+
+Run the metadata-only scanner against your own extracted game folder:
+
+```powershell
+python native/tools/inspect_game_data.py "C:\path\to\WWE2K15" --samples 1
+```
+
+It reports file counts, sizes, recognized signatures, and bounded PAC index candidates. It does not extract or modify game data.
+
 ## Disclaimer
 
 This is an unofficial fan project and is not affiliated with WWE, 2K, or Yuke's. All game names and related marks belong to their respective owners.

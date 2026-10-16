@@ -12,11 +12,14 @@ from pathlib import Path
 SIGNATURES = {
     b"XEX2": "Xbox XEX2 executable/module",
     b"EPAC": "EPAC archive",
+    b"EPK8": "EPK8 archive",
     b"PACH": "PACH table/container",
     b"KB2i": "Bink 2 video",
     b"AKPK": "WWE audio bank (AKPK)",
     b"BDES": "XZP/BDES data",
     b"xttf": "XTT font/data",
+    b"PIRS": "Xbox PIRS package",
+    b"XMNP": "Xbox system manifest",
     b"\x0f\xf5\x12\xed": "XCompress/LZX block stream",
 }
 
@@ -36,15 +39,16 @@ def classify(header: bytes, suffix: str) -> str:
     return "unidentified"
 
 
-def epac_header(header: bytes, file_size: int) -> str | None:
-    if len(header) < 16 or header[:4] != b"EPAC":
+def hierarchy_header(header: bytes, file_size: int) -> str | None:
+    if len(header) < 16 or header[:4] not in (b"EPAC", b"EPK8"):
         return None
+    magic = header[:4].decode("ascii")
     list_size, data_size, version = struct.unpack_from("<III", header, 4)
     list_end = 0x800 + list_size
     data_start = 0x4000
     valid = list_end <= data_start and data_start + data_size <= file_size
     return (
-        f"list_size=0x{list_size:X}, data_size=0x{data_size:X}, "
+        f"{magic} list_size=0x{list_size:X}, data_size=0x{data_size:X}, "
         f"field_0C=0x{version:X}, list_at=0x800, data_at=0x4000, "
         f"bounds={'plausible' if valid else 'do not fit file'}"
     )
@@ -68,13 +72,26 @@ def read_pach_entries(path: Path, header: bytes, file_size: int) -> tuple[str, l
     if count > 1_000_000 or table_end > file_size:
         return details, []
     entries: list[tuple[int, int, int]] = []
+    outside_file = 0
+    max_relative_end = 0
     with path.open("rb") as stream:
         stream.seek(8)
-        for _ in range(min(count, 5)):
+        for index in range(count):
             raw = stream.read(12)
             if len(raw) != 12:
                 break
-            entries.append(struct.unpack("<III", raw))
+            entry = struct.unpack("<III", raw)
+            _, relative_offset, size = entry
+            relative_end = relative_offset + size
+            max_relative_end = max(max_relative_end, relative_end)
+            if relative_end > file_size:
+                outside_file += 1
+            if index < 5:
+                entries.append(entry)
+    details += (
+        f", max_relative_end=0x{max_relative_end:X}, "
+        f"relative_ranges_outside_file={outside_file}"
+    )
     return details, entries
 
 
@@ -89,6 +106,7 @@ def main() -> int:
         parser.error(f"not a directory: {root}")
 
     totals: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    detected: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     samples: dict[str, list[Path]] = defaultdict(list)
     files = sorted(path for path in root.rglob("*") if path.is_file())
     for path in files:
@@ -97,7 +115,10 @@ def main() -> int:
         totals[suffix][1] += path.stat().st_size
         with path.open("rb") as stream:
             header = stream.read(32)
-        sample_key = f"{suffix} / {classify(header, path.suffix)}"
+        kind = classify(header, path.suffix)
+        detected[kind][0] += 1
+        detected[kind][1] += path.stat().st_size
+        sample_key = f"{suffix} / {kind}"
         if len(samples[sample_key]) < max(args.samples, 0):
             samples[sample_key].append(path)
 
@@ -108,6 +129,10 @@ def main() -> int:
     for suffix, (count, size) in sorted(totals.items(), key=lambda item: (-item[1][1], item[0])):
         print(f"  {suffix:16} {count:5} files  {size:12} bytes")
 
+    print("\nBy detected header type:")
+    for kind, (count, size) in sorted(detected.items(), key=lambda item: (-item[1][0], item[0])):
+        print(f"  {kind:36} {count:5} files  {size:12} bytes")
+
     print("\nHeader samples by detected type:")
     for sample_key in sorted(samples):
         for path in samples[sample_key]:
@@ -117,9 +142,9 @@ def main() -> int:
             label = classify(header, path.suffix)
             hex_bytes = " ".join(f"{value:02X}" for value in header[:16])
             print(f"  {path.relative_to(root)} | {path.stat().st_size} bytes | {label} | {hex_bytes}")
-            details = epac_header(header, path.stat().st_size)
+            details = hierarchy_header(header, path.stat().st_size)
             if details:
-                print(f"    EPAC header candidate: {details}")
+                print(f"    archive header candidate: {details}")
             pach = read_pach_entries(path, header, path.stat().st_size)
             if pach:
                 pach_details, entries = pach
