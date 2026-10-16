@@ -1,14 +1,14 @@
 # WWE 2K15 PC
 
-The project goal is a Windows PC game that runs without an Xbox emulator or Xbox compatibility runtime. The current ReXGlue build is only an experimental Xbox-code recompilation prototype; it does **not** meet that goal.
+The project goal is a Windows PC port of the Xbox 360 release, following the approach used by Josiah's SmackDown vs. Raw ports and this user's WWE '12 P project: statically recompile the game's PowerPC code with ReXGlue, then replace the Xbox Xenos GPU drawing path with a title-specific native Windows renderer. “Native” here means native host rendering; ReXGlue still provides the recompiled game code and required Xbox system services.
 
 This repository contains project code and documentation only. It does not contain game data. Use files dumped from your own copy of the Xbox 360 game, and keep executables, disc images, extracted assets, generated code, and build outputs out of Git.
 
 ## Status
 
-`port/` contains the ReXGlue prototype and its experimental diagnostics. It translates Xbox 360 PowerPC code to host code but still depends on Xbox kernel, memory, and graphics emulation. Its allocation failures and rendering glitches are symptoms of that approach, not fixes toward an emulator-free port. See [docs/PORTING_PLAN.md](docs/PORTING_PLAN.md) for the captured baseline and [docs/NATIVE_PORT_PLAN.md](docs/NATIVE_PORT_PLAN.md) for the revised project direction.
+`port/` contains the ReXGlue prototype. The next major step is a native renderer that hooks the game's XDK Direct3D calls, maps its resources and draw state to a Windows graphics API, and uses shaders extracted and converted from the game. The Xenos GPU plugin can remain as a development fallback while native coverage grows; it should not be the final draw path. See [docs/PORTING_PLAN.md](docs/PORTING_PLAN.md) for the captured baseline and [docs/NATIVE_PORT_PLAN.md](docs/NATIVE_PORT_PLAN.md) for the renderer plan.
 
-A complete native port needs the original game source or a substantial reverse-engineering and engine-reimplementation effort. The Xbox executable alone cannot be turned into a clean PC game by patching allocator errors. The project will keep the Xbox executable and extracted game data outside Git.
+The Xbox executable and extracted assets stay outside Git. This repository will document the game-specific call mappings, shader pipeline, renderer hooks, and fixes needed to adapt the ReXGlue/re:Blue/plume architecture to WWE 2K15. Before reusing any code from another project, preserve its license and notices and verify compatibility with this repository's license.
 
 ## Asset research
 

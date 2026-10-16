@@ -1,40 +1,43 @@
-# WWE 2K15 native PC port
+# WWE 2K15 native-renderer plan
 
-## Goal
+## Target architecture
 
-Create a Windows x64 game that runs without an Xbox emulator, Xbox kernel layer, or runtime recompilation of Xbox code. Reuse only legally obtained game assets where their formats can be read; provide PC-native input, rendering, audio, file loading, and game logic.
+Follow the proven shape of [Josiah's SvR 2008–2010 ports](https://github.com/nefariousjosiah) and the local WWE '12 P project:
 
-## Current facts
+- ReXGlue statically recompiles the Xbox 360 PowerPC game code for Windows x64.
+- ReXGlue supplies the recompiled-code runtime and the Xbox system services the game still calls.
+- A title-specific renderer intercepts the game's XDK Direct3D calls and draws through a native Windows graphics API. WWE '12 P uses `plume` with Vulkan and hooks the same calls that its Xenos D3D census tracks.
+- Game shaders are extracted from the user's own game files, converted with XenosRecomp tooling, and loaded as native host pipelines. The renderer also needs resource, vertex/index format, render-state, and presentation mappings specific to WWE 2K15.
+- During development the Xenos GPU plugin can remain available as a fallback and comparison path. The goal is that normal gameplay rendering uses the native renderer.
 
-- The existing `port/` build uses ReXGlue to recompile the Xbox 360 PowerPC executable and emulate Xbox services. It is a useful research prototype, but it is not the requested deliverable.
-- The available Xbox build is `default.xex` (Title ID `545408B6`). The project does not have WWE 2K15's original engine source code.
-- Without source code, a true native implementation means reverse engineering the executable and rebuilding the engine/gameplay systems. Allocation patches in ReXGlue cannot accomplish that.
-- WWE 2K15 also had an official Windows release in 2015. It was announced as matching the PS4/Xbox One edition, so it is distinct from the Xbox 360 build this project has been studying. [Official WWE announcement](https://www.wwe.com/inside/2k/wwe-2k15/wwe-2k15-windows-pc-announcement-this-spring).
+This is not a full engine rewrite and does not mean removing every Xbox compatibility service. It is a static recompilation plus native-rendering port, as in the reference projects. The 2K15 game logic remains the recompiled original code; the work is to make its services, assets, and graphics calls behave correctly on Windows.
 
-## Work sequence
+## References and reuse
 
-1. **Freeze the recompilation prototype as a reference.** Preserve its logs, manifests, and title metadata. Do not treat emulator fixes as native-port milestones.
-2. **Inventory the Xbox game data.** Record file names, sizes, hashes, and formats (`.arc`, `.def`, `.pck`, `.bk2`, and other containers) without checking copyrighted contents into Git. Identify which assets are reusable and which codecs/container readers need to be implemented.
-3. **Establish a native application shell.** Create a Windows x64 executable with native windowing, Direct3D 12 or Vulkan rendering, audio, input, and asset-mount interfaces. It must not link ReXGlue or load the Xbox XEX at runtime.
-4. **Reverse engineer formats and data models.** Document container layouts, animation/skeleton formats, materials, arenas, audio banks, and video. Add small offline inspection/conversion tools where legally appropriate.
-5. **Build a vertical slice from original data.** Load one arena, one wrestler model, its textures and animations, and render a controllable training scene. Add input and audio before expanding the roster or modes.
-6. **Recreate gameplay systems incrementally.** Implement match state, movement, grapples, collisions, camera, HUD, entrances, menus, and save data behind testable interfaces. Compare behavior with the original game using user-observed references.
-7. **Expand content and packaging.** Add asset compatibility, configuration, controller support, performance work, and setup documentation. Keep game executables and assets out of Git.
+- [SVR 2008 RECOMP](https://github.com/nefariousjosiah/WWE-SVR2008-RECOMP)
+- [SVR 2009 RECOMP](https://github.com/nefariousjosiah/WWE-SVR2009-RECOMP)
+- [SVR 2010 RECOMP](https://github.com/nefariousjosiah/WWE-SVR2010-RECOMP)
+- Local `wwe12-reference/port/cmake/native_renderer.cmake`: native renderer build wiring, shader compilation, plume integration, and static linking.
+- Local `wwe12-reference/port/src/native/`: WWE '12-specific D3D hooks, resource and geometry mapping, frame pacing, and title patches.
+- Local `wwe12-reference/docs/d3d_functions.md`: observed D3D entry points and argument mapping methodology.
 
-## Initial local inventory (2026-10-16)
+These references provide architecture and investigation methods, not drop-in 2K15 addresses or guaranteed-compatible code. Check each source file's license and preserve required notices before reusing implementation. Keep game code and copyrighted assets out of this repository.
 
-The extracted game folder contains 674 files totaling about 8.2 GB. The largest groups are 370 `.pac` files (about 3.8 GB), 144 `.bk2` videos (about 2.7 GB), 115 `.xzp` files, 25 `.xex` files, and three `.pck` sound banks (about 1.0 GB). There are also two `.arc` and two `.def` files. The main `default.xex` is 24,133,632 bytes with SHA-256 `1AAF88A63A57AD3435E5DB6B228809D06929A07BD8CB7296CFBA0D5A903E0503`.
+## Phased work
 
-Initial header samples show several immediately distinguishable formats: `default.xex` and `.lex` modules start with `XEX2`; one `.pac` starts with `EPAC`, `_startup.pac` starts with `PACH`, and another PAC starts with XCompress/LZX magic `0x0FF512ED`; BK2 video starts with `KB2i`; sound banks start with `AKPK`; `.xzp` starts with `BDES`; the `.def` file is text beginning `;PAC_LIST_ARC_EPAC_BIG`; the `.arc` begins with a table of four-character tags such as `AUDE` and `BORD`; `.xtt` begins with `xttf`. These are signature observations, not complete format specifications. PAC needs separate unpackers for its variants.
+1. **Keep the current runnable baseline.** Preserve the ReXGlue build and its known logs/configuration as a fallback. Record whether each issue belongs to code generation, Xbox service emulation, game-data loading, or graphics.
+2. **Map WWE 2K15's D3D surface.** Use XEX symbols/imports and a D3D call census, following the WWE '12 census workflow. Produce a list of called functions and their addresses/signatures; map draw, resource, shader, state, and presentation calls first. Do not copy WWE '12 function addresses.
+3. **Characterize shaders and assets.** Inventory shader blobs and PAC variants from the local game dump. Validate extraction and conversion on small samples; keep only tools and metadata in Git.
+4. **Build the renderer shell.** Integrate the selected host backend and hook infrastructure into this CMake target. Initially implement device/swapchain and clear/present, then buffers, textures, samplers, vertex declarations, and draw calls. Keep the Xenos path switchable during bring-up.
+5. **Reach a visible vertical slice.** Compare menus and a simple arena scene against the existing baseline. Log unsupported calls and resource formats; add focused mappings until menus, entrances, and matches render without Xenos drawing.
+6. **Stabilize gameplay and distribution.** Address frame pacing, video playback, input, saves, resolution, shader cache, device compatibility, packaging, and crash logs. Preserve the user's own game files as external inputs.
 
-`native/tools/inspect_game_data.py` performs the read-only inventory and prints samples grouped by detected signature. For EPAC and EPK8 it reports candidate list/data sizes and checks bounds; for PACH it checks the table length, scans relative entry ranges against file size, and prints the first five entries. The PAC layout hypothesis is based on community reverse-engineered definitions in [Keshire's WWE2K15-Tools](https://github.com/Keshire/WWE2K15-Tools/blob/master/structures/WWE2K15-PAC.hsl) and needs validation against all variants. Keep the inventory as metadata only; do not copy game data into Git.
+## Current 2K15 evidence
 
-The header scan currently classifies 337 files as XCompress/LZX streams, 19 as EPAC, 13 as EPK8, seven as PIRS, and one as PACH; it also finds 144 Bink 2 videos and three AKPK sound banks. Signature classification is preliminary: a compressed container may itself contain another PAC/PACH structure after decompression.
+The local dump inventory records 674 files (about 8.2 GB): 370 `.pac`, 144 `.bk2`, 115 `.xzp`, 25 `.xex`, three `.pck`, plus `.arc`, `.def`, and other files. The main `default.xex` is 24,133,632 bytes. Header scanning distinguishes XCompress/LZX streams, EPAC, EPK8, PACH, Bink 2 (`KB2i`), and AKPK sound banks. These signatures and PAC index bounds are preliminary format observations, not complete decoders.
 
-Next, build bounded parsers for the EPAC index and PACH table, then investigate decompression of LZX/XCompress and the other PAC variants. Inspect BK2 and AKPK as separate subsystems. Do not start by changing the ReXGlue allocator: those failures belong to the prototype path.
+`native/tools/inspect_game_data.py` performs metadata-only inventory and bounded index checks. See [PORTING_PLAN.md](PORTING_PLAN.md) for the earlier capture and commands. The immediate renderer dependency is a reliable shader/call inventory; archive decoding can progress alongside it, but does not replace D3D mapping.
 
-## Constraints and risks
+## Practical boundary
 
-- This is a large reverse-engineering project, not a straightforward recompilation fix. A faithful full game requires recreating substantial proprietary engine and gameplay behavior.
-- The original executable and extracted game files stay local and untracked. Commit only original project code and documentation.
-- The presence of the official Windows edition does not mean its internal source code is available or that it is a drop-in conversion of the Xbox 360 release.
+The initial goal is a native-renderer ReXGlue port, consistent with the referenced projects. It does not promise that the current prototype's allocator, video, or frame-rate issues disappear automatically: each subsystem needs a measured fix. If the long-term goal later changes to a standalone engine with no Xbox runtime services, that would be a separate, much larger project.
