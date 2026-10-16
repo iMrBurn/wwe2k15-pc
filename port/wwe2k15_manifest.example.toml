@@ -1,0 +1,11 @@
+# Copy this file to wwe2k15_manifest.toml and edit paths for your local game dump.
+
+[project]
+name = "wwe2k15"
+sdk_version = "0.10.0"
+game_root = "assets"
+
+[entrypoint]
+file_path = "assets/default.xex"
+out_directory_path = "generated/default"
+includes = ["wwe2k15_config.toml"]

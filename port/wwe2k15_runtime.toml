@@ -1,0 +1,9 @@
+# Keep invalid texture fetches rejected. Bypassing the check can reinterpret
+# invalid guest texture descriptors and produce incorrect or flickering output.
+gpu_allow_invalid_fetch_constants = false
+
+# D3D12 hung on this title; use the Vulkan backend from the same Xenos plugin.
+gpu_backend = "vulkan"
+
+# Avoid a sync wait forcing slow frame-rate steps when the emulator cannot hold 60 FPS.
+gpu_vsync = false

@@ -1,0 +1,17 @@
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_memory.cpp b/src/kernel/xboxkrnl/xboxkrnl_memory.cpp
+index 8684eda..f83521b 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_memory.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_memory.cpp
+@@ -389,8 +389,13 @@ u32 MmAllocatePhysicalMemoryEx_entry(u32 flags, u32 region_size, u32 protect_bit
+   uint32_t heap_physical_address_offset = heap->GetPhysicalAddress(heap_base);
+   // NOTE: xenia-canary has a per-title workaround (ignore_offset_for_ranged_allocations cvar)
+   // for title 545108B4 where min_addr_range comparison fails due to 0x1000 offset.
+-  // If needed, set heap_physical_address_offset = 0 when min_addr_range && max_addr_range.
++  // WWE '13 and WWE 2K15 share the same Yuke's engine behavior: ranged physical allocations
++  // reject the heap's 0x1000 offset. Ignore it for these titles' explicitly ranged requests.
+   // Reference: xenia-canary 81aaf98e0.
++  const uint32_t title_id = REX_KERNEL_STATE()->title_id();
++  if ((title_id == 0x545108B4 || title_id == 0x545408B6) && min_addr_range && max_addr_range) {
++    heap_physical_address_offset = 0;
++  }
+   uint32_t heap_min_addr = rex::sat_sub(min_addr_range, heap_physical_address_offset);

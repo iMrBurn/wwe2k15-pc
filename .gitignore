@@ -1,0 +1,23 @@
+# Local Xbox 360 game files and extracted content
+*.iso
+*.xex
+*.xcp
+/game/
+/port/assets/
+
+# Local manifest points to the user's own XEX; a portable template is tracked instead.
+/port/wwe2k15_manifest.toml
+
+# Generated code, build products, and local SDK checkout
+/port/generated/default/
+/port/out/
+/port/build/
+/build/
+/dist/
+/recomp/
+/work/
+CMakeUserPresets.json
+
+# Local logs and crash dumps
+*.log
+*.dmp
