@@ -57,6 +57,14 @@ The SDK source confirms that the settings from the WWE 2K14 notes exist in this 
 - Runs 026–029 were short hidden diagnostics, not gameplay-performance measurements. Run 026 had one Vulkan “Skipping frame presentation due to async placeholder draw usage” warning. The logs cannot establish whether the flicker, video cadence, or 3 FPS issue is fixed.
 - The game requests `GAME:\Sound\streaming_install.pck`, which is absent from the local dump. The supplied sound folder contains `Comm.pck`, `Game_Sound_E_S.pck`, and `Game_Sound_M.pck`; do not create a placeholder file. Confirm whether that request is optional or whether the dump is missing an installed content file before attempting to map it.
 - The brief launch reconfirmed that the runtime initializes Vulkan on the RTX 5070. The available evidence does not yet establish stable entrances or match rendering at a target frame rate. Next, run a visible match on the rebuilt binary and capture a normal shutdown log; compare the flicker, video cadence, frame rate, and allocation behavior against run 025.
+- Run 030 (the newest captured log) stayed alive for about 48 seconds with a clean shutdown, and logged only two `streaming_install.pck` open failures against twelve in run 025.
+
+## streaming_install.pck investigation (2026-10-16)
+
+- The game opens `GAME:\Sound\streaming_install.pck` shortly after GPU bring-up (about 1.3 s after Vulkan adapter init in run 030), receives `X_STATUS_NO_SUCH_FILE` (0xC000000F), and keeps running with degraded streamed audio; every captured run shut down cleanly afterwards.
+- The failure is a read request, not a write attempt. `GAME:` is mounted through `Runtime::SetupVfs` as a `HostPathDevice` whose read-only flag follows the `allow_game_relative_writes` cvar (default disabled). On that device, an open-for-write fails with `X_STATUS_ACCESS_DENIED` (0xC0000022) or falls through `CreateEntry`, while a `FILE_OPEN`/`kOverwrite` open of a missing file returns exactly `X_STATUS_NO_SUCH_FILE` from `VirtualFileSystem::OpenFile`. The observed status therefore matches a plain read open.
+- The series precedent supports real content, not a generated cache: the PC releases of WWE 2K22 through 2K26 ship `sound/streaming_install.pck` as an authored 265-563 MB Wwise streaming bank.
+- Conclusion: the pack is expected authored content, the dump does not include it, and its absence degrades streamed audio without crashing. Do not create a placeholder file. If the file is ever available from the user's own copy of the game, mount it beside the dump rather than putting a hand-made file in the game folder.
 
 The working manifest contains a machine-local path to the user's XEX and is ignored by Git. Start from `port/wwe2k15_manifest.example.toml` and point it at your own game files on another machine. The generated C++ is large and remains ignored.
 
