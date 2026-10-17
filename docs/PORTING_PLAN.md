@@ -59,6 +59,14 @@ The SDK source confirms that the settings from the WWE 2K14 notes exist in this 
 - The brief launch reconfirmed that the runtime initializes Vulkan on the RTX 5070. The available evidence does not yet establish stable entrances or match rendering at a target frame rate. Next, run a visible match on the rebuilt binary and capture a normal shutdown log; compare the flicker, video cadence, frame rate, and allocation behavior against run 025.
 - Run 030 (the newest captured log) stayed alive for about 48 seconds with a clean shutdown, and logged only two `streaming_install.pck` open failures against twelve in run 025.
 
+## First-menu load freeze and the XCTD answer A/B (2026-10-17)
+
+- Visible tests on the rebuilt binary (runs 031-032, XCTD compression info returning "not compressed") stalled with an infinite first-menu load. The loader reached GPU pipeline creation, then froze after the audio streaming phase: no new kernel or filesystem activity while the process spun at 100 % CPU, and zero further pipeline creations after that point.
+- Runs 024-025 (pre-fix) had churned the same loader stage for minutes: hundreds of pipeline creations interleaved with `XFileXctdCompressionInformation` failures. That activity never completed within the observed window back then either, so the freeze was introduced with the XCTD patch, not older behavior.
+- Returning `not compressed` for genuinely XCTD-compressed files makes the guest read raw compressed bytes and spin silently in its own decompressor path. The answer cannot salvage real compressed data either way.
+- Runs 033-034 verified the A/B conclusion: reverting the SDK patch to the original error behavior restored loader progress. Without trace logging (heavy logfile rotation slowed run 033 measurably), run 034 (base configuration, no trace) completed the first menu load with active rendering: 358 graphics pipeline creations and the usual invalid texture-fetch warnings while the invalid-fetch bypass stayed disabled.
+- `port/patches/rexglue-sdk-xctd-compression-info.patch` is therefore NOT applied in the current SDK tree. Long-term fix candidates, in order: implement transparent XCTD decompression in the VFS for compressed streams (the only answer matching Xbox kernel behavior), or study the game-side branch that reacts to the query result before touching the answer semantics.
+
 ## streaming_install.pck investigation (2026-10-16)
 
 - The game opens `GAME:\Sound\streaming_install.pck` shortly after GPU bring-up (about 1.3 s after Vulkan adapter init in run 030), receives `X_STATUS_NO_SUCH_FILE` (0xC000000F), and keeps running with degraded streamed audio; every captured run shut down cleanly afterwards.
