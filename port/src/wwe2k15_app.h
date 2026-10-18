@@ -35,6 +35,11 @@ class Wwe2k15App : public rex::ReXApp {
   void OnConfigurePaths(rex::PathConfig& paths) override {
     const auto exe_dir = rex::filesystem::GetExecutableFolder();
 
+    // Keep graphics/pipeline caches beside this portable build. The default
+    // Documents cache folder may be read-only in managed or restricted setups,
+    // which disables Vulkan's persistent shader storage and forces recompiles.
+    paths.cache_root = exe_dir / "cache";
+
     if (paths.game_data_root.empty()) {
       std::array<std::filesystem::path, 8> candidates = {
           exe_dir / "assets",

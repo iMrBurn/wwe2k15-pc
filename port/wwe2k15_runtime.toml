@@ -1,6 +1,17 @@
-# Keep invalid texture fetches rejected. Bypassing the check can reinterpret
-# invalid guest texture descriptors and produce incorrect or flickering output.
-gpu_allow_invalid_fetch_constants = false
+# Allow invalid texture fetches to avoid repeated warnings that flood the log and
+# can stall video/frame pacing. Some malformed textures may render incorrectly;
+# the previous A/B showed no additional corruption, but did not remove flicker.
+gpu_allow_invalid_fetch_constants = true
+
+# Keep Vulkan's automatic device selection. On NVIDIA Optimus laptops the
+# executable requests the high-performance adapter through NvOptimusEnablement.
+vulkan_device = -1
+
+# Compile shaders asynchronously so first-use pipelines do not stall the game.
+async_shader_compilation = true
+
+# Apply the NVIDIA alpha-test epsilon to Vulkan to reduce edge flicker.
+use_fuzzy_alpha_epsilon = true
 
 # D3D12 hung on this title; use the Vulkan backend from the same Xenos plugin.
 gpu_backend = "vulkan"
