@@ -1,23 +1,8 @@
 @echo off
 setlocal
-
-if not exist "%~dp0wwe2k15.exe" (
-    echo WWE 2K15 executable not found beside this launcher.
+if not exist "%~dp0wwe2k15-launcher.ps1" (
+    echo Le lanceur WWE 2K15 est introuvable.
     pause
     exit /b 1
 )
-
-if not exist "%~dp0assets\default.xex" if not exist "%~dp0game\default.xex" if not exist "%USERPROFILE%\Desktop\WWE2K15\default.xex" (
-    echo Game files not found.
-    echo Put your own dumped game folder in "assets" beside this launcher,
-    echo or at "%USERPROFILE%\Desktop\WWE2K15".
-    pause
-    exit /b 1
-)
-
-pushd "%~dp0"
-"%~dp0wwe2k15.exe" --gpu_plugin=xenos --user_data_root="%~dp0user_data"
-set "RESULT=%ERRORLEVEL%"
-popd
-if not "%RESULT%"=="0" pause
-exit /b %RESULT%
+start "WWE 2K15 PC Launcher" powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "%~dp0wwe2k15-launcher.ps1"

@@ -8,7 +8,9 @@ This is an early Windows prototype built from the Xbox 360 game's own executable
 
 - Confirmed on the maintainer's RTX 5070 system: main menu, entrances, and a complete 1v1 match; gameplay has reached about 60 FPS.
 - Vulkan is the selected graphics backend. D3D12 hung on this title in earlier tests.
-- Known issues: intermittent in-match flicker, corrupted arena LED/tron textures, slow pre-match videos, long initial menu loading, and some guest allocation warnings. The fuzzy-alpha change is experimental and has not yet been confirmed in a visible match.
+- The latest complete-match log ends with a normal window-close and title shutdown, with no crash reported.
+- The log contains thousands of repeated allocator probe misses during startup. These are being demoted from error-level logging because they are expected candidate-range probes; allocation behavior is unchanged. XCTD compression-info queries also repeat, and their log severity is reduced while the unsupported result remains unchanged.
+- Known visual/performance issues still need in-game A/B confirmation: intermittent match flicker, corrupted arena LED/tron textures, slow pre-match videos, and long initial menu loading. The fuzzy-alpha setting is experimental.
 - Expect crashes, missing content, and machine-specific performance. Keep saves and game data backed up.
 
 For renderer research only, the project also has an optional D3D call census build (`-DWWE2K15_D3D_CENSUS=ON`). It writes `wwe2k15_d3d_census.csv` while running and may reduce performance; do not use it for normal play or FPS comparisons.
@@ -16,9 +18,10 @@ For renderer research only, the project also has an optional D3D call census bui
 ## Run a local test build
 
 1. Use your own legally obtained Xbox 360 game dump and keep it on your machine.
-2. Put the game folder beside `wwe2k15.exe` as `assets` or `game`, or use `%USERPROFILE%\Desktop\WWE2K15`.
-3. Run `Lancer WWE 2K15.bat`. It selects the Xenos plugin, uses Vulkan from the runtime config, and stores user data beside the executable.
-4. The first launch can take a while while the menu and shaders initialize. Later launches should reuse the local cache.
+2. Run `Lancer WWE 2K15.bat`, browse to the game folder containing `default.xex`, and click **LANCER WWE 2K15**. The launcher remembers the folder, selects Vulkan and SDL input, and stores user data under `%LOCALAPPDATA%\WWE2K15`.
+3. The first launch can take a while while the menu and shaders initialize. Later launches should reuse the local cache.
+
+The launcher includes a button for opening the build's log folder. The Vulkan log showed that OBS's global Vulkan layer was injected even in the previous no-OBS attempt, so that launcher option is not treated as a confirmed fix.
 
 Do not upload `default.xex`, extracted game files, generated recompilation output, or the resulting game executable. Share logs with personal paths and account names removed.
 
