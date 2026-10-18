@@ -20,6 +20,7 @@ This is not a full engine rewrite and does not mean removing every Xbox compatib
 - Local `wwe12-reference/port/cmake/native_renderer.cmake`: native renderer build wiring, shader compilation, plume integration, and static linking.
 - Local `wwe12-reference/port/src/native/`: WWE '12-specific D3D hooks, resource and geometry mapping, frame pacing, and title patches.
 - Local `wwe12-reference/docs/d3d_functions.md`: observed D3D entry points and argument mapping methodology.
+- WWE 2K15's confirmed code anchor and still-unmapped calls are tracked in [d3d_functions.md](d3d_functions.md).
 
 These references provide architecture and investigation methods, not drop-in 2K15 addresses or guaranteed-compatible code. Check each source file's license and preserve required notices before reusing implementation. Keep game code and copyrighted assets out of this repository.
 
@@ -37,6 +38,10 @@ These references provide architecture and investigation methods, not drop-in 2K1
 The local dump inventory records 674 files (about 8.2 GB): 370 `.pac`, 144 `.bk2`, 115 `.xzp`, 25 `.xex`, three `.pck`, plus `.arc`, `.def`, and other files. The main `default.xex` is 24,133,632 bytes. Header scanning distinguishes XCompress/LZX streams, EPAC, EPK8, PACH, Bink 2 (`KB2i`), and AKPK sound banks. These signatures and PAC index bounds are preliminary format observations, not complete decoders.
 
 `native/tools/inspect_game_data.py` performs metadata-only inventory and bounded index checks. See [PORTING_PLAN.md](PORTING_PLAN.md) for the earlier capture and commands. The immediate renderer dependency is a reliable shader/call inventory; archive decoding can progress alongside it, but does not replace D3D mapping.
+
+### First D3D census anchor
+
+The generated 2K15 code shows `sub_82BA5FA8` calling the imported Xbox display function `VdSwap`. This anchors the initial candidate D3D code window at `0x82BA0000–0x82BB0000`; the window is not yet confirmed to contain the complete D3D library. `port/tools/gen_d3d_census.py` generates optional hooks for registered functions in that range and writes `wwe2k15_d3d_census.csv` beside the executable. Build with `-DWWE2K15_D3D_CENSUS=ON`, then capture menu, entrance, and match scenes separately. The census is diagnostic and off by default because it adds per-call overhead. Expand the address window only after the first capture identifies its active boundary.
 
 ## Practical boundary
 

@@ -15,5 +15,9 @@ if not exist "%~dp0assets\default.xex" if not exist "%~dp0game\default.xex" if n
     exit /b 1
 )
 
+pushd "%~dp0"
 "%~dp0wwe2k15.exe" --gpu_plugin=xenos --user_data_root="%~dp0user_data"
-if errorlevel 1 pause
+set "RESULT=%ERRORLEVEL%"
+popd
+if not "%RESULT%"=="0" pause
+exit /b %RESULT%

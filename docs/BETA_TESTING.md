@@ -11,6 +11,8 @@ This is an early Windows prototype built from the Xbox 360 game's own executable
 - Known issues: intermittent in-match flicker, corrupted arena LED/tron textures, slow pre-match videos, long initial menu loading, and some guest allocation warnings. The fuzzy-alpha change is experimental and has not yet been confirmed in a visible match.
 - Expect crashes, missing content, and machine-specific performance. Keep saves and game data backed up.
 
+For renderer research only, the project also has an optional D3D call census build (`-DWWE2K15_D3D_CENSUS=ON`). It writes `wwe2k15_d3d_census.csv` while running and may reduce performance; do not use it for normal play or FPS comparisons.
+
 ## Run a local test build
 
 1. Use your own legally obtained Xbox 360 game dump and keep it on your machine.

@@ -22,11 +22,32 @@ else()
 endif()
 
 rexglue_setup_target(wwe2k15 GPU_PLUGINS xenos)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+# Optional D3D call census for identifying WWE 2K15's title-specific XDK entry points.
+# The first candidate window is anchored by sub_82BA5FA8, which calls VdSwap.
+option(WWE2K15_D3D_CENSUS "Instrument the initial WWE 2K15 D3D address window" OFF)
+if(WWE2K15_D3D_CENSUS)
+    set(WWE2K15_D3D_CENSUS_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/wwe2k15_d3d_census.cpp")
+    add_custom_command(
+        OUTPUT "${WWE2K15_D3D_CENSUS_SOURCE}"
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_d3d_census.py"
+            --register "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/wwe2k15_register.cpp"
+            --out "${WWE2K15_D3D_CENSUS_SOURCE}"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/wwe2k15_register.cpp"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_d3d_census.py"
+        COMMENT "Generating the WWE 2K15 D3D census hooks"
+        VERBATIM
+    )
+    add_custom_target(wwe2k15_d3d_census_codegen DEPENDS "${WWE2K15_D3D_CENSUS_SOURCE}")
+    add_dependencies(wwe2k15_d3d_census_codegen wwe2k15_codegen)
+    target_sources(wwe2k15 PRIVATE "${WWE2K15_D3D_CENSUS_SOURCE}")
+    add_dependencies(wwe2k15 wwe2k15_d3d_census_codegen)
+endif()
 
 # ReXGlue can emit a fatal stub for conditional branches whose destination is
 # present as a local label in the same generated function. Patch those specific
 # cases to a normal local goto after codegen and before compiling the sources.
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_custom_target(wwe2k15_patch_codegen
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_codegen.py"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
