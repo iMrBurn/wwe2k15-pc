@@ -47,5 +47,8 @@ add_custom_command(TARGET wwe2k15 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/wwe2k15_runtime.toml"
         "$<TARGET_FILE_DIR:wwe2k15>/wwe2k15.toml"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/launch-wwe2k15.bat"
+        "$<TARGET_FILE_DIR:wwe2k15>/Lancer WWE 2K15.bat"
     VERBATIM
 )
