@@ -1,0 +1,26 @@
+@echo off
+setlocal
+
+if not exist "%~dp0wwe2k15.exe" (
+    echo WWE 2K15 executable not found beside this launcher.
+    pause
+    exit /b 1
+)
+
+if not exist "%~dp0assets\default.xex" if not exist "%~dp0game\default.xex" if not exist "%USERPROFILE%\Desktop\WWE2K15\default.xex" (
+    echo Game files not found.
+    echo Put your own dumped game folder in "assets" beside this launcher,
+    echo or at "%USERPROFILE%\Desktop\WWE2K15".
+    pause
+    exit /b 1
+)
+
+rem Disable the globally injected OBS Vulkan capture layer for this process only.
+set "DISABLE_VULKAN_OBS_CAPTURE=1"
+
+pushd "%~dp0"
+"%~dp0wwe2k15.exe" --gpu_plugin=xenos --input_backend=sdl --user_data_root="%~dp0user_data"
+set "RESULT=%ERRORLEVEL%"
+popd
+if not "%RESULT%"=="0" pause
+exit /b %RESULT%

@@ -69,7 +69,16 @@ add_custom_command(TARGET wwe2k15 POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/wwe2k15_runtime.toml"
         "$<TARGET_FILE_DIR:wwe2k15>/wwe2k15.toml"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/wwe2k15-launcher.ps1"
+        "$<TARGET_FILE_DIR:wwe2k15>/wwe2k15-launcher.ps1"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/launch-wwe2k15.bat"
         "$<TARGET_FILE_DIR:wwe2k15>/Lancer WWE 2K15.bat"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/launch-wwe2k15-no-obs.bat"
+        "$<TARGET_FILE_DIR:wwe2k15>/Lancer WWE 2K15 - sans OBS.bat"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/launch-wwe2k15-sdl.bat"
+        "$<TARGET_FILE_DIR:wwe2k15>/Lancer WWE 2K15 - manette SDL.bat"
     VERBATIM
 )

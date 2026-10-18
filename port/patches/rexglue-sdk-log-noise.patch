@@ -1,0 +1,30 @@
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp b/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp
+index bd5de65..cf2f384 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp
+@@ -152 +152 @@ u32 NtQueryInformationFile_entry(u32 file_handle, ppc_ptr_t<X_IO_STATUS_BLOCK> i
+-      REXKRNL_ERROR(
++      REXKRNL_DEBUG(
+@@ -155,3 +155,3 @@ u32 NtQueryInformationFile_entry(u32 file_handle, ppc_ptr_t<X_IO_STATUS_BLOCK> i
+-      // Files that are XCTD compressed begin with the magic 0x0FF512ED but we
+-      // shouldn't detect this that way. There's probably a flag somewhere
+-      // (attributes?) that defines if it's compressed or not.
++      // XCTD-compressed files begin with magic 0x0FF512ED, but detecting
++      // compression from file contents is not reliable. The game expects an
++      // error here until the VFS transparently decodes XCTD assets.
+diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
+index 76cc877..7c62227 100644
+--- a/src/system/xmemory.cpp
++++ b/src/system/xmemory.cpp
+@@ -1412 +1412,4 @@ bool BaseHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint32_t
+-    REXSYS_ERROR("BaseHeap::Alloc page count too big for requested range");
++    // Games commonly probe candidate ranges that cannot fit the requested
++    // block before retrying with a wider range. This is a normal miss, not an
++    // allocation failure worth emitting at error level for every probe.
++    REXSYS_DEBUG("BaseHeap::Alloc page count too big for requested range");
+@@ -1915 +1918 @@ bool PhysicalHeap::Alloc(uint32_t size, uint32_t alignment, uint32_t allocation_
+-    REXSYS_ERROR("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
++    REXSYS_DEBUG("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
+@@ -1948 +1951 @@ bool PhysicalHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t ali
+-    REXSYS_ERROR("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
++    REXSYS_DEBUG("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");

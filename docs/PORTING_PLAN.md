@@ -51,7 +51,7 @@ The SDK source confirms that the settings from the WWE 2K14 notes exist in this 
 
 ## Follow-up after the memory and XCTD fixes (2026-10-16)
 
-- ReXGlue's `NtQueryInformationFile(XFileXctdCompressionInformation)` previously returned `X_STATUS_INVALID_PARAMETER` for every query. The VFS does not transparently serve XCTD-compressed files; it serves host file bytes, so the correct response for those bytes is “not compressed.” The SDK handler now returns success with the compression field cleared. The game logs no XCTD query errors in runs 026–029. The title-specific patch is preserved in `port/patches/rexglue-sdk-xctd-compression-info.patch`; the behavior follows upstream ReXGlue [PR #438](https://github.com/rexglue/rexglue-sdk/pull/438).
+- An earlier experiment made `NtQueryInformationFile(XFileXctdCompressionInformation)` report “not compressed” for every host file and was later reverted: runs 031–032 hung at the first-menu load because the game then read genuinely compressed XCTD bytes as plain data. Keep the original `X_STATUS_INVALID_PARAMETER` result until VFS-side XCTD decompression exists. `port/patches/rexglue-sdk-xctd-compression-info.patch` is historical and must not be applied.
 - The rebuilt game launched with Vulkan on the NVIDIA GeForce RTX 5070 Laptop GPU (run 026). It logged zero `page count too big for requested range`, invalid texture-fetch, or empty-resolve errors, compared with more than 3,300 range errors in run 025. It still logged 459 `failed to find contiguous range` messages during the short startup window. A trace shows the game repeatedly requesting decreasing large contiguous blocks, then continuing with smaller successful allocations; these messages may be its maximum-block probe rather than a fatal memory shortage. A full visible match has not yet been rechecked with this build.
 - Runs 026–029 were short hidden diagnostics, not gameplay-performance measurements. Run 026 had one Vulkan “Skipping frame presentation due to async placeholder draw usage” warning. The logs cannot establish whether the flicker, video cadence, or 3 FPS issue is fixed.
 - The game requests `GAME:\Sound\streaming_install.pck`, which is absent from the local dump. The supplied sound folder contains `Comm.pck`, `Game_Sound_E_S.pck`, and `Game_Sound_M.pck`; do not create a placeholder file. Confirm whether that request is optional or whether the dump is missing an installed content file before attempting to map it.
@@ -85,6 +85,19 @@ The SDK source confirms that the settings from the WWE 2K14 notes exist in this 
 - Conclusion: the pack is expected authored content, the dump does not include it, and its absence degrades streamed audio without crashing. Do not create a placeholder file. If the file is ever available from the user's own copy of the game, mount it beside the dump rather than putting a hand-made file in the game folder.
 
 The working manifest contains a machine-local path to the user's XEX and is ignored by Git. Start from `port/wwe2k15_manifest.example.toml` and point it at your own game files on another machine. The generated C++ is large and remains ignored.
+
+## Full match log review (2026-10-18, run 061)
+
+- The RTX 5070 Laptop GPU / Vulkan session reached normal window close and `Execution complete`; the log contains no fatal renderer or process termination error. This confirms a complete match session, but the log does not record frame-time or FPS measurements.
+- Startup emitted 4,281 `page count too big` allocator-probe messages and 4,858 parent-heap wrapper messages in a short burst around 20:12:56.46. These probes are expected failed candidates; changing their log level does not alter allocation results and should reduce log overhead, but the burst lasted only milliseconds and is not evidence for the reported in-match stutter.
+- 577 contiguous-range search failures, 189 XCTD compression-info queries, and 12 missing `streaming_install.pck` requests were also logged. Preserve the XCTD error return (the “not compressed” experiment caused the first-menu hang). The latest streaming pack requests did not prevent normal session shutdown.
+- The run created several graphics pipelines during transitions. Persistent shader cache already exists locally, but the log alone cannot tell whether remaining stutter comes from shader compilation, video decode, or frame pacing. Do not claim a smoothness fix until frame-time capture and a visual A/B confirm it.
+- Runtime diagnostic cleanup: `port/patches/rexglue-sdk-log-noise.patch` demotes only repetitive expected allocator-probe/wrapper messages and repeated unsupported XCTD query messages to debug. It does not change allocation or file-query results.
+
+## Local launcher
+
+- `Lancer WWE 2K15.bat` opens `port/wwe2k15-launcher.ps1`, a small Windows Forms launcher. It validates `default.xex`, remembers the selected game folder, starts the Xenos plugin with Vulkan and SDL input, and opens the log directory. Game data stays outside the repository; user data goes under `%LOCALAPPDATA%\WWE2K15`.
+- CMake stages the launcher script and batch entrypoint beside `wwe2k15.exe` after a build.
 
 ## Porting rules
 
