@@ -77,6 +77,12 @@ The SDK source confirms that the settings from the WWE 2K14 notes exist in this 
 
 - Run 044/045: ported the existing NVIDIA fuzzy alpha-test epsilon to the Vulkan SPIR-V shader path and enabled it with `use_fuzzy_alpha_epsilon=true`; this is a targeted flicker fix, but no in-match visual verdict was captured in these shell-launched runs. Run 045 selected the RTX 5070 and produced zero invalid-fetch warnings with the bypass enabled.
 - Run 045 also confirmed the old Documents pipeline-cache path could not be opened for writing. `Wwe2k15App::OnConfigurePaths` now points `cache_root` beside the executable, and Vulkan successfully created `cache/shaders/shareable/545408B6.fbo.vk.xpso`; verify warm-start shader reuse and match pacing in a visible session.
+
+## Vulkan presentation pacing instrumentation (2026-10-18)
+
+- Log 062 showed the Vulkan backend skipped at least one frame because it used an asynchronous placeholder pipeline. It did not record how often this happened, so that warning alone could not explain the reported slow video or match flicker.
+- The local Xenos/Vulkan plugin now emits a low-rate sample every five seconds of active swap traffic: swap requests and frames skipped while shader pipelines are pending. The change is tracked in `port/patches/rexglue-sdk-vulkan-pacing-stats.patch` and shipped in the current local `rexgpu-xenos.dll`.
+- Use the next visible match/video session to compare swap-request cadence with async-skip counts. This telemetry can rule shader compilation in or out; it does not itself fix or prove an FPS improvement.
 ## streaming_install.pck investigation (2026-10-16)
 
 - The game opens `GAME:\Sound\streaming_install.pck` shortly after GPU bring-up (about 1.3 s after Vulkan adapter init in run 030), receives `X_STATUS_NO_SUCH_FILE` (0xC000000F), and keeps running with degraded streamed audio; every captured run shut down cleanly afterwards.
@@ -96,8 +102,8 @@ The working manifest contains a machine-local path to the user's XEX and is igno
 
 ## Local launcher
 
-- `Lancer WWE 2K15.bat` opens `port/wwe2k15-launcher.ps1`, a small Windows Forms launcher. It validates `default.xex`, remembers the selected game folder, starts the Xenos plugin with Vulkan and SDL input, and opens the log directory. Game data stays outside the repository; user data goes under `%LOCALAPPDATA%\WWE2K15`.
-- CMake stages the launcher script and batch entrypoint beside `wwe2k15.exe` after a build.
+- `Lancer WWE 2K15.bat` opens the native Win32/D3D11 Dear ImGui launcher. It validates and remembers the selected `default.xex` folder, starts the Xenos plugin with Vulkan and SDL input, and provides controls, mods, saves, about, and log-folder pages. Game data stays outside the repository; user data goes under `%LOCALAPPDATA%\WWE2K15`.
+- CMake builds and stages `WWE 2K15 Launcher.exe` and the batch entrypoint beside `wwe2k15.exe`. Set `WWE2K15_IMGUI_DIR` to the SDK's `thirdparty/imgui` when using an installed SDK package.
 
 ## Porting rules
 
@@ -113,3 +119,4 @@ The working manifest contains a machine-local path to the user's XEX and is igno
 - ReXGlue SDK revision and whether this project needs SDK changes.
 - Visible rendering, menu entry, and a repeatable first match.
 - Repeatable test scene and baseline performance.
+
