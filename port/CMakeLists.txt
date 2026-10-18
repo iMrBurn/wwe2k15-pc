@@ -24,6 +24,30 @@ endif()
 rexglue_setup_target(wwe2k15 GPU_PLUGINS xenos)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
+# Native Win32 launcher, styled after the project's WWE '12 launcher.
+if(WIN32)
+    set(WWE2K15_IMGUI_DIR "" CACHE PATH "Path to Dear ImGui sources (SDK thirdparty/imgui)")
+    if(NOT WWE2K15_IMGUI_DIR AND REXSDK_DIR)
+        set(WWE2K15_IMGUI_DIR "${REXSDK_DIR}/thirdparty/imgui")
+    endif()
+    if(NOT EXISTS "${WWE2K15_IMGUI_DIR}/imgui.cpp")
+        message(FATAL_ERROR "Dear ImGui source path missing. Set WWE2K15_IMGUI_DIR to the SDK thirdparty/imgui folder.")
+    endif()
+    add_executable(wwe2k15_launcher WIN32
+        src/launcher/launcher.cpp
+        "${WWE2K15_IMGUI_DIR}/imgui.cpp"
+        "${WWE2K15_IMGUI_DIR}/imgui_draw.cpp"
+        "${WWE2K15_IMGUI_DIR}/imgui_tables.cpp"
+        "${WWE2K15_IMGUI_DIR}/imgui_widgets.cpp"
+        "${WWE2K15_IMGUI_DIR}/backends/imgui_impl_win32.cpp"
+        "${WWE2K15_IMGUI_DIR}/backends/imgui_impl_dx11.cpp")
+    target_include_directories(wwe2k15_launcher PRIVATE
+        "${WWE2K15_IMGUI_DIR}" "${WWE2K15_IMGUI_DIR}/backends")
+    target_link_libraries(wwe2k15_launcher PRIVATE d3d11 dxgi d3dcompiler shell32 ole32)
+    set_target_properties(wwe2k15_launcher PROPERTIES OUTPUT_NAME "WWE 2K15 Launcher")
+    add_dependencies(wwe2k15 wwe2k15_launcher)
+endif()
+
 # Optional D3D call census for identifying WWE 2K15's title-specific XDK entry points.
 # The first candidate window is anchored by sub_82BA5FA8, which calls VdSwap.
 option(WWE2K15_D3D_CENSUS "Instrument the initial WWE 2K15 D3D address window" OFF)
@@ -68,9 +92,6 @@ add_custom_command(TARGET wwe2k15 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/wwe2k15_runtime.toml"
         "$<TARGET_FILE_DIR:wwe2k15>/wwe2k15.toml"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/wwe2k15-launcher.ps1"
-        "$<TARGET_FILE_DIR:wwe2k15>/wwe2k15-launcher.ps1"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/launch-wwe2k15.bat"
         "$<TARGET_FILE_DIR:wwe2k15>/Lancer WWE 2K15.bat"

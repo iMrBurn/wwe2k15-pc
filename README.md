@@ -10,7 +10,7 @@ This repository contains project code and documentation only. It does not contai
 
 The prototype has reached an early local beta-test milestone: the maintainer has confirmed a complete 1v1 match at about 60 FPS on an RTX 5070. Flicker, LED/tron texture corruption, slow pre-match videos, and long first-menu loading remain unresolved. This is not a general release; see [docs/BETA_TESTING.md](docs/BETA_TESTING.md) for status and test guidance. Builds must be generated from the tester's own game executable and must not be redistributed with game code or assets.
 
-For a local build, launch `Lancer WWE 2K15.bat` beside `wwe2k15.exe`. The Windows launcher lets you select the folder containing your own `default.xex`, remembers that location, and opens the build logs. It starts the Xenos plugin with Vulkan and SDL controller input.
+For a local build, launch `Lancer WWE 2K15.bat` beside `wwe2k15.exe`. The native Windows launcher has Play, Settings, Controls, Mods, Saves, and About pages, remembers the folder containing your own `default.xex`, and opens the build logs. It starts the Xenos plugin with Vulkan and SDL controller input. Its interface uses Dear ImGui from the ReXGlue SDK; when building against an installed SDK, set `WWE2K15_IMGUI_DIR` to that SDK source tree's `thirdparty/imgui` folder.
 
 The Xbox executable and extracted assets stay outside Git. This repository will document the game-specific call mappings, shader pipeline, renderer hooks, and fixes needed to adapt the ReXGlue/re:Blue/plume architecture to WWE 2K15. Before reusing any code from another project, preserve its license and notices and verify compatibility with this repository's license.
 

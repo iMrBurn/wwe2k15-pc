@@ -28,3 +28,6 @@ index 76cc877..7c62227 100644
 @@ -1948 +1951 @@ bool PhysicalHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t ali
 -    REXSYS_ERROR("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
 +    REXSYS_DEBUG("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
+@@ -1983 +1986 @@ bool PhysicalHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint3
+-    REXSYS_ERROR("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
++    REXSYS_DEBUG("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
