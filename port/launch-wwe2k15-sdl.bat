@@ -8,7 +8,7 @@ if not exist "%~dp0wwe2k15.exe" (
 )
 
 pushd "%~dp0"
-"%~dp0wwe2k15.exe" --gpu_plugin=xenos --input_backend=sdl --user_data_root="%~dp0user_data"
+"%~dp0wwe2k15.exe" --gpu_plugin=xenos --input_backend=sdl --hid_mappings_file="%~dp0gamecontrollerdb.txt" --user_data_root="%~dp0user_data"
 set "RESULT=%ERRORLEVEL%"
 popd
 if not "%RESULT%"=="0" pause
