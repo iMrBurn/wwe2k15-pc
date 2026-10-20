@@ -31,3 +31,4 @@ Do not upload `default.xex`, extracted game files, generated recompilation outpu
 ## Useful reports
 
 For each report, include GPU and driver, Windows version, scene, whether it was the first launch, approximate FPS, and the newest `wwe2k15_*.log` from the build's `logs` folder. For visual defects, include a screenshot or short capture and say whether the issue appears in menus, entrances, or the match itself. Change one setting per comparison and preserve the prior config.
+
