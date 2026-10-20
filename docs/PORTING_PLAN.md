@@ -127,3 +127,12 @@ The working manifest contains a machine-local path to the user's XEX and is igno
 - ReXGlue SDK revision and whether this project needs SDK changes.
 - Visible rendering, menu entry, and a repeatable first match.
 - Repeatable test scene and baseline performance.
+
+## Hot-thread profile during intro videos (2026-10-20)
+
+- One guest thread sits at about 97 % CPU while Vulkan still reports about 60 swaps/s and 0 shader-pending skips. All 12 `cdb` stack samples of that thread (`port/tools/sample-hot-thread.ps1`) land in `sub_82BA4738`, called by `sub_82BA8208` from `sub_82BA5FA8` (the function that calls `VdSwap`), which is the title's render thread.
+- `sub_82BA8208` is the D3D command-ring wait loop: it spins on `sub_82BA4738` (a `db16cyc` delay loop plus a tick-timeout check) until the ring read pointer written back by the GPU command processor passes a target. High CPU on this thread is therefore a spin-wait, not decode work, and does not by itself show a CPU bottleneck. The wait is for the command processor / GPU side.
+- During the same run the process' GPU 3D engine was only at about 26-61 %, so the GPU was not saturated in the intro. The command-processor thread was at about 20 % CPU.
+- The machine was running on battery (`Win32_Battery.BatteryStatus = 1`). Earlier WWE '12 work showed this laptop throttles or drops the RTX 5070 on battery, so slow-video tests must be done plugged in.
+- Not yet measured: the slow scenes themselves (menu videos, nameplates). Next step is to run the same sampler there and watch the ring read-pointer writeback cadence in the Xenos plugin.
+- Symbolizing: relink the existing objects with `/debug /map /opt:ref /opt:icf` into a scratch folder (the `.text` size matches the shipped exe), then `llvm-symbolizer --relative-address --obj=<relinked exe>` on the `wwe2k15+0x...` offsets from `cdb`. The relinked exe is only for symbols and is not run.
