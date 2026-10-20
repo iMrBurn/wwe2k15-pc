@@ -1,4 +1,4 @@
-param([int]$Samples = 25, [string]$BuildDir = (Join-Path $PSScriptRoot "..\outuild\win-amd64-release"))
+param([int]$Samples = 25, [string]$BuildDir = (Join-Path $PSScriptRoot "..\out\build\win-amd64-release"))
 $b = $BuildDir
 $sp = Join-Path $env:TEMP "wwe2k15-profile"; New-Item -ItemType Directory -Force $sp | Out-Null
 $cdb = "$env:LOCALAPPDATA\Microsoft\WindowsApps\cdbX64.exe"
