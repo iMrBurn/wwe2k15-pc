@@ -136,3 +136,10 @@ The working manifest contains a machine-local path to the user's XEX and is igno
 - The machine was running on battery (`Win32_Battery.BatteryStatus = 1`). Earlier WWE '12 work showed this laptop throttles or drops the RTX 5070 on battery, so slow-video tests must be done plugged in.
 - Not yet measured: the slow scenes themselves (menu videos, nameplates). Next step is to run the same sampler there and watch the ring read-pointer writeback cadence in the Xenos plugin.
 - Symbolizing: relink the existing objects with `/debug /map /opt:ref /opt:icf` into a scratch folder (the `.text` size matches the shipped exe), then `llvm-symbolizer --relative-address --obj=<relinked exe>` on the `wwe2k15+0x...` offsets from `cdb`. The relinked exe is only for symbols and is not run.
+
+## Video decode thread and AVX2 (2026-10-20)
+
+- In a slow menu video the render thread was still spin-waiting on the command ring, but a second guest thread ran at about 83 % CPU inside the title's video decoder (`sub_8353xxxx`, reached from `sub_8352EE10`). Its leaf frames were `rex::ppc::simde_mm_srav_epi16` / `sllv_epi16`, which widen to 32-bit and use variable 32-bit shifts; the build targeted `x86-64-v2`, so SIMDe emulated those with scalar loops.
+- The helpers are about 3x faster at `x86-64-v3` in a microbenchmark (0.56 s vs 0.19 s). The presets now use `x86-64-v3`, so the build requires an AVX2 CPU (Haswell / Zen 1 or newer).
+- Same scene on the v3 build: the decoder thread dropped to about 14 % CPU and mostly sleeps in `KeDelayExecutionThread`, but swaps in the slow video only rose from about 20/s to about 26/s. A second limiter remains on the render/command-processor side (GPU 3D engine only about 5 % busy, the render thread spinning in `sub_82BA8208`). Next: sample the command-processor thread and the Xenos plugin during the video.
+- Building without re-running codegen: configure a fresh build dir, then replace the `codegen` and `patch_codegen.py` custom commands in its `build.ninja` with a no-op so the existing `port/generated` sources are reused.

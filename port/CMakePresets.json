@@ -10,8 +10,8 @@
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "clang-cl",
                 "CMAKE_CXX_COMPILER": "clang-cl",
-                "CMAKE_C_FLAGS": "/clang:-march=x86-64-v2 /clang:-Wno-everything",
-                "CMAKE_CXX_FLAGS": "/EHsc /Zc:char8_t- /clang:-march=x86-64-v2 /clang:-Wno-everything"
+                "CMAKE_C_FLAGS": "/clang:-march=x86-64-v3 /clang:-Wno-everything",
+                "CMAKE_CXX_FLAGS": "/EHsc /Zc:char8_t- /clang:-march=x86-64-v3 /clang:-Wno-everything"
             },
             "condition": {
                 "type": "equals",
