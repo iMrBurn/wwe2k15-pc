@@ -1,4 +1,5 @@
 # Copy this file to wwe2k15_manifest.toml and edit paths for your local game dump.
+# The game folder must hold Title Update 4's default.xexp beside default.xex.
 
 [project]
 name = "wwe2k15"

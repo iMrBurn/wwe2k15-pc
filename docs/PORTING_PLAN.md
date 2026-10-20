@@ -150,3 +150,13 @@ The working manifest contains a machine-local path to the user's XEX and is igno
 - The SDK never raises the Windows timer resolution (no `timeBeginPeriod`), so each 1 ms sleep lasts about one 15.6 ms tick. `Wwe2k15App::OnPreSetup` now calls `timeBeginPeriod(1)`. Effect in game not yet measured.
 - The cvar is named `vsync` (not `gpu_vsync`). `gpu_vsync = false` in `wwe2k15_runtime.toml` therefore does nothing; do not rely on it. Setting `vsync = false` would also change the vblank interval to 1 ms and may make the game run too fast, so test it separately.
 
+
+## Title Update 4 and DLC (2026-10-20, branch `tu4`)
+
+- The user's TU package `tu00000004_00000000` is STFS `LIVE`, title `545408B6`, media `77BB6C49` (same as the dump), version 4. It holds `default.xexp` plus `plist360.*` and `pac/...` overrides. The eight DLC packages are `LIVE` marketplace content for `545408B6`.
+- ReXGlue already applies a sibling `default.xexp` in `UserModule::LoadFromFile`, for both codegen and runtime: the image goes from executable version `0.0.0.4` to `0.0.6.4`. As in the WWE '13 recomp, the code is therefore generated from the TU-patched image, and this build needs TU4 beside `default.xex`.
+- Function hints were remapped from the base image to TU4 by matching masked instruction sequences in dumps of both loaded images: 541/568 matched. Three of the four base tail-call targets matched exactly the three unresolved branches reported by the first TU4 codegen. Ambiguous 16-byte stubs and unmatched addresses stay commented in `wwe2k15_config.toml`. A scan of TU4 data words for code pointers that follow a function end added the rest, including `0x82362BF8` (a runtime FATAL); kernel import thunks (`0x8353xxxx`) were excluded.
+- Hook addresses moved: render ring wait `sub_82BA8208` -> `sub_82BB0180`, poll `sub_82BA4738` -> `sub_82BAC6B0` (only a data offset differs), setjmp/longjmp `0x833AF8F0`/`0x833AF5D0` -> `0x833B90F0`/`0x833B8DD0`.
+- `Wwe2k15App` mounts `UPDATE:` on `<game>\update` (TU data files) and installs each STFS package in `<game>\dlc` once with the SDK's `ContentManager::InstallContent` (extracted under user data `0000000000000000\545408B6\00000002`). The automatic game-folder search now only accepts a folder that also holds `default.xexp`.
+- `port/patches/rexglue-sdk-xam-content-root-name.patch` fixes a dangling `string_view` in deferred `XamContentCreate`: opening the DLC crashed with `Dispatch thread: deferred completion threw 'Invalid UTF-8'`. The WWE '13 recomp carries an equivalent fix.
+- First TU4 + DLC run on the RTX 5070 Ti: TU applied, `UPDATE:` mounted, 8 DLC installed and enumerated, title demo at ~60 swaps/s, no FATAL in 100 s. Menus, DLC roster content and a match are not yet verified on TU4.
