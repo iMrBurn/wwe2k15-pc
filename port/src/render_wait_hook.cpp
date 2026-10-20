@@ -1,6 +1,7 @@
 // wwe2k15 - render thread ring-wait hook
 //
-// sub_82BA8208 is the title's D3D command-ring wait: it calls sub_82BA4738 in a loop
+// sub_82BB0180 (base: sub_82BA8208) is the title's D3D command-ring wait: it calls sub_82BAC6B0
+// (base: sub_82BA4738) in a loop
 // until the GPU's ring read pointer passes a target. On the console that poll burns
 // cycles with `db16cyc` delay instructions; here those are no-ops, so the render thread
 // spins a whole core at ~90 % while it waits for the host command processor. This hook
@@ -19,10 +20,11 @@
 
 #include <intrin.h>
 
-REXCVAR_DEFINE_BOOL(wwe2k15_render_wait_yield, true, "WWE2K15",
+// Disabled by default until an A/B run shows it does not change pacing (PORTING_PLAN.md rules).
+REXCVAR_DEFINE_BOOL(wwe2k15_render_wait_yield, false, "WWE2K15",
                     "Let the render thread sleep briefly while waiting for the GPU ring");
 
-REX_EXTERN(__imp__sub_82BA4738);
+REX_EXTERN(__imp__sub_82BAC6B0);
 
 namespace {
 
@@ -59,8 +61,8 @@ void SleepSlice(WaitState& s) {
 
 }  // namespace
 
-extern "C" REX_FUNC(sub_82BA4738) {
-  __imp__sub_82BA4738(ctx, base);
+extern "C" REX_FUNC(sub_82BAC6B0) {
+  __imp__sub_82BAC6B0(ctx, base);
   // r3 == 1: the poll says the GPU has not caught up yet, so the caller will call again.
   if (ctx.r3.u32 != 1 || !REXCVAR_GET(wwe2k15_render_wait_yield)) {
     return;
