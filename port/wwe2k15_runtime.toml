@@ -1,7 +1,8 @@
-# Allow invalid texture fetches to avoid repeated warnings that flood the log and
-# can stall video/frame pacing. Some malformed textures may render incorrectly;
-# the previous A/B showed no additional corruption, but did not remove flicker.
-gpu_allow_invalid_fetch_constants = true
+# Reject texture fetch constants with the "invalid" type, as the console does. Accepting them
+# drew stale textures (a WrestleMania XXX sign in other arenas, black patches on skin, red-tinted
+# crowds in victory scenes). The SDK patch rexglue-sdk-texture-fetch-log-once.patch logs each
+# distinct rejected constant once, which removes the log flood this option used to avoid.
+gpu_allow_invalid_fetch_constants = false
 
 # Keep Vulkan's automatic device selection. On NVIDIA Optimus laptops the
 # executable requests the high-performance adapter through NvOptimusEnablement.

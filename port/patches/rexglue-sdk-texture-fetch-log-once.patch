@@ -1,0 +1,66 @@
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index 76f5600..bfdff75 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -11,6 +11,8 @@
+ 
+ #include <algorithm>
+ #include <cstdint>
++#include <mutex>
++#include <unordered_set>
+ #include <utility>
+ 
+ #include <rex/assert.h>
+@@ -899,6 +901,32 @@ bool TextureCache::LoadTextureData(Texture& texture) {
+   return CommitPreparedTextureLoad(pending_load);
+ }
+ 
++namespace {
++// Titles can sample the same rejected fetch constant on every draw (WWE 2K15 logged ~16000
++// warnings per match, rotating the log and costing CPU). Report each distinct constant once.
++bool ShouldLogRejectedFetchConstant(const xenos::xe_gpu_texture_fetch_t& fetch) {
++  constexpr size_t kMaxDistinct = 256;
++  static std::mutex mutex;
++  static std::unordered_set<uint64_t> seen;
++  uint64_t key = 0xCBF29CE484222325ull;
++  for (uint32_t dword : {fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3,
++                         fetch.dword_4, fetch.dword_5}) {
++    key = (key ^ dword) * 0x100000001B3ull;
++  }
++  std::lock_guard<std::mutex> lock(mutex);
++  if (seen.size() >= kMaxDistinct) {
++    return false;
++  }
++  if (!seen.insert(key).second) {
++    return false;
++  }
++  if (seen.size() == kMaxDistinct) {
++    REXGPU_WARN("Further rejected texture fetch constants will not be logged");
++  }
++  return true;
++}
++}  // namespace
++
+ void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetch_t& fetch,
+                                                 TextureKey& key_out, uint8_t* swizzled_signs_out) {
+   // Reset the key and the signedness.
+@@ -914,6 +942,9 @@ void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetc
+       if (REXCVAR_GET(gpu_allow_invalid_fetch_constants)) {
+         break;
+       }
++      if (!ShouldLogRejectedFetchConstant(fetch)) {
++        return;
++      }
+       REXGPU_WARN(
+           "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
+           "has \"invalid\" type! This is incorrect behavior, but you can try "
+@@ -922,6 +953,9 @@ void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetc
+           fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4, fetch.dword_5);
+       return;
+     default:
++      if (!ShouldLogRejectedFetchConstant(fetch)) {
++        return;
++      }
+       REXGPU_WARN(
+           "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
+           "is completely invalid!",
