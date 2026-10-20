@@ -1,0 +1,89 @@
+// wwe2k15 - render thread ring-wait hook
+//
+// sub_82BA8208 is the title's D3D command-ring wait: it calls sub_82BA4738 in a loop
+// until the GPU's ring read pointer passes a target. On the console that poll burns
+// cycles with `db16cyc` delay instructions; here those are no-ops, so the render thread
+// spins a whole core at ~90 % while it waits for the host command processor. This hook
+// keeps the original function (and its timeout / hang handling) and only adds a short
+// spin followed by short sleeps while the wait continues.
+
+#include "generated/default/wwe2k15_init.h"
+
+#include <rex/cvar.h>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
+#include <intrin.h>
+
+REXCVAR_DEFINE_BOOL(wwe2k15_render_wait_yield, true, "WWE2K15",
+                    "Let the render thread sleep briefly while waiting for the GPU ring");
+
+REX_EXTERN(__imp__sub_82BA4738);
+
+namespace {
+
+constexpr double kSpinUs = 150.0;    // keep the latency of short waits unchanged
+constexpr double kSleepUs = 250.0;   // then wait in small slices
+constexpr double kNewWaitGapUs = 2000.0;
+
+struct WaitState {
+  uint64_t qpc_freq = 0;
+  uint64_t last_call = 0;
+  uint64_t wait_start = 0;
+  void* timer = nullptr;
+};
+
+thread_local WaitState state;
+
+void SleepSlice(WaitState& s) {
+#if defined(_WIN32)
+  if (!s.timer) {
+    s.timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                     TIMER_ALL_ACCESS);
+  }
+  if (s.timer) {
+    LARGE_INTEGER due;
+    due.QuadPart = -static_cast<LONGLONG>(kSleepUs * 10.0);  // 100 ns units, relative
+    if (SetWaitableTimer(s.timer, &due, 0, nullptr, nullptr, FALSE)) {
+      WaitForSingleObject(s.timer, 5);
+      return;
+    }
+  }
+  SwitchToThread();
+#endif
+}
+
+}  // namespace
+
+extern "C" REX_FUNC(sub_82BA4738) {
+  __imp__sub_82BA4738(ctx, base);
+  // r3 == 1: the poll says the GPU has not caught up yet, so the caller will call again.
+  if (ctx.r3.u32 != 1 || !REXCVAR_GET(wwe2k15_render_wait_yield)) {
+    return;
+  }
+#if defined(_WIN32)
+  WaitState& s = state;
+  if (!s.qpc_freq) {
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    s.qpc_freq = static_cast<uint64_t>(f.QuadPart);
+  }
+  LARGE_INTEGER now_li;
+  QueryPerformanceCounter(&now_li);
+  const uint64_t now = static_cast<uint64_t>(now_li.QuadPart);
+  const double us_per_tick = 1e6 / static_cast<double>(s.qpc_freq);
+  if ((now - s.last_call) * us_per_tick > kNewWaitGapUs) {
+    s.wait_start = now;  // a new wait began; the previous one ended
+  }
+  s.last_call = now;
+  if ((now - s.wait_start) * us_per_tick > kSpinUs) {
+    SleepSlice(s);
+  } else {
+    _mm_pause();
+  }
+#endif
+}

@@ -56,4 +56,3 @@ index 001f36b..e487ceb 100644
  }
  
  bool VulkanCommandProcessor::PushBufferMemoryBarrier(
-

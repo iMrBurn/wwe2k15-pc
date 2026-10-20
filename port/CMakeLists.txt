@@ -17,6 +17,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/gamecontrollerdb.txt"
 # Sources
 set(WWE2K15_SOURCES
     src/main.cpp
+    src/render_wait_hook.cpp
 )
 
 if(WIN32)
