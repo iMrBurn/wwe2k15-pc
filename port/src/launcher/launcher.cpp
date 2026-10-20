@@ -19,6 +19,7 @@
 #include "imgui.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
+#include "stfs.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 using Microsoft::WRL::ComPtr;
@@ -97,6 +98,89 @@ bool HasGame() {
   return !game_data.empty() && fs::exists(game_data / L"default.xex", ec);
 }
 
+// The game is generated from Title Update 4: default.xexp must sit beside default.xex.
+bool HasTitleUpdate() {
+  std::error_code ec;
+  return HasGame() && fs::exists(game_data / L"default.xexp", ec);
+}
+
+int DlcCount() {
+  std::error_code ec;
+  int count = 0;
+  if (HasGame())
+    for (const auto& e : fs::directory_iterator(game_data / L"dlc", ec))
+      if (e.is_regular_file(ec)) ++count;
+  return count;
+}
+
+constexpr uint32_t kTitleId = 0x545408B6;
+
+// Installs one STFS package: a WWE 2K15 title update is extracted into the game folder
+// (default.xexp beside default.xex, the rest under update\); a DLC package is copied
+// unchanged into dlc\, where the game installs it on its next start.
+bool InstallPackage(const fs::path& file, std::string& msg) {
+  const std::string name = file.filename().string();
+  stfs::Package pkg;
+  if (!pkg.Open(file)) { msg = name + " : pas un package Xbox 360 (STFS) lisible."; return false; }
+  if (pkg.title_id != kTitleId) { msg = name + " : ce package n'est pas pour WWE 2K15."; return false; }
+  std::error_code ec;
+  if (pkg.content_type == stfs::kTypeMarketplace) {
+    fs::create_directories(game_data / L"dlc", ec);
+    fs::copy_file(file, game_data / L"dlc" / file.filename(), fs::copy_options::overwrite_existing, ec);
+    msg = ec ? name + " : copie impossible (" + ec.message() + ")."
+             : "DLC ajouté : " + pkg.display_name + ".";
+    return !ec;
+  }
+  if (pkg.content_type != stfs::kTypeTitleUpdate) { msg = name + " : type de package non pris en charge."; return false; }
+  if (pkg.version != 4) { msg = name + " : seule la Title Update 4 est prise en charge."; return false; }
+  for (size_t i = 0; i < pkg.entries.size(); ++i) {
+    const auto& entry = pkg.entries[i];
+    const std::string rel = pkg.PathOf(i);
+    const fs::path dst = rel == "default.xexp" ? game_data / L"default.xexp"
+                                               : game_data / L"update" / fs::path(rel);
+    if (entry.directory) { fs::create_directories(dst, ec); continue; }
+    fs::create_directories(dst.parent_path(), ec);
+    if (!pkg.Extract(entry, dst)) { msg = name + " : extraction échouée pour " + rel + "."; return false; }
+  }
+  msg = "Title Update 4 installée.";
+  return true;
+}
+
+void AddPackages() {
+  if (!HasGame()) { status = "Sélectionne d'abord le dossier qui contient default.xex."; return; }
+  IFileOpenDialog* dialog = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                              IID_PPV_ARGS(&dialog)))) return;
+  DWORD options = 0;
+  dialog->GetOptions(&options);
+  dialog->SetOptions(options | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST);
+  dialog->SetTitle(L"Choisis la Title Update (tu0000...) et/ou les DLC de WWE 2K15");
+  if (SUCCEEDED(dialog->Show(nullptr))) {
+    IShellItemArray* items = nullptr;
+    if (SUCCEEDED(dialog->GetResults(&items))) {
+      DWORD count = 0;
+      items->GetCount(&count);
+      std::string last;
+      int ok = 0;
+      for (DWORD i = 0; i < count; ++i) {
+        IShellItem* item = nullptr;
+        PWSTR path = nullptr;
+        if (SUCCEEDED(items->GetItemAt(i, &item)) &&
+            SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+          if (InstallPackage(path, last)) ++ok;
+          CoTaskMemFree(path);
+        }
+        if (item) item->Release();
+      }
+      items->Release();
+      status = count == 1 ? last
+                          : std::to_string(ok) + "/" + std::to_string(count) +
+                                " package(s) installé(s). Dernier : " + last;
+    }
+  }
+  dialog->Release();
+}
+
 void SaveSettings() {
   std::wofstream out(root / L"launcher-settings.txt", std::ios::trunc);
   if (out) out << game_data.wstring() << L"\n" << (disable_obs_vulkan_hook ? L"1" : L"0");
@@ -144,6 +228,7 @@ void LaunchGame() {
   const fs::path exe = root / L"wwe2k15.exe";
   if (!fs::exists(exe)) { status = "wwe2k15.exe est introuvable : reconstruis le projet."; return; }
   if (!HasGame()) { status = "Sélectionne le dossier qui contient default.xex."; page = "RÉGLAGES"; return; }
+  if (!HasTitleUpdate()) { status = "Ajoute la Title Update 4 (RÉGLAGES > AJOUTER TU / DLC)."; page = "RÉGLAGES"; return; }
   SaveSettings();
   const std::wstring args = L"--game_data_root=\"" + game_data.wstring() +
       L"\" --user_data_root=\"" + user_data.wstring() +
@@ -343,16 +428,23 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   Chip(d, {o.x + 48, o.y + 176}, "FICHIERS DU JEU", has ? "TROUVÉS" : "À SÉLECTIONNER", has ? IM_COL32(110, 200, 80, 255) : kGold);
   Chip(d, {o.x + 330, o.y + 176}, "RENDU", "VULKAN", kRed);
   { const char* pn = pad ? SDL_GetGamepadName(pad) : nullptr; Chip(d, {o.x + 500, o.y + 176}, "MANETTE", pn ? pn : "AUCUNE DÉTECTÉE", pn ? IM_COL32(110, 200, 80, 255) : kMuted); }
+  {
+    const bool tu = HasTitleUpdate();
+    const int dlc = DlcCount();
+    const std::string dlc_text = dlc ? std::to_string(dlc) + " PACK(S)" : "AUCUN";
+    Chip(d, {o.x + 48, o.y + 226}, "TITLE UPDATE", tu ? "TU4 INSTALLÉE" : "MANQUANTE", tu ? IM_COL32(110, 200, 80, 255) : kGold);
+    Chip(d, {o.x + 330, o.y + 226}, "DLC", dlc_text.c_str(), dlc ? IM_COL32(110, 200, 80, 255) : kMuted);
+  }
 
-  ImGui::SetCursorScreenPos({o.x + 48, o.y + 268});
+  ImGui::SetCursorScreenPos({o.x + 48, o.y + 292});
   if (Tile("play", running ? "EN COURS…" : (has ? "JOUER" : "CHOISIR LE JEU"), {400, 96}, false, true, 40) && !running) {
     if (has) LaunchGame(); else page = "RÉGLAGES";
   }
   if (!running && has && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) || ImGui::IsKeyPressed(ImGuiKey_Enter, false))) LaunchGame();
-  ImGui::SetCursorScreenPos({o.x + 480, o.y + 290});
+  ImGui::SetCursorScreenPos({o.x + 480, o.y + 314});
   if (Tile("logs", "JOURNAUX", {190, 52}, false, false, 20)) OpenFolder(root / L"logs");
 
-  if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 392}, kWhite, status.c_str());
+  if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 416}, kWhite, status.c_str());
   d->AddText(ui_font, 15, {o.x + 48, o.y + area.y - 30}, kMuted,
              "Aucune donnée du jeu n'est incluse. Une copie légale du jeu est requise.");
 }
@@ -368,6 +460,8 @@ void DrawSettings(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (Tile("browse", "PARCOURIR…", {210, 48}, false, true, 20)) BrowseGame();
   ImGui::SetCursorScreenPos({o.x + 280, o.y + 204});
   if (Tile("save", "ENREGISTRER", {210, 48}, false, false, 20)) { SaveSettings(); status = "Réglages enregistrés."; }
+  ImGui::SetCursorScreenPos({o.x + 512, o.y + 204});
+  if (Tile("packages", "AJOUTER TU / DLC…", {260, 48}, false, false, 20)) AddPackages();
 
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 290});
   if (ImGui::Checkbox("Désactiver le hook Vulkan d'OBS", &disable_obs_vulkan_hook)) SaveSettings();
@@ -376,6 +470,9 @@ void DrawSettings(ImDrawList* d, ImVec2 o, ImVec2 area) {
       : "Désactivé : OBS peut capturer le jeu via son hook Vulkan.");
   d->AddText(ui_font, 15, {o.x + 48, o.y + 372}, kMuted,
              "Rendu : Vulkan (GPU haute performance)  ·  Manette : SDL  ·  Options avancées dans wwe2k15.toml");
+  d->AddText(ui_font, 15, {o.x + 48, o.y + 398}, kMuted,
+             "AJOUTER TU / DLC : la Title Update 4 (tu00000004_00000000) est requise ; les DLC (545408B6\\00000002) sont optionnels.");
+  if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 436}, kWhite, status.c_str());
 }
 
 void DrawTextPage(ImDrawList* d, ImVec2 o, ImVec2 area, const char* title, const char* sub, const char* body) {
