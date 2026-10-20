@@ -9,6 +9,14 @@
 #include <filesystem>
 #include <system_error>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <timeapi.h>
+#pragma comment(lib, "winmm.lib")
+#endif
+
 #include <rex/filesystem.h>
 #include <rex/filesystem/devices/host_path_device.h>
 #include <rex/filesystem/vfs.h>
@@ -27,6 +35,12 @@ class Wwe2k15App : public rex::ReXApp {
   }
 
   void OnPreSetup(rex::RuntimeConfig& config) override {
+#if defined(_WIN32)
+    // The GPU command processor and VSync worker wait with Sleep(1 ms). At the default
+    // ~15.6 ms timer tick every such wait costs a whole tick, which halves the frame rate
+    // in scenes (movies) that hit those waits, so ask for a 1 ms timer resolution.
+    timeBeginPeriod(1);
+#endif
     if (config.gpu_plugin.empty()) {
       config.gpu_plugin = "xenos";
     }

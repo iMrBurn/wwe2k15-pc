@@ -143,3 +143,9 @@ The working manifest contains a machine-local path to the user's XEX and is igno
 - The helpers are about 3x faster at `x86-64-v3` in a microbenchmark (0.56 s vs 0.19 s). The presets now use `x86-64-v3`, so the build requires an AVX2 CPU (Haswell / Zen 1 or newer).
 - Same scene on the v3 build: the decoder thread dropped to about 14 % CPU and mostly sleeps in `KeDelayExecutionThread`, but swaps in the slow video only rose from about 20/s to about 26/s. A second limiter remains on the render/command-processor side (GPU 3D engine only about 5 % busy, the render thread spinning in `sub_82BA8208`). Next: sample the command-processor thread and the Xenos plugin during the video.
 - Building without re-running codegen: configure a fresh build dir, then replace the `codegen` and `patch_codegen.py` custom commands in its `build.ninja` with a no-op so the existing `port/generated` sources are reused.
+
+## Timer resolution and the command-processor sleeps (2026-10-20)
+
+- In the slow menu video the Vulkan command-processor thread (`t17220`) was asleep in `Sleep` in all six `cdb` samples while the render thread spun in `sub_82BA8208`, waiting for the ring read pointer. SDK `CommandProcessor` waits with `Sleep(wait / 0x100 ms)` in `WAIT_REG_MEM` when the `vsync` cvar is true, and the GPU VSync worker also loops on `Sleep(1 ms)`.
+- The SDK never raises the Windows timer resolution (no `timeBeginPeriod`), so each 1 ms sleep lasts about one 15.6 ms tick. `Wwe2k15App::OnPreSetup` now calls `timeBeginPeriod(1)`. Effect in game not yet measured.
+- The cvar is named `vsync` (not `gpu_vsync`). `gpu_vsync = false` in `wwe2k15_runtime.toml` therefore does nothing; do not rely on it. Setting `vsync = false` would also change the vblank interval to 1 ms and may make the game run too fast, so test it separately.
