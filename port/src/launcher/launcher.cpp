@@ -475,6 +475,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   while (!done) {
     MSG msg; while (PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); if(msg.message==WM_QUIT) done=true; }
     if(done) break;
+    // Idle cheaply: nothing to draw while minimised, and only a slow refresh while the game runs.
+    if (IsIconic(hwnd)) { Sleep(150); continue; }
+    if (game_process) Sleep(60);
     if(resize_w && resize_h) { target.Reset(); swapchain->ResizeBuffers(0,resize_w,resize_h,DXGI_FORMAT_UNKNOWN,0); resize_w=resize_h=0; MakeTarget(); }
     ImGui_ImplDX11_NewFrame(); ImGui_ImplWin32_NewFrame(); PollPad(); ImGui::NewFrame(); DrawUi(); ImGui::Render();
     const float bg[]={.035f,.035f,.04f,1}; context->OMSetRenderTargets(1,target.GetAddressOf(),nullptr); context->ClearRenderTargetView(target.Get(),bg);
