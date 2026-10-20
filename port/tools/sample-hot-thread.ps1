@@ -1,6 +1,6 @@
-param([int]$Samples = 25)
-$b = "C:\Users\melfo\Documents\Codex\wwe2k15-pc\port\out\build\win-amd64-release"
-$sp = "C:\Users\melfo\AppData\Local\Temp\claude\C--Users-melfo-Documents-Codex-wwe2k15-pc\265d5a81-8366-4ba5-b8d0-81e57abc7ef8\scratchpad"
+param([int]$Samples = 25, [string]$BuildDir = (Join-Path $PSScriptRoot "..\outuild\win-amd64-release"))
+$b = $BuildDir
+$sp = Join-Path $env:TEMP "wwe2k15-profile"; New-Item -ItemType Directory -Force $sp | Out-Null
 $cdb = "$env:LOCALAPPDATA\Microsoft\WindowsApps\cdbX64.exe"
 Get-Process | ? { $_.ProcessName -like "WWE 2K15 Launcher" -or $_.ProcessName -eq "wwe2k15" } | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep 2
