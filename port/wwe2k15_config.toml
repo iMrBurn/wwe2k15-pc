@@ -628,3 +628,13 @@ longjmp_address = 0x833B8DD0  # base 0x833AF5D0
 0x83045B30 = {}  # 1 ref(s), e.g. 0x821CF930
 0x83354178 = {}  # 1 ref(s), e.g. 0x839AAEF8
 0x833B9CE4 = {}  # 1 ref(s), e.g. 0x821CF968
+
+# --- TU4: thunks d'appel virtuel non détectés (motif lwz/lwz/mtctr/bctr ; le jeu de base les avait tous)
+0x8234FC38 = {}  # vcall thunk (lwz r12,0(r3); lwz r11,x(r12); bctr)
+0x8234FC48 = {}  # vcall thunk (lwz r12,0(r3); lwz r11,x(r12); bctr)
+0x8234FC58 = {}  # vcall thunk (lwz r12,0(r3); lwz r11,x(r12); bctr)
+0x8234FC68 = {}  # vcall thunk (lwz r12,0(r3); lwz r11,x(r12); bctr)
+0x82350868 = {}  # vcall thunk (lwz r12,0(r3); lwz r11,x(r12); bctr)
+0x82350878 = {}  # vcall thunk (lwz r12,0(r3); lwz r11,x(r12); bctr)
+0x82350888 = {}  # vcall thunk (lwz r12,0(r3); lwz r11,x(r12); bctr)
+0x82350898 = {}  # vcall thunk (lwz r12,0(r3); lwz r11,x(r12); bctr)
