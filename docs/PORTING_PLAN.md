@@ -181,3 +181,13 @@ The working manifest contains a machine-local path to the user's XEX and is igno
 - Frame counters added to the Vulkan presentation sample showed 4,000-11,000 draws and ~80 resolves per frame during the black entrance frames: the game renders the scene, the output is lost. Removing the titantron videos did not change it (not Bink), and `readback_resolve=full` did not either.
 - `render_target_path_vulkan = "fsi"` (EDRAM emulated with fragment shader interlock) removed the black-outs: Reigns' entrance, The Shield titantron and the walk to the ring render correctly, with 0-2 black frames per run left at load transitions, ~30 swaps/s in entrances and ~60 in the match (RTX 5070 Ti). The host render-target path is the likely culprit (EDRAM aliasing between formats); FSI is now set in the tracked runtime config.
 - A full Cena vs Reigns match under FSI (RAW arena) ran 10 min to the victory scene and the Exit/Rematch menu: 1 black capture out of 120 (a load transition), no FATAL, clean victory scene. Still unchecked: GPUs without fragment shader interlock (AMD), which fall back to the host-RT path.
+
+## Mode sweep under FSI (2026-10-22, TU4 + DLC, RTX 5070 Ti, keyboard)
+
+All ran with no FATAL and reached their end screens:
+- One on One, I Quit (Cena vs Reigns, SummerSlam): entrances with titantron, match, victory, Exit/Rematch. 2 black captures of 100 (load transitions).
+- 2K Showcase: archive Bink videos (1280x720, smooth), CM Punk Money in the Bank entrance and match load.
+- Creations > Superstar: 3D editor, head/hair parts and their thumbnails (render-to-texture) correct.
+- Universe: RAW card, Divas match (AJ Lee vs Nikki Bella, AI vs AI) to victory and Next Match; tag rivalry match (R-Truth & Xavier Woods vs Ryback & Curtis Axel) to victory and Next Match.
+- Swap rate alternates between 60 and 30 per second in matches (30 dominates in the tag match). The original Xbox 360 game targets 30 FPS in matches, so 30 is not necessarily a regression; an uncapped 60 FPS mode would need a game-side patch.
+- Not tested: Who Got NXT, Hell in a Cell / ladder / Royal Rumble, MyCareer, saves of created content.
