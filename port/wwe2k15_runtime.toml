@@ -19,3 +19,9 @@ gpu_backend = "vulkan"
 
 # Avoid a sync wait forcing slow frame-rate steps when the emulator cannot hold 60 FPS.
 gpu_vsync = false
+
+# Emulate EDRAM with fragment shader interlock instead of host render targets. The host-RT
+# path showed fully black frames during entrances (thousands of draws per frame still
+# issued, so the scene was rendered but lost in EDRAM aliasing); FSI renders them correctly
+# at the same frame rate on NVIDIA. GPUs without VK_EXT_fragment_shader_interlock fall back.
+render_target_path_vulkan = "fsi"
