@@ -1,4 +1,4 @@
-﻿#define WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 #include <d3d11.h>
@@ -21,6 +21,7 @@
 #include "imgui.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
+#include "i18n.h"
 #include "stfs.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
@@ -46,8 +47,18 @@ struct Options {
   bool fsi = true;            // render_target_path_vulkan = fsi (fixes entrance black screens)
   bool keyboard = false;      // mnk_mode
   bool azerty = true;         // French keyboard layout for the keyboard pad
+  int language = 0;           // user_language (XLanguage): 1 en, 3 de, 4 fr, 5 es, 6 it; 0 = unset
   bool cpu_yield = false;     // wwe2k15_render_wait_yield (experimental)
 } opt;
+
+const char* tr(const char* fr) { return i18n::Translate(fr, opt.language); }
+
+std::wstring Widen(const char* utf8) {
+  const int n = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, nullptr, 0);
+  std::wstring w(n > 0 ? n - 1 : 0, L'\0');
+  if (n > 0) MultiByteToWideChar(CP_UTF8, 0, utf8, -1, w.data(), n);
+  return w;
+}
 ImFont* logo_font = nullptr;
 
 void MakeTarget() {
@@ -137,18 +148,18 @@ constexpr uint32_t kTitleId = 0x545408B6;
 bool InstallPackage(const fs::path& file, std::string& msg) {
   const std::string name = file.filename().string();
   stfs::Package pkg;
-  if (!pkg.Open(file)) { msg = name + " : pas un package Xbox 360 (STFS) lisible."; return false; }
-  if (pkg.title_id != kTitleId) { msg = name + " : ce package n'est pas pour WWE 2K15."; return false; }
+  if (!pkg.Open(file)) { msg = name + tr(" : pas un package Xbox 360 (STFS) lisible."); return false; }
+  if (pkg.title_id != kTitleId) { msg = name + tr(" : ce package n'est pas pour WWE 2K15."); return false; }
   std::error_code ec;
   if (pkg.content_type == stfs::kTypeMarketplace) {
     fs::create_directories(game_data / L"dlc", ec);
     fs::copy_file(file, game_data / L"dlc" / file.filename(), fs::copy_options::overwrite_existing, ec);
-    msg = ec ? name + " : copie impossible (" + ec.message() + ")."
-             : "DLC ajouté : " + pkg.display_name + ".";
+    msg = ec ? name + tr(" : copie impossible (") + ec.message() + ")."
+             : tr("DLC ajouté : ") + pkg.display_name + ".";
     return !ec;
   }
-  if (pkg.content_type != stfs::kTypeTitleUpdate) { msg = name + " : type de package non pris en charge."; return false; }
-  if (pkg.version != 4) { msg = name + " : seule la Title Update 4 est prise en charge."; return false; }
+  if (pkg.content_type != stfs::kTypeTitleUpdate) { msg = name + tr(" : type de package non pris en charge."); return false; }
+  if (pkg.version != 4) { msg = name + tr(" : seule la Title Update 4 est prise en charge."); return false; }
   for (size_t i = 0; i < pkg.entries.size(); ++i) {
     const auto& entry = pkg.entries[i];
     const std::string rel = pkg.PathOf(i);
@@ -156,21 +167,21 @@ bool InstallPackage(const fs::path& file, std::string& msg) {
                                                : game_data / L"update" / fs::path(rel);
     if (entry.directory) { fs::create_directories(dst, ec); continue; }
     fs::create_directories(dst.parent_path(), ec);
-    if (!pkg.Extract(entry, dst)) { msg = name + " : extraction échouée pour " + rel + "."; return false; }
+    if (!pkg.Extract(entry, dst)) { msg = name + tr(" : extraction échouée pour ") + rel + "."; return false; }
   }
-  msg = "Title Update 4 installée.";
+  msg = tr("Title Update 4 installée.");
   return true;
 }
 
 void AddPackages() {
-  if (!HasGame()) { status = "Sélectionne d'abord le dossier qui contient default.xex."; return; }
+  if (!HasGame()) { status = tr("Sélectionne d'abord le dossier qui contient default.xex."); return; }
   IFileOpenDialog* dialog = nullptr;
   if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
                               IID_PPV_ARGS(&dialog)))) return;
   DWORD options = 0;
   dialog->GetOptions(&options);
   dialog->SetOptions(options | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST);
-  dialog->SetTitle(L"Choisis la Title Update (tu0000...) et/ou les DLC de WWE 2K15");
+  dialog->SetTitle(Widen(tr("Choisis la Title Update (tu0000...) et/ou les DLC de WWE 2K15")).c_str());
   if (SUCCEEDED(dialog->Show(nullptr))) {
     IShellItemArray* items = nullptr;
     if (SUCCEEDED(dialog->GetResults(&items))) {
@@ -191,7 +202,7 @@ void AddPackages() {
       items->Release();
       status = count == 1 ? last
                           : std::to_string(ok) + "/" + std::to_string(count) +
-                                " package(s) installé(s). Dernier : " + last;
+                                tr(" package(s) installé(s). Dernier : ") + last;
     }
   }
   dialog->Release();
@@ -202,7 +213,7 @@ void SaveOptions() {
   if (!out) return;
   out << "fullscreen=" << opt.fullscreen << "\nresolution_scale=" << opt.resolution_scale
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
-      << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\n";
 }
 
 void LoadOptions() {
@@ -219,7 +230,18 @@ void LoadOptions() {
     else if (k == "fsi") opt.fsi = v != 0;
     else if (k == "keyboard") opt.keyboard = v != 0;
     else if (k == "azerty") opt.azerty = v != 0;
+    else if (k == "language") opt.language = v;
     else if (k == "cpu_yield") opt.cpu_yield = v != 0;
+  }
+  if (opt.language != 1 && opt.language != 3 && opt.language != 4 && opt.language != 5 &&
+      opt.language != 6) {
+    switch (PRIMARYLANGID(GetUserDefaultUILanguage())) {
+      case LANG_FRENCH: opt.language = 4; break;
+      case LANG_GERMAN: opt.language = 3; break;
+      case LANG_SPANISH: opt.language = 5; break;
+      case LANG_ITALIAN: opt.language = 6; break;
+      default: opt.language = 1; break;
+    }
   }
 }
 
@@ -230,6 +252,7 @@ std::wstring OptionArgs() {
          L" --anisotropic_override=" + std::to_wstring(opt.anisotropic) +
          L" --render_target_path_vulkan=" + (opt.fsi ? L"fsi" : L"rtv") +
          L" --mnk_mode=" + b(opt.keyboard) +
+         L" --user_language=" + std::to_wstring(opt.language) +
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
          // The keyboard pad reads layout-dependent virtual keys: on AZERTY move the left stick
          // to Z Q S D and the keys it displaces (LT on Q, Back on Z) elsewhere.
@@ -259,7 +282,7 @@ void BrowseGame() {
   DWORD options = 0;
   dialog->GetOptions(&options);
   dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_PATHMUSTEXIST);
-  dialog->SetTitle(L"Choisis le dossier contenant default.xex");
+  dialog->SetTitle(Widen(tr("Choisis le dossier contenant default.xex")).c_str());
   if (SUCCEEDED(dialog->Show(nullptr))) {
     IShellItem* item = nullptr;
     if (SUCCEEDED(dialog->GetResult(&item))) {
@@ -269,8 +292,8 @@ void BrowseGame() {
         if (fs::exists(selected / L"default.xex")) {
           game_data = selected;
           SaveSettings();
-          status = "Dossier du jeu enregistré.";
-        } else status = "Ce dossier ne contient pas default.xex.";
+          status = tr("Dossier du jeu enregistré.");
+        } else status = tr("Ce dossier ne contient pas default.xex.");
         CoTaskMemFree(path);
       }
       item->Release();
@@ -281,14 +304,14 @@ void BrowseGame() {
 
 void LaunchGame() {
   if (game_process && WaitForSingleObject(game_process, 0) == WAIT_TIMEOUT) {
-    status = "Le jeu tourne déjà.";
+    status = tr("Le jeu tourne déjà.");
     return;
   }
   if (game_process) { CloseHandle(game_process); game_process = nullptr; }
   const fs::path exe = root / L"wwe2k15.exe";
-  if (!fs::exists(exe)) { status = "wwe2k15.exe est introuvable : reconstruis le projet."; return; }
-  if (!HasGame()) { status = "Sélectionne le dossier qui contient default.xex."; page = "RÉGLAGES"; return; }
-  if (!HasTitleUpdate()) { status = "Ajoute la Title Update 4 (RÉGLAGES > AJOUTER TU / DLC)."; page = "RÉGLAGES"; return; }
+  if (!fs::exists(exe)) { status = tr("wwe2k15.exe est introuvable : reconstruis le projet."); return; }
+  if (!HasGame()) { status = tr("Sélectionne le dossier qui contient default.xex."); page = "RÉGLAGES"; return; }
+  if (!HasTitleUpdate()) { status = tr("Ajoute la Title Update 4 (RÉGLAGES > AJOUTER TU / DLC)."); page = "RÉGLAGES"; return; }
   SaveSettings();
   const std::wstring args = L"--game_data_root=\"" + game_data.wstring() +
       L"\" --user_data_root=\"" + user_data.wstring() +
@@ -319,23 +342,23 @@ void LaunchGame() {
   }
   if (launched) {
     game_process = info.hProcess;
-    status = game_process ? "Jeu en cours de démarrage…" : "Commande de lancement envoyée.";
+    status = game_process ? tr("Jeu en cours de démarrage…") : tr("Commande de lancement envoyée.");
   } else if (!env_set) {
-    status = "Impossible de régler l'option du hook OBS Vulkan.";
-  } else status = "Windows n'a pas pu démarrer le jeu.";
+    status = tr("Impossible de régler l'option du hook OBS Vulkan.");
+  } else status = tr("Windows n'a pas pu démarrer le jeu.");
 }
 
 void UpdateGameProcess() {
   if (!game_process) return;
   if (WaitForSingleObject(game_process, 0) == WAIT_TIMEOUT) {
-    status = "Jeu en cours d'exécution.";
+    status = tr("Jeu en cours d'exécution.");
     return;
   }
   DWORD exit_code = 0;
   GetExitCodeProcess(game_process, &exit_code);
   CloseHandle(game_process);
   game_process = nullptr;
-  status = "Le jeu s'est arrêté (code " + std::to_string(exit_code) + "). Consulte JOURNAUX.";
+  status = tr("Le jeu s'est arrêté (code ") + std::to_string(exit_code) + tr("). Consulte JOURNAUX.");
 }
 
 // SDL3 gamepad input (DualSense, Xbox, ...) fed into ImGui navigation; ImGui's own backend is XInput-only.
@@ -447,15 +470,15 @@ void DrawBackground(ImDrawList* d, ImVec2 size, float t) {
 void DrawHeader(ImDrawList* d) {
   d->AddText(title_font, 34, {44, 16}, kWhite, "WWE");
   d->AddText(title_font, 34, {112, 16}, kRed, "2K15");
-  d->AddText(ui_font, 13, {46, 58}, kMuted, "PC  ·  RECOMPILATION NATIVE");
+  d->AddText(ui_font, 13, {46, 58}, kMuted, tr("PC  ·  RECOMPILATION NATIVE"));
   float x = 360;
   const float y = 24, h = 44;
   const int sel = TabIndex();
   d->AddText(ui_font, 15, {x - 36, y + 13}, kMuted, "LB");
   for (int i = 0; i < kTabCount; ++i) {
-    const float w = 28.0f + TextW(ui_font, 17, kTabs[i]);
+    const float w = 28.0f + TextW(ui_font, 17, tr(kTabs[i]));
     ImGui::SetCursorScreenPos({x, y});
-    if (Tile(kTabs[i], kTabs[i], {w, h}, sel == i, false, 17)) page = kTabs[i];
+    if (Tile(kTabs[i], tr(kTabs[i]), {w, h}, sel == i, false, 17)) page = kTabs[i];
     x += w + 6;
   }
   d->AddText(ui_font, 15, {x + 14, y + 13}, kMuted, "RB");
@@ -472,9 +495,9 @@ void DrawFooter(ImDrawList* d, ImVec2 size) {
     return x + kw + 26 + TextW(ui_font, 16, what) + 28;
   };
   float x = 44;
-  x = hint(x, "Q / E  ·  LB / RB", "Changer d'onglet");
-  hint(x, "ÉCHAP / B", "Retour à Jouer");
-  const char* ver = "Beta de développement";
+  x = hint(x, "Q / E  ·  LB / RB", tr("Changer d'onglet"));
+  hint(x, tr("ÉCHAP / B"), tr("Retour à Jouer"));
+  const char* ver = tr("Beta de développement");
   d->AddText(ui_font, 15, {size.x - TextW(ui_font, 15, ver) - 44, size.y - 32}, kMuted, ver);
 }
 
@@ -484,60 +507,69 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   const bool has = HasGame();
   const bool running = game_process != nullptr;
   d->AddText(title_font, 78, {o.x + 44, o.y + 24}, kWhite, "WWE 2K15");
-  d->AddText(ui_font, 20, {o.x + 48, o.y + 122}, kMuted, "Version PC non officielle · rendu Vulkan · manette SDL");
-  Chip(d, {o.x + 48, o.y + 176}, "FICHIERS DU JEU", has ? "TROUVÉS" : "À SÉLECTIONNER", has ? IM_COL32(110, 200, 80, 255) : kGold);
-  Chip(d, {o.x + 330, o.y + 176}, "RENDU", "VULKAN", kRed);
-  { const char* pn = pad ? SDL_GetGamepadName(pad) : nullptr; Chip(d, {o.x + 500, o.y + 176}, "MANETTE", pn ? pn : "AUCUNE DÉTECTÉE", pn ? IM_COL32(110, 200, 80, 255) : kMuted); }
+  d->AddText(ui_font, 20, {o.x + 48, o.y + 122}, kMuted, tr("Version PC non officielle · rendu Vulkan · manette SDL"));
+  Chip(d, {o.x + 48, o.y + 176}, tr("FICHIERS DU JEU"), has ? tr("TROUVÉS") : tr("À SÉLECTIONNER"), has ? IM_COL32(110, 200, 80, 255) : kGold);
+  Chip(d, {o.x + 330, o.y + 176}, tr("RENDU"), "VULKAN", kRed);
+  { const char* pn = pad ? SDL_GetGamepadName(pad) : nullptr; Chip(d, {o.x + 500, o.y + 176}, tr("MANETTE"), pn ? pn : tr("AUCUNE DÉTECTÉE"), pn ? IM_COL32(110, 200, 80, 255) : kMuted); }
   {
     const bool tu = HasTitleUpdate();
     const int dlc = DlcCount();
-    const std::string dlc_text = dlc ? std::to_string(dlc) + " PACK(S)" : "AUCUN";
-    Chip(d, {o.x + 48, o.y + 226}, "TITLE UPDATE", tu ? "TU4 INSTALLÉE" : "MANQUANTE", tu ? IM_COL32(110, 200, 80, 255) : kGold);
+    const std::string dlc_text = dlc ? std::to_string(dlc) + " PACK(S)" : tr("AUCUN");
+    Chip(d, {o.x + 48, o.y + 226}, "TITLE UPDATE", tu ? tr("TU4 INSTALLÉE") : tr("MANQUANTE"), tu ? IM_COL32(110, 200, 80, 255) : kGold);
     Chip(d, {o.x + 330, o.y + 226}, "DLC", dlc_text.c_str(), dlc ? IM_COL32(110, 200, 80, 255) : kMuted);
   }
 
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 292});
-  if (Tile("play", running ? "EN COURS…" : (has ? "JOUER" : "CHOISIR LE JEU"), {400, 96}, false, true, 40) && !running) {
+  if (Tile("play", running ? tr("EN COURS…") : (has ? tr("JOUER") : tr("CHOISIR LE JEU")), {400, 96}, false, true, 40) && !running) {
     if (has) LaunchGame(); else page = "RÉGLAGES";
   }
   if (!running && has && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) || ImGui::IsKeyPressed(ImGuiKey_Enter, false))) LaunchGame();
   ImGui::SetCursorScreenPos({o.x + 480, o.y + 314});
-  if (Tile("logs", "JOURNAUX", {190, 52}, false, false, 20)) OpenFolder(root / L"logs");
+  if (Tile("logs", tr("JOURNAUX"), {190, 52}, false, false, 20)) OpenFolder(root / L"logs");
 
   if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 416}, kWhite, status.c_str());
   d->AddText(ui_font, 15, {o.x + 48, o.y + area.y - 30}, kMuted,
-             "Aucune donnée du jeu n'est incluse. Une copie légale du jeu est requise.");
+             tr("Aucune donnée du jeu n'est incluse. Une copie légale du jeu est requise."));
 }
+
+bool Choice(const char* id, ImVec2 pos, const char* const* labels, const int* values, int count,
+            int& value, float width = 110);
 
 void DrawSettings(ImDrawList* d, ImVec2 o, ImVec2 area) {
   Panel(d, o, {o.x + area.x, o.y + area.y});
-  SectionTitle(d, {o.x + 40, o.y + 26}, "RÉGLAGES", "Dossier du jeu et options de lancement");
-  d->AddText(ui_font, 16, {o.x + 48, o.y + 112}, kMuted, "DOSSIER DU JEU XBOX 360 (doit contenir default.xex)");
+  SectionTitle(d, {o.x + 40, o.y + 26}, tr("RÉGLAGES"), tr("Dossier du jeu et options de lancement"));
+  d->AddText(ui_font, 16, {o.x + 48, o.y + 112}, kMuted, tr("DOSSIER DU JEU XBOX 360 (doit contenir default.xex)"));
   d->AddRectFilled({o.x + 48, o.y + 138}, {o.x + area.x - 48, o.y + 184}, IM_COL32(10, 10, 12, 255));
-  const std::string path = game_data.empty() ? std::string("Aucun dossier sélectionné") : game_data.string();
+  const std::string path = game_data.empty() ? std::string(tr("Aucun dossier sélectionné")) : game_data.string();
   d->AddText(ui_font, 18, {o.x + 60, o.y + 150}, game_data.empty() ? kMuted : kWhite, path.c_str());
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 204});
-  if (Tile("browse", "PARCOURIR…", {210, 48}, false, true, 20)) BrowseGame();
+  if (Tile("browse", tr("PARCOURIR…"), {210, 48}, false, true, 20)) BrowseGame();
   ImGui::SetCursorScreenPos({o.x + 280, o.y + 204});
-  if (Tile("save", "ENREGISTRER", {210, 48}, false, false, 20)) { SaveSettings(); status = "Réglages enregistrés."; }
+  if (Tile("save", tr("ENREGISTRER"), {210, 48}, false, false, 20)) { SaveSettings(); status = tr("Réglages enregistrés."); }
   ImGui::SetCursorScreenPos({o.x + 512, o.y + 204});
-  if (Tile("packages", "AJOUTER TU / DLC…", {260, 48}, false, false, 20)) AddPackages();
+  if (Tile("packages", tr("AJOUTER TU / DLC…"), {260, 48}, false, false, 20)) AddPackages();
 
-  ImGui::SetCursorScreenPos({o.x + 48, o.y + 290});
-  if (ImGui::Checkbox("Désactiver le hook Vulkan d'OBS", &disable_obs_vulkan_hook)) SaveSettings();
-  d->AddText(ui_font, 15, {o.x + 76, o.y + 322}, kMuted, disable_obs_vulkan_hook
-      ? "Activé : évite l'injection d'OBS dans le rendu Vulkan du jeu."
-      : "Désactivé : OBS peut capturer le jeu via son hook Vulkan.");
-  d->AddText(ui_font, 15, {o.x + 48, o.y + 372}, kMuted,
-             "Rendu : Vulkan (GPU haute performance)  ·  Graphismes et clavier : onglets GRAPHISMES et CONTRÔLES");
-  d->AddText(ui_font, 15, {o.x + 48, o.y + 398}, kMuted,
-             "AJOUTER TU / DLC : la Title Update 4 (tu00000004_00000000) est requise ; les DLC (545408B6\\00000002) sont optionnels.");
-  if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 436}, kWhite, status.c_str());
+  d->AddText(ui_font, 18, {o.x + 48, o.y + 280}, kWhite, tr("LANGUE"));
+  d->AddText(ui_font, 15, {o.x + 48, o.y + 304}, kMuted, tr("Langue du jeu et de ce lanceur."));
+  if (Choice("lang", {o.x + 48, o.y + 330}, i18n::kLanguageNames, i18n::kLanguageIds,
+             i18n::kLanguageCount, opt.language, 150))
+    SaveOptions();
+
+  ImGui::SetCursorScreenPos({o.x + 48, o.y + 400});
+  if (ImGui::Checkbox(tr("Désactiver le hook Vulkan d'OBS"), &disable_obs_vulkan_hook)) SaveSettings();
+  d->AddText(ui_font, 15, {o.x + 76, o.y + 432}, kMuted, disable_obs_vulkan_hook
+      ? tr("Activé : évite l'injection d'OBS dans le rendu Vulkan du jeu.")
+      : tr("Désactivé : OBS peut capturer le jeu via son hook Vulkan."));
+  d->AddText(ui_font, 15, {o.x + 48, o.y + 476}, kMuted,
+             tr("Rendu : Vulkan (GPU haute performance)  ·  Graphismes et clavier : onglets GRAPHISMES et CONTRÔLES"));
+  d->AddText(ui_font, 15, {o.x + 48, o.y + 502}, kMuted,
+             tr("AJOUTER TU / DLC : la Title Update 4 (tu00000004_00000000) est requise ; les DLC (545408B6\\00000002) sont optionnels."));
+  if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 536}, kWhite, status.c_str());
 }
 
 // One row of mutually exclusive choices drawn as tiles; returns true when the value changed.
 bool Choice(const char* id, ImVec2 pos, const char* const* labels, const int* values, int count,
-            int& value, float width = 110) {
+            int& value, float width) {
   bool changed = false;
   for (int i = 0; i < count; ++i) {
     ImGui::SetCursorScreenPos({pos.x + i * (width + 12), pos.y});
@@ -555,61 +587,51 @@ bool Choice(const char* id, ImVec2 pos, const char* const* labels, const int* va
 
 void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   Panel(d, o, {o.x + area.x, o.y + area.y});
-  SectionTitle(d, {o.x + 40, o.y + 26}, "GRAPHISMES", "Appliqués au prochain lancement du jeu");
+  SectionTitle(d, {o.x + 40, o.y + 26}, tr("GRAPHISMES"), tr("Appliqués au prochain lancement du jeu"));
   float y = o.y + 110;
   auto label = [&](const char* t, const char* help) {
     d->AddText(ui_font, 18, {o.x + 48, y}, kWhite, t);
     d->AddText(ui_font, 15, {o.x + 48, y + 24}, kMuted, help);
   };
-  label("RÉSOLUTION INTERNE", "1x = 720p comme sur Xbox 360. 2x et 3x sont plus nets mais bien plus lourds (expérimental).");
+  label(tr("RÉSOLUTION INTERNE"), tr("1x = 720p comme sur Xbox 360. 2x et 3x sont plus nets mais bien plus lourds (expérimental)."));
   {
     static const char* l[] = {"1x", "2x", "3x"};
     static const int v[] = {1, 2, 3};
     if (Choice("res", {o.x + 48, y + 50}, l, v, 3, opt.resolution_scale)) SaveOptions();
   }
   y += 116;
-  label("FILTRAGE DES TEXTURES", "Rend le sol et le public plus nets de loin.");
+  label(tr("FILTRAGE DES TEXTURES"), tr("Rend le sol et le public plus nets de loin."));
   {
-    static const char* l[] = {"AUCUN", "2x", "4x", "8x", "16x"};
+    const char* l[] = {tr("AUCUN"), "2x", "4x", "8x", "16x"};
     static const int v[] = {0, 2, 3, 4, 5};
     if (Choice("aniso", {o.x + 48, y + 50}, l, v, 5, opt.anisotropic)) SaveOptions();
   }
   y += 116;
   ImGui::SetCursorScreenPos({o.x + 48, y});
-  if (ImGui::Checkbox("Plein écran", &opt.fullscreen)) SaveOptions();
+  if (ImGui::Checkbox(tr("Plein écran"), &opt.fullscreen)) SaveOptions();
   y += 40;
   ImGui::SetCursorScreenPos({o.x + 48, y});
-  if (ImGui::Checkbox("Rendu précis (FSI)", &opt.fsi)) SaveOptions();
+  if (ImGui::Checkbox(tr("Rendu précis (FSI)"), &opt.fsi)) SaveOptions();
   d->AddText(ui_font, 15, {o.x + 76, y + 30}, kMuted,
-             "Recommandé : corrige les écrans noirs pendant les entrées. Nécessite une carte NVIDIA ou Intel récente.");
+             tr("Recommandé : corrige les écrans noirs pendant les entrées. Nécessite une carte NVIDIA ou Intel récente."));
   y += 70;
   ImGui::SetCursorScreenPos({o.x + 48, y});
-  if (ImGui::Checkbox("Réduire l'utilisation du processeur (expérimental)", &opt.cpu_yield)) SaveOptions();
+  if (ImGui::Checkbox(tr("Réduire l'utilisation du processeur (expérimental)"), &opt.cpu_yield)) SaveOptions();
   d->AddText(ui_font, 15, {o.x + 76, y + 30}, kMuted,
-             "Laisse le fil de rendu se reposer pendant qu'il attend la carte graphique. Peut changer la fluidité.");
+             tr("Laisse le fil de rendu se reposer pendant qu'il attend la carte graphique. Peut changer la fluidité."));
 }
 
 void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
   Panel(d, o, {o.x + area.x, o.y + area.y});
-  SectionTitle(d, {o.x + 40, o.y + 26}, "CONTRÔLES", "Manette ou clavier");
+  SectionTitle(d, {o.x + 40, o.y + 26}, tr("CONTRÔLES"), tr("Manette ou clavier"));
   d->AddText(ui_font, 18, {o.x + 48, o.y + 110}, kWhite,
-             "Branche ta manette avant de lancer le jeu. SDL gère les manettes Xbox et PlayStation, dont la DualSense.");
+             tr("Branche ta manette avant de lancer le jeu. SDL gère les manettes Xbox et PlayStation, dont la DualSense."));
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 160});
-  if (ImGui::Checkbox("Jouer au clavier (manette virtuelle)", &opt.keyboard)) SaveOptions();
+  if (ImGui::Checkbox(tr("Jouer au clavier (manette virtuelle)"), &opt.keyboard)) SaveOptions();
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 196});
-  if (ImGui::Checkbox("Clavier AZERTY (français)", &opt.azerty)) SaveOptions();
+  if (ImGui::Checkbox(tr("Clavier AZERTY (français)"), &opt.azerty)) SaveOptions();
   d->AddText(ui_font, 16, {o.x + 48, o.y + 246}, opt.keyboard ? kWhite : kMuted,
-             opt.azerty
-                 ? "Déplacement : Z Q S D    Stick droit : flèches\n"
-                   "A : Espace    B : Retour arrière    X : L    Y : P\n"
-                   "LB : 1    RB : 3    LT : A ou I    RT : E ou O    Croix directionnelle : Maj + flèches\n"
-                   "Start : Entrée    Back : Tab\n\n"
-                   "Garde chaque touche enfoncée un court instant : le jeu lit l'état des touches à chaque image."
-                 : "Déplacement : W A S D    Stick droit : flèches\n"
-                   "A : Espace    B : Retour arrière    X : L    Y : P\n"
-                   "LB : 1    RB : 3    LT : Q ou I    RT : E ou O    Croix directionnelle : Maj + flèches\n"
-                   "Start : Entrée    Back : Tab\n\n"
-                   "Garde chaque touche enfoncée un court instant : le jeu lit l'état des touches à chaque image.");
+             tr(opt.azerty ? i18n::kKeysAzerty : i18n::kKeysQwerty));
 }
 
 void DrawTextPage(ImDrawList* d, ImVec2 o, ImVec2 area, const char* title, const char* sub, const char* body) {
@@ -645,20 +667,20 @@ void DrawUi() {
   else if (page == "GRAPHISMES") DrawGraphics(d, o, area);
   else if (page == "CONTRÔLES") DrawControls(d, o, area);
   else if (page == "MODS") {
-    DrawTextPage(d, o, area, "MODS", "Préparation",
-        "Espace de préparation des mods.\nLe remplacement de fichiers n'est pas encore activé dans cette beta.");
+    DrawTextPage(d, o, area, tr("MODS"), tr("Préparation"),
+        tr("Espace de préparation des mods.\nLe remplacement de fichiers n'est pas encore activé dans cette beta."));
     ImGui::SetCursorScreenPos({o.x + 48, o.y + 230});
-    if (Tile("mods", "OUVRIR LE DOSSIER MODS", {320, 48}, false, true, 19)) OpenFolder(root / L"mods");
+    if (Tile("mods", tr("OUVRIR LE DOSSIER MODS"), {320, 48}, false, true, 19)) OpenFolder(root / L"mods");
   } else if (page == "SAUVEGARDES") {
-    DrawTextPage(d, o, area, "SAUVEGARDES", "Données utilisateur",
-        "Sauvegardes et données utilisateur stockées dans\nLocalAppData\\WWE2K15.");
+    DrawTextPage(d, o, area, tr("SAUVEGARDES"), tr("Données utilisateur"),
+        tr("Sauvegardes et données utilisateur stockées dans\nLocalAppData\\WWE2K15."));
     ImGui::SetCursorScreenPos({o.x + 48, o.y + 230});
-    if (Tile("saves", "OUVRIR LE DOSSIER", {280, 48}, false, true, 19)) OpenFolder(user_data);
+    if (Tile("saves", tr("OUVRIR LE DOSSIER"), {280, 48}, false, true, 19)) OpenFolder(user_data);
   } else {
-    DrawTextPage(d, o, area, "À PROPOS", "WWE 2K15 PC",
-        "Portage PC non officiel de WWE 2K15, basé sur ReXGlue.\nAucune donnée du jeu n'est fournie.\n\nSans affiliation avec WWE, 2K ou Yuke's.");
+    DrawTextPage(d, o, area, tr("À PROPOS"), "WWE 2K15 PC",
+        tr("Portage PC non officiel de WWE 2K15, basé sur ReXGlue.\nAucune donnée du jeu n'est fournie.\n\nSans affiliation avec WWE, 2K ou Yuke's."));
     ImGui::SetCursorScreenPos({o.x + 48, o.y + 250});
-    if (Tile("gh", "DÉPÔT GITHUB", {250, 48}, false, true, 19))
+    if (Tile("gh", tr("DÉPÔT GITHUB"), {250, 48}, false, true, 19))
       ShellExecuteW(nullptr, L"open", L"https://github.com/iMrBurn/wwe2k15-pc", nullptr, nullptr, SW_SHOWNORMAL);
   }
   DrawFooter(d, size);
