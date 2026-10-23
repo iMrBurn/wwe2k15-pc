@@ -28,6 +28,12 @@ else()
 endif()
 
 rexglue_setup_target(wwe2k15 GPU_PLUGINS xenos)
+
+# Keep a PDB beside the release exe (not shipped) so crash/hang addresses and CPU profiles
+# can be symbolized; /OPT:REF,ICF keep the exe the same as a plain release link.
+if(MSVC)
+    target_link_options(wwe2k15 PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # Native Win32 launcher, styled after the project's WWE '12 launcher.
