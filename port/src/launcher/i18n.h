@@ -15,6 +15,7 @@ inline const char* const kKeysQwerty = "Déplacement : W A S D    Stick droit : 
 
 struct Entry { const char* fr; const char* en; const char* de; const char* es; const char* it; };
 inline const Entry kEntries[] = {
+  {"Afficher le compteur d'images/s", "Show FPS counter", "FPS-Anzeige einblenden", "Mostrar contador de FPS", "Mostra contatore FPS"},
   {"Dossier du jeu et options de lancement", "Game folder and launch options", "Spielordner und Startoptionen", "Carpeta del juego y opciones de inicio", "Cartella del gioco e opzioni di avvio"},
   {"JOUER", "PLAY", "SPIELEN", "JUGAR", "GIOCA"},
   {"RÉGLAGES", "SETTINGS", "EINSTELLUNGEN", "AJUSTES", "IMPOSTAZIONI"},

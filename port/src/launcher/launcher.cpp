@@ -49,6 +49,7 @@ struct Options {
   bool azerty = true;         // French keyboard layout for the keyboard pad
   int language = 0;           // user_language (XLanguage): 1 en, 3 de, 4 fr, 5 es, 6 it; 0 = unset
   bool cpu_yield = false;     // wwe2k15_render_wait_yield (experimental)
+  bool show_fps = false;      // wwe2k15_show_fps
 } opt;
 
 const char* tr(const char* fr) { return i18n::Translate(fr, opt.language); }
@@ -213,7 +214,7 @@ void SaveOptions() {
   if (!out) return;
   out << "fullscreen=" << opt.fullscreen << "\nresolution_scale=" << opt.resolution_scale
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\n";
 }
 
 void LoadOptions() {
@@ -232,6 +233,7 @@ void LoadOptions() {
     else if (k == "azerty") opt.azerty = v != 0;
     else if (k == "language") opt.language = v;
     else if (k == "cpu_yield") opt.cpu_yield = v != 0;
+    else if (k == "show_fps") opt.show_fps = v != 0;
   }
   if (opt.language != 1 && opt.language != 3 && opt.language != 4 && opt.language != 5 &&
       opt.language != 6) {
@@ -254,6 +256,7 @@ std::wstring OptionArgs() {
          L" --mnk_mode=" + b(opt.keyboard) +
          L" --user_language=" + std::to_wstring(opt.language) +
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
+         L" --wwe2k15_show_fps=" + b(opt.show_fps) +
          // The keyboard pad reads layout-dependent virtual keys: on AZERTY move the left stick
          // to Z Q S D and the keys it displaces (LT on Q, Back on Z) elsewhere.
          (opt.keyboard && opt.azerty
@@ -613,6 +616,8 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   y += 116;
   ImGui::SetCursorScreenPos({o.x + 48, y});
   if (ImGui::Checkbox(tr("Plein écran"), &opt.fullscreen)) SaveOptions();
+  ImGui::SetCursorScreenPos({o.x + 360, y});
+  if (ImGui::Checkbox(tr("Afficher le compteur d'images/s"), &opt.show_fps)) SaveOptions();
   y += 40;
   ImGui::SetCursorScreenPos({o.x + 48, y});
   if (ImGui::Checkbox(tr("Rendu précis (FSI)"), &opt.fsi)) SaveOptions();

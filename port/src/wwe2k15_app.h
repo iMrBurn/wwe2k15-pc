@@ -24,6 +24,40 @@
 #include <rex/rex_app.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xam/content_manager.h>
+#include <rex/ui/imgui_dialog.h>
+
+#include <atomic>
+#include <imgui.h>
+
+#include <rex/cvar.h>
+
+REXCVAR_DECLARE(bool, wwe2k15_show_fps);
+extern std::atomic<uint32_t> g_wwe2k15_fps_x10;
+extern std::atomic<uint32_t> g_wwe2k15_worst_frame_us;
+
+// Small FPS counter in the top-left corner (cvar wwe2k15_show_fps). It never takes input.
+class FpsCounterDialog : public rex::ui::ImGuiDialog {
+ public:
+  explicit FpsCounterDialog(rex::ui::ImGuiDrawer* drawer) : rex::ui::ImGuiDialog(drawer) {}
+
+ protected:
+  void OnDraw(ImGuiIO&) override {
+    const float fps = g_wwe2k15_fps_x10.load() / 10.0f;
+    const float worst_ms = g_wwe2k15_worst_frame_us.load() / 1000.0f;
+    if (fps <= 0) return;
+    ImGui::SetNextWindowPos(ImVec2(12, 12));
+    ImGui::SetNextWindowBgAlpha(0.45f);
+    ImGui::Begin("##wwe2k15_fps", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                     ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
+                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings);
+    const ImVec4 color = fps >= 55 ? ImVec4(0.45f, 0.85f, 0.35f, 1) :
+                         fps >= 28 ? ImVec4(0.95f, 0.8f, 0.3f, 1) : ImVec4(0.95f, 0.35f, 0.3f, 1);
+    ImGui::TextColored(color, "%.0f FPS", fps);
+    ImGui::Text("%.1f ms max", worst_ms);
+    ImGui::End();
+  }
+};
 
 class Wwe2k15App : public rex::ReXApp {
  public:
@@ -149,11 +183,15 @@ class Wwe2k15App : public rex::ReXApp {
   // void OnLoadXexImage(std::string& xex_image) override {}
   // void OnPostLoadXexImage() override {}
   // void OnPostSetup() override {}
-  // void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {}
+  void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
+    if (REXCVAR_GET(wwe2k15_show_fps)) {
+      fps_counter_ = std::make_unique<FpsCounterDialog>(drawer);
+    }
+  }
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
-  // void OnShutdown() override {}
+  void OnShutdown() override { fps_counter_.reset(); }
  private:
   // Title Update data. The TU's default.xexp sits beside default.xex (the loader
   // applies it, and the generated code is built from the patched image); the rest
@@ -213,4 +251,5 @@ class Wwe2k15App : public rex::ReXApp {
 
   std::filesystem::path user_data_root_;
   std::filesystem::path game_data_root_;
+  std::unique_ptr<FpsCounterDialog> fps_counter_;
 };
