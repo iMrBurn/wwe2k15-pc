@@ -7,7 +7,9 @@
 #include <dwmapi.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <cfloat>
+#include <cstdlib>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -35,6 +37,17 @@ fs::path root, user_data, game_data;
 std::string page = "JOUER", status;
 HANDLE game_process = nullptr;
 bool disable_obs_vulkan_hook = true;
+
+// Game options passed to wwe2k15.exe as cvars (saved in launcher-options.ini).
+struct Options {
+  bool fullscreen = true;
+  int resolution_scale = 1;   // resolution_scale (1-3)
+  int anisotropic = 3;        // anisotropic_override: 0 off, 2 = 2x, 3 = 4x, 4 = 8x, 5 = 16x
+  bool fsi = true;            // render_target_path_vulkan = fsi (fixes entrance black screens)
+  bool keyboard = false;      // mnk_mode
+  bool azerty = true;         // French keyboard layout for the keyboard pad
+  bool cpu_yield = false;     // wwe2k15_render_wait_yield (experimental)
+} opt;
 ImFont* logo_font = nullptr;
 
 void MakeTarget() {
@@ -69,6 +82,8 @@ fs::path ExeDir() {
   return fs::path(path).parent_path();
 }
 
+void LoadOptions();
+
 void LoadSettings() {
   wchar_t local[MAX_PATH]{};
   SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, local);
@@ -91,6 +106,7 @@ void LoadSettings() {
                          fs::path(desktop) / L"WWE2K15"}) {
     if (game_data.empty() && fs::exists(p / L"default.xex", ec)) game_data = p;
   }
+  LoadOptions();
 }
 
 bool HasGame() {
@@ -181,9 +197,53 @@ void AddPackages() {
   dialog->Release();
 }
 
+void SaveOptions() {
+  std::ofstream out(root / L"launcher-options.ini", std::ios::trunc);
+  if (!out) return;
+  out << "fullscreen=" << opt.fullscreen << "\nresolution_scale=" << opt.resolution_scale
+      << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
+      << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\n";
+}
+
+void LoadOptions() {
+  std::ifstream in(root / L"launcher-options.ini");
+  std::string line;
+  while (std::getline(in, line)) {
+    const size_t eq = line.find('=');
+    if (eq == std::string::npos) continue;
+    const std::string k = line.substr(0, eq);
+    const int v = std::atoi(line.c_str() + eq + 1);
+    if (k == "fullscreen") opt.fullscreen = v != 0;
+    else if (k == "resolution_scale") opt.resolution_scale = std::clamp(v, 1, 3);
+    else if (k == "anisotropic") opt.anisotropic = std::clamp(v, 0, 5);
+    else if (k == "fsi") opt.fsi = v != 0;
+    else if (k == "keyboard") opt.keyboard = v != 0;
+    else if (k == "azerty") opt.azerty = v != 0;
+    else if (k == "cpu_yield") opt.cpu_yield = v != 0;
+  }
+}
+
+std::wstring OptionArgs() {
+  auto b = [](bool v) { return std::wstring(v ? L"true" : L"false"); };
+  return L" --fullscreen=" + b(opt.fullscreen) +
+         L" --resolution_scale=" + std::to_wstring(opt.resolution_scale) +
+         L" --anisotropic_override=" + std::to_wstring(opt.anisotropic) +
+         L" --render_target_path_vulkan=" + (opt.fsi ? L"fsi" : L"rtv") +
+         L" --mnk_mode=" + b(opt.keyboard) +
+         L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
+         // The keyboard pad reads layout-dependent virtual keys: on AZERTY move the left stick
+         // to Z Q S D and the keys it displaces (LT on Q, Back on Z) elsewhere.
+         (opt.keyboard && opt.azerty
+              ? std::wstring(L" --keybind_lstick_up=Z --keybind_lstick_left=Q --keybind_lstick_down=S"
+                             L" --keybind_lstick_right=D --keybind_left_trigger=A,I"
+                             L" --keybind_back=W,Tab")
+              : std::wstring());
+}
+
 void SaveSettings() {
   std::wofstream out(root / L"launcher-settings.txt", std::ios::trunc);
   if (out) out << game_data.wstring() << L"\n" << (disable_obs_vulkan_hook ? L"1" : L"0");
+  SaveOptions();
 }
 
 void OpenFolder(const fs::path& p) {
@@ -233,7 +293,7 @@ void LaunchGame() {
   const std::wstring args = L"--game_data_root=\"" + game_data.wstring() +
       L"\" --user_data_root=\"" + user_data.wstring() +
       L"\" --gpu_plugin=xenos --gpu_backend=vulkan --input_backend=sdl --hid_mappings_file=\"" +
-      (root / L"gamecontrollerdb.txt").wstring() + L"\"";
+      (root / L"gamecontrollerdb.txt").wstring() + L"\"" + OptionArgs();
   SHELLEXECUTEINFOW info{sizeof(info)};
   info.fMask = SEE_MASK_NOCLOSEPROCESS;
   info.lpFile = exe.c_str();
@@ -317,8 +377,8 @@ constexpr ImU32 kPanel = IM_COL32(24, 25, 28, 235);
 constexpr ImU32 kMuted = IM_COL32(150, 152, 158, 255);
 ImFont* ui_font = nullptr;
 ImFont* title_font = nullptr;
-const char* kTabs[] = {"JOUER", "RÉGLAGES", "CONTRÔLES", "MODS", "SAUVEGARDES", "À PROPOS"};
-constexpr int kTabCount = 6;
+const char* kTabs[] = {"JOUER", "RÉGLAGES", "GRAPHISMES", "CONTRÔLES", "MODS", "SAUVEGARDES", "À PROPOS"};
+constexpr int kTabCount = 7;
 
 int TabIndex() {
   for (int i = 0; i < kTabCount; ++i) if (page == kTabs[i]) return i;
@@ -393,9 +453,9 @@ void DrawHeader(ImDrawList* d) {
   const int sel = TabIndex();
   d->AddText(ui_font, 15, {x - 36, y + 13}, kMuted, "LB");
   for (int i = 0; i < kTabCount; ++i) {
-    const float w = 40.0f + TextW(ui_font, 18, kTabs[i]);
+    const float w = 28.0f + TextW(ui_font, 17, kTabs[i]);
     ImGui::SetCursorScreenPos({x, y});
-    if (Tile(kTabs[i], kTabs[i], {w, h}, sel == i, false, 18)) page = kTabs[i];
+    if (Tile(kTabs[i], kTabs[i], {w, h}, sel == i, false, 17)) page = kTabs[i];
     x += w + 6;
   }
   d->AddText(ui_font, 15, {x + 14, y + 13}, kMuted, "RB");
@@ -469,10 +529,87 @@ void DrawSettings(ImDrawList* d, ImVec2 o, ImVec2 area) {
       ? "Activé : évite l'injection d'OBS dans le rendu Vulkan du jeu."
       : "Désactivé : OBS peut capturer le jeu via son hook Vulkan.");
   d->AddText(ui_font, 15, {o.x + 48, o.y + 372}, kMuted,
-             "Rendu : Vulkan (GPU haute performance)  ·  Manette : SDL  ·  Options avancées dans wwe2k15.toml");
+             "Rendu : Vulkan (GPU haute performance)  ·  Graphismes et clavier : onglets GRAPHISMES et CONTRÔLES");
   d->AddText(ui_font, 15, {o.x + 48, o.y + 398}, kMuted,
              "AJOUTER TU / DLC : la Title Update 4 (tu00000004_00000000) est requise ; les DLC (545408B6\\00000002) sont optionnels.");
   if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 436}, kWhite, status.c_str());
+}
+
+// One row of mutually exclusive choices drawn as tiles; returns true when the value changed.
+bool Choice(const char* id, ImVec2 pos, const char* const* labels, const int* values, int count,
+            int& value, float width = 110) {
+  bool changed = false;
+  for (int i = 0; i < count; ++i) {
+    ImGui::SetCursorScreenPos({pos.x + i * (width + 12), pos.y});
+    ImGui::PushID(id);
+    ImGui::PushID(i);
+    if (Tile(labels[i], labels[i], {width, 44}, value == values[i], false, 18) && value != values[i]) {
+      value = values[i];
+      changed = true;
+    }
+    ImGui::PopID();
+    ImGui::PopID();
+  }
+  return changed;
+}
+
+void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
+  Panel(d, o, {o.x + area.x, o.y + area.y});
+  SectionTitle(d, {o.x + 40, o.y + 26}, "GRAPHISMES", "Appliqués au prochain lancement du jeu");
+  float y = o.y + 110;
+  auto label = [&](const char* t, const char* help) {
+    d->AddText(ui_font, 18, {o.x + 48, y}, kWhite, t);
+    d->AddText(ui_font, 15, {o.x + 48, y + 24}, kMuted, help);
+  };
+  label("RÉSOLUTION INTERNE", "1x = 720p comme sur Xbox 360. 2x et 3x sont plus nets mais bien plus lourds (expérimental).");
+  {
+    static const char* l[] = {"1x", "2x", "3x"};
+    static const int v[] = {1, 2, 3};
+    if (Choice("res", {o.x + 48, y + 50}, l, v, 3, opt.resolution_scale)) SaveOptions();
+  }
+  y += 116;
+  label("FILTRAGE DES TEXTURES", "Rend le sol et le public plus nets de loin.");
+  {
+    static const char* l[] = {"AUCUN", "2x", "4x", "8x", "16x"};
+    static const int v[] = {0, 2, 3, 4, 5};
+    if (Choice("aniso", {o.x + 48, y + 50}, l, v, 5, opt.anisotropic)) SaveOptions();
+  }
+  y += 116;
+  ImGui::SetCursorScreenPos({o.x + 48, y});
+  if (ImGui::Checkbox("Plein écran", &opt.fullscreen)) SaveOptions();
+  y += 40;
+  ImGui::SetCursorScreenPos({o.x + 48, y});
+  if (ImGui::Checkbox("Rendu précis (FSI)", &opt.fsi)) SaveOptions();
+  d->AddText(ui_font, 15, {o.x + 76, y + 30}, kMuted,
+             "Recommandé : corrige les écrans noirs pendant les entrées. Nécessite une carte NVIDIA ou Intel récente.");
+  y += 70;
+  ImGui::SetCursorScreenPos({o.x + 48, y});
+  if (ImGui::Checkbox("Réduire l'utilisation du processeur (expérimental)", &opt.cpu_yield)) SaveOptions();
+  d->AddText(ui_font, 15, {o.x + 76, y + 30}, kMuted,
+             "Laisse le fil de rendu se reposer pendant qu'il attend la carte graphique. Peut changer la fluidité.");
+}
+
+void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
+  Panel(d, o, {o.x + area.x, o.y + area.y});
+  SectionTitle(d, {o.x + 40, o.y + 26}, "CONTRÔLES", "Manette ou clavier");
+  d->AddText(ui_font, 18, {o.x + 48, o.y + 110}, kWhite,
+             "Branche ta manette avant de lancer le jeu. SDL gère les manettes Xbox et PlayStation, dont la DualSense.");
+  ImGui::SetCursorScreenPos({o.x + 48, o.y + 160});
+  if (ImGui::Checkbox("Jouer au clavier (manette virtuelle)", &opt.keyboard)) SaveOptions();
+  ImGui::SetCursorScreenPos({o.x + 48, o.y + 196});
+  if (ImGui::Checkbox("Clavier AZERTY (français)", &opt.azerty)) SaveOptions();
+  d->AddText(ui_font, 16, {o.x + 48, o.y + 246}, opt.keyboard ? kWhite : kMuted,
+             opt.azerty
+                 ? "Déplacement : Z Q S D    Stick droit : flèches\n"
+                   "A : Espace    B : Retour arrière    X : L    Y : P\n"
+                   "LB : 1    RB : 3    LT : A ou I    RT : E ou O    Croix directionnelle : Maj + flèches\n"
+                   "Start : Entrée    Back : Tab\n\n"
+                   "Garde chaque touche enfoncée un court instant : le jeu lit l'état des touches à chaque image."
+                 : "Déplacement : W A S D    Stick droit : flèches\n"
+                   "A : Espace    B : Retour arrière    X : L    Y : P\n"
+                   "LB : 1    RB : 3    LT : Q ou I    RT : E ou O    Croix directionnelle : Maj + flèches\n"
+                   "Start : Entrée    Back : Tab\n\n"
+                   "Garde chaque touche enfoncée un court instant : le jeu lit l'état des touches à chaque image.");
 }
 
 void DrawTextPage(ImDrawList* d, ImVec2 o, ImVec2 area, const char* title, const char* sub, const char* body) {
@@ -505,9 +642,8 @@ void DrawUi() {
   const ImVec2 area{size.x - 88, size.y - 100 - 64};
   if (page == "JOUER") DrawPlay(d, o, area);
   else if (page == "RÉGLAGES") DrawSettings(d, o, area);
-  else if (page == "CONTRÔLES")
-    DrawTextPage(d, o, area, "CONTRÔLES", "Manettes",
-        "Branche ta manette avant de lancer le jeu.\nSDL gère les manettes Xbox et PlayStation, dont la DualSense.\n\nLa configuration des boutons se fait dans le jeu.");
+  else if (page == "GRAPHISMES") DrawGraphics(d, o, area);
+  else if (page == "CONTRÔLES") DrawControls(d, o, area);
   else if (page == "MODS") {
     DrawTextPage(d, o, area, "MODS", "Préparation",
         "Espace de préparation des mods.\nLe remplacement de fichiers n'est pas encore activé dans cette beta.");
