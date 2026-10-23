@@ -1,0 +1,35 @@
+WWE 2K15 PC — version {VERSION} (bêta)
+=====================================
+
+Portage PC non officiel de WWE 2K15 (Xbox 360), recompilé avec ReXGlue.
+Aucune donnée du jeu n'est fournie : il faut ta propre copie du jeu Xbox 360
+et sa Title Update 4.
+
+CONFIGURATION REQUISE
+- Windows 10/11 64 bits, processeur avec AVX2 (Intel Haswell / AMD Zen ou plus récent).
+- Carte graphique Vulkan. Recommandé : NVIDIA ou Intel récente (rendu « FSI »).
+  Les cartes AMD fonctionnent sans FSI, avec des écrans noirs possibles pendant les entrées.
+
+INSTALLATION
+1. Copie les fichiers de ton jeu Xbox 360 (default.xex, pac, sound, movies...)
+   dans le dossier « game » à côté du lanceur. Tu peux aussi les laisser ailleurs
+   et choisir le dossier dans le lanceur (RÉGLAGES > PARCOURIR).
+2. Lance « WWE 2K15 Launcher.exe ».
+3. RÉGLAGES > AJOUTER TU / DLC… : choisis le fichier de la Title Update 4
+   (tu00000004_00000000) et, si tu les as, tes DLC (dossier 545408B6\00000002).
+4. Choisis ta langue dans RÉGLAGES, puis clique sur JOUER.
+
+Le premier lancement est plus long (installation des DLC, préparation des shaders).
+
+DOSSIERS
+- game\                          : tes fichiers du jeu (non fournis).
+- logs\                          : journaux du jeu (bouton JOURNAUX du lanceur).
+- cache\                         : cache des shaders (peut être supprimé sans risque).
+- %LOCALAPPDATA%\WWE2K15\        : sauvegardes et DLC installés.
+
+SIGNALER UN BUG
+Indique ta carte graphique, la scène (menu, entrée, match...) et joins le dernier
+fichier logs\wwe2k15_*.log et une capture si possible.
+
+Ne partage jamais les fichiers du jeu, la Title Update ou les DLC.
+Sans affiliation avec WWE, 2K ou Yuke's.

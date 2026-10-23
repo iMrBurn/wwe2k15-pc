@@ -51,6 +51,8 @@ if(WIN32)
     find_package(SDL3 CONFIG REQUIRED)
     target_link_libraries(wwe2k15_launcher PRIVATE SDL3::SDL3-static d3d11 dxgi d3dcompiler shell32 ole32 oleaut32 dwmapi winmm setupapi imm32 version cfgmgr32)
     set_target_properties(wwe2k15_launcher PROPERTIES OUTPUT_NAME "WWE 2K15 Launcher")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" WWE2K15_VERSION LIMIT_COUNT 1)
+    target_compile_definitions(wwe2k15_launcher PRIVATE WWE2K15_VERSION="${WWE2K15_VERSION}")
     add_dependencies(wwe2k15 wwe2k15_launcher)
 endif()
 

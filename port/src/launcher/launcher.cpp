@@ -497,7 +497,11 @@ void DrawFooter(ImDrawList* d, ImVec2 size) {
   float x = 44;
   x = hint(x, "Q / E  ·  LB / RB", tr("Changer d'onglet"));
   hint(x, tr("ÉCHAP / B"), tr("Retour à Jouer"));
-  const char* ver = tr("Beta de développement");
+#ifndef WWE2K15_VERSION
+#define WWE2K15_VERSION "dev"
+#endif
+  const std::string ver_text = std::string("v" WWE2K15_VERSION "  ·  ") + tr("Beta de développement");
+  const char* ver = ver_text.c_str();
   d->AddText(ui_font, 15, {size.x - TextW(ui_font, 15, ver) - 44, size.y - 32}, kMuted, ver);
 }
 
