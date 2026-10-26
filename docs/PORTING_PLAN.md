@@ -223,7 +223,9 @@ All ran with no FATAL and reached their end screens:
   256 clés). "full" seul : 37-56 fps en match.
 - `rexglue-sdk-readback-resolve.patch` : suivi `submission_written` + éviction seulement des tampons terminés ;
   cvar `readback_resolve_formats` (2,6,15 = k_8, k_8_8_8_8, k_4_4_4_4 ; les 25/26 = 16_16/16_16_16_16 sont la
-  scène) ; pas de readback pour une cible revue 3 fois à moins de 8 images d'écart ni pour une cible >= 1280x700.
+  scène) ; pas de readback pour une cible redessinée 60 images de suite (`readback_resolve_repeat_limit`, ~38 par
+  image en match) ni pour une cible 16:9 de 1024 px et plus (jugée par sa forme : le niveau 0 d'une tenue fait
+  1024x1024 = 4 Mo ; l'exclure par la taille laissait les gros plans brouillés, vu par l'utilisateur).
   Mesuré (même arène RAW) : match 60 fps, entrées 30 fps ; tenue « ROSE » correcte dans Panoplie.
 - Options de codegen (skip_lr, *_as_local) : avec les huit, blocage au démarrage avant la 1re image (aucune
   ligne « Guest pacing »). Désactivées dans `wwe2k15_config.toml`, à réactiver une par une. Exe 112 → 81 Mo.
