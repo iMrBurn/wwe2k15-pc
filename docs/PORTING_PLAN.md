@@ -251,3 +251,28 @@ All ran with no FATAL and reached their end screens:
   - AMD iGPU, `--render_target_path_vulkan=rtv` (real host-RT path on AMD): entrances correct, one black stretch of ~4 captures between Cena's and Reigns' entrances = the load transition (same spot as the 2026-10-20 note), Reigns' entrance then renders.
 - So the "everything black, thousands of draws lost" entrance bug of 2026-10-20/22 is not reproduced with the host path any more, on either vendor. Likely fixed since by other changes (invalid-fetch of GPU-written data, empty resolve, readback resolve), or it depends on a GPU/driver we do not have. No SDK change made.
 - Next if an AMD tester still reports it: ask for the log and GPU model; a log line naming the selected render-target path would help (not added).
+
+## 540p : étude sur le code, sans le PC (2026-10-26, Perf)
+
+- Le jeu n'a pas de constantes 1280x720 faciles à compter : 105 `li ...,1280`, 58 `li ...,720`, 76 `li ...,640`
+  dans le code généré, mais seulement 8 fonctions ont les deux (`sub_8228E420`, `82908AF8`, `82A363B0`,
+  `82A368E0`, `82AB1390`, `832E5668`, `833B8DD0/90F0` dont les deux dernières sont setjmp/longjmp, faux positifs).
+  Aucun comptage fiable de « sites de création de cibles » par recherche de constantes.
+- La bibliothèque D3D de la console (`sub_82BBAD00`, `82BBB280`, `82BC02D8`, `82BBE760`) appelle
+  `VdQueryVideoMode` / `XGetVideoMode` / `VdSetDisplayMode` : le jeu lit le mode vidéo de la console
+  (largeur, hauteur, widescreen, hi-def). Les jeux 360 adaptent d'ordinaire leur taille de rendu à ce mode
+  (480p, 720p, 1080i), donc le jeu sait peut-être déjà rendre en 848x480 ou autre.
+- Le SDK expose ce mode par deux cvars : `video_mode_width` (1280) et `video_mode_height` (720) (SDK
+  `src/kernel/xboxkrnl/xboxkrnl_video.cpp`, `src/ui/window.cpp`). Le plugin Xenos ne fait que multiplier par
+  `resolution_scale`; il ne choisit pas la taille des cibles, c'est le jeu qui le fait.
+- Hypothèse à tester (aucun code à écrire) : lancer avec `--video_mode_width=960 --video_mode_height=540`
+  (puis 848x480 = vrai mode SD 16:9 de la console). Commande prête :
+  `bash port/tools/dev/ab3.sh res540 <dossier exe> --video_mode_width=960 --video_mode_height=540`
+  et lire dans le journal la ligne « Frame activity ... frontbuffer ... WxH » ainsi que les captures
+  (menus, entrées, ombres, interface). Si la taille du frontbuffer change, le jeu suit le mode : faisable
+  par simple réglage + option du launcher. Si elle reste 1280x720, il faudra chercher les tailles de cibles
+  dans `sub_82BBAD00` et la création de surfaces D3D (`RB_SURFACE_INFO`, pitch), ce qui est risqué
+  (post-traitement, ombres et interface sont probablement calibrés en 1280x720).
+- Estimation : faisable si le jeu suit le mode vidéo (test d'une minute), risqué sinon, pas raisonnable si
+  il faut patcher plusieurs dizaines de sites. Rappel : le goulot de 2K15 est le processeur, le 540p ne
+  sert qu'aux cartes graphiques intégrées.
