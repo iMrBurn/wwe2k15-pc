@@ -581,8 +581,8 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 416}, kWhite, status.c_str());
   if (const std::string latest = updater.AvailableVersion(); !latest.empty()) {
     const std::string notice = tr("Mise à jour disponible : ") + latest;
-    d->AddText(ui_font, 17, {o.x + 48, o.y + area.y - 92}, kGold, notice.c_str());
-    ImGui::SetCursorScreenPos({o.x + 48, o.y + area.y - 66});
+    d->AddText(ui_font, 17, {o.x + 760, o.y + 318}, kGold, notice.c_str());
+    ImGui::SetCursorScreenPos({o.x + 760, o.y + 346});
     if (Tile("update_go", tr("VOIR LA MISE À JOUR"), {260, 40}, false, false, 17)) page = "À PROPOS";
   }
   if (!running) {
@@ -928,12 +928,13 @@ void DrawUi() {
     ImGui::SetCursorScreenPos({o.x + 48, o.y + 250});
     if (Tile("gh", tr("DÉPÔT GITHUB"), {250, 48}, false, true, 19))
       ShellExecuteW(nullptr, L"open", L"https://github.com/iMrBurn/wwe2k15-pc", nullptr, nullptr, SW_SHOWNORMAL);
-    d->AddText(ui_font, 18, {o.x + 48, o.y + 322}, kWhite, tr("MISES À JOUR"));
+    // Updates in the right column, scrolling when the release notes are long.
+    const float col = o.x + area.x * 0.5f + 16;
+    d->AddText(ui_font, 18, {col, o.y + 104}, kWhite, tr("MISES À JOUR"));
     const std::string current = std::string(tr("Version installée : ")) + WWE2K15_VERSION;
-    d->AddText(ui_font, 15, {o.x + 48, o.y + 346}, kMuted, current.c_str());
-    ImGui::SetCursorScreenPos({o.x + 48, o.y + 376});
-    ImGui::BeginGroup();
-    ImGui::PushTextWrapPos(o.x + area.x - 48);
+    d->AddText(ui_font, 15, {col, o.y + 128}, kMuted, current.c_str());
+    ImGui::SetCursorScreenPos({col, o.y + 158});
+    ImGui::BeginChild("##updates", {area.x * 0.5f - 64, area.y - 190});
     const UpdaterTexts texts{tr("Recherche d'une mise à jour..."), tr("Tu as la dernière version."),
                              tr("Nouvelle version disponible :"), tr("INSTALLER LA MISE À JOUR"),
                              tr("Impossible de vérifier les mises à jour (pas d'internet ?)."),
@@ -942,8 +943,7 @@ void DrawUi() {
                              tr("Inclure les versions bêta"),
                              tr("Ferme le jeu avant d'installer la mise à jour.")};
     updater.Draw(texts);
-    ImGui::PopTextWrapPos();
-    ImGui::EndGroup();
+    ImGui::EndChild();
   }
   DrawFooter(d, size);
   ImGui::End();
