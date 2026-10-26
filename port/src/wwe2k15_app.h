@@ -176,6 +176,8 @@ class Wwe2k15App : public rex::ReXApp {
   // game:\default.xexp there and applies the title update.
   void OnLoadXexImage(std::string& xex_image) override {
     if (!IsDiscImage(game_data_root_)) return;
+    // Overlays are searched in registration order: mods go first so they win over game_update.
+    MountMods();
     auto* fs = REX_KERNEL_FS();
     auto device = std::make_unique<rex::filesystem::HostPathDevice>("\\GAMEUPDATE", extras_root_, true);
     if (!fs || !device->Initialize() || !fs->RegisterDevice(std::move(device))) {
@@ -261,7 +263,7 @@ class Wwe2k15App : public rex::ReXApp {
   // mods\pac\menu\menu.pac), for both GAME: and the title update's UPDATE:. Read-only; the
   // game folder itself is never modified. Disabled with --wwe2k15_mods=false.
   void MountMods() {
-    if (!REXCVAR_GET(wwe2k15_mods)) return;
+    if (!REXCVAR_GET(wwe2k15_mods) || mods_mounted_) return;
     const auto mods = rex::filesystem::GetExecutableFolder() / "mods";
     std::error_code ec;
     size_t files = 0;
@@ -274,6 +276,7 @@ class Wwe2k15App : public rex::ReXApp {
       REXLOG_ERROR("Unable to mount mods folder {}", mods.string());
       return;
     }
+    mods_mounted_ = true;
     fs->RegisterOverlay("\\Device\\Harddisk0\\Partition1", "\\MODS");
     fs->RegisterOverlay("\\UPDATE", "\\MODS");
     REXLOG_INFO("Mods enabled: {} file(s) from {}", files, mods.string());
@@ -323,6 +326,7 @@ class Wwe2k15App : public rex::ReXApp {
 
   std::filesystem::path user_data_root_;
   std::filesystem::path game_data_root_;
+  bool mods_mounted_ = false;
   std::filesystem::path extras_root_;  // holds default.xexp, the update folder and the dlc folder
   std::unique_ptr<FpsCounterDialog> fps_counter_;
 };
