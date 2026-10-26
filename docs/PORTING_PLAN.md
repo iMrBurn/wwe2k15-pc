@@ -276,3 +276,7 @@ All ran with no FATAL and reached their end screens:
 - Estimation : faisable si le jeu suit le mode vidéo (test d'une minute), risqué sinon, pas raisonnable si
   il faut patcher plusieurs dizaines de sites. Rappel : le goulot de 2K15 est le processeur, le 540p ne
   sert qu'aux cartes graphiques intégrées.
+- Résultat du test (fait par (Main), écran titre, ~1 min) : avec `--video_mode_width=960 --video_mode_height=540`, le
+  journal garde « frontbuffer 115D6000 1280x720 » (3 mesures sur 3) et l'image est identique. 2K15 ignore le mode
+  vidéo, au moins aux menus : le 540p par simple réglage ne marche pas. La suite (patcher les tailles de cibles)
+  demanderait beaucoup de sites : pas de chantier sans l'accord de l'utilisateur.
