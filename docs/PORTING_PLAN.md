@@ -301,3 +301,19 @@ All ran with no FATAL and reached their end screens:
   trois fils du jeu à 12-16 % chacun, audio ~3 %. Total ~100-120 % d'un cœur. Sur un vrai petit processeur
   (cœurs 2x plus lents), « GPU Commands » approcherait 100 % d'un cœur : il serait le goulot, car il est
   séquentiel. Piste principale : alléger ce fil (SDK `command_processor`, UpdateBindings, IssueDraw).
+
+## (Rendu) FSI vs host render-target path: GPU cost, cold shader cache (2026-10-26, RTX 5070 Ti)
+
+Demo match from the title screen (`port/tools/dev/gpu_matrix.sh`, `gpu_compare.sh`; `nvidia-smi` every 0.5 s over 30 s). Warm cache = the dev PC's. Host = any `render_target_path_vulkan` other than `fsi`.
+
+| run | GPU load avg (max) | GPU power | CPU | fps / worst gap |
+|---|---|---|---|---|
+| host 720p | 30 % (35) | 60 W | 101 % | 60 / 18.7 ms |
+| FSI 720p | 48 % (60) | 71 W | 95 % | 60 / 18.9 ms (one 35.8 ms) |
+| host 1440p | 46 % (51) | 91 W | 111 % | 60 / 18.8 ms |
+| FSI 1440p | 73 % (77) | 106 W | 106 % | 57-60 / 19.3 ms (two ~34 ms) |
+
+- The host path costs about 35-40 % less GPU time than FSI at both resolutions (30 vs 48 %, 46 vs 73 %); CPU is the same.
+- Cold shader cache (exe copy with an empty `cache\`): FSI held 60 fps, 229 pipelines built during the run; host path dipped to 55-58 fps with ~34 ms gaps and built 418 pipelines (the host path needs about twice as many pipeline variants). `skipped for pending shaders` stayed 0 in every run; the demo only covers an easy scene, so this is a lower bound.
+- Host path visual check (NVIDIA): entrances (see section above), match in RAW, and Superstar Threads attire (Adam Rose, clean, not scrambled) are correct. Victory scene and shadows were not compared side by side.
+- Caches are per path (`545408B6.fsi.vk.xpso` / `.fbo.vk.xpso`): switching path restarts from a cold cache for that path.
