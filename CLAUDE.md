@@ -109,5 +109,6 @@ files, with `git add <paths>`, never `git add -A`; never overwrite another chat'
 - (Perf) True 540p (and lower) for weak GPUs: the Xenos plugin only scales by whole multiples of
   720p; would need the game to render smaller.
 - ~~(Rendu) AMD entrance black frames without FSI~~: not reproduced on 2026-10-26 (see Known facts).
-- (Rendu) Log which render target path (fsi / host) the SDK picked, for testers' logs.
+- ~~(Rendu) Log which render target path the SDK picked~~: done (`rexglue-sdk-render-path-log.patch`,
+  one "render target path: ..." gpu info line at startup). In the next release.
 - (Launcher) Possibly a square icon variant for small sizes.
