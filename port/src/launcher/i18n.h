@@ -15,6 +15,11 @@ inline const char* const kKeysQwerty = "Déplacement : W A S D    Stick droit : 
 
 struct Entry { const char* fr; const char* en; const char* de; const char* es; const char* it; };
 inline const Entry kEntries[] = {
+  {"JEU XBOX 360 : DOSSIER (avec default.xex) OU IMAGE ISO", "XBOX 360 GAME: FOLDER (with default.xex) OR ISO IMAGE", "XBOX-360-SPIEL: ORDNER (mit default.xex) ODER ISO-ABBILD", "JUEGO DE XBOX 360: CARPETA (con default.xex) O IMAGEN ISO", "GIOCO XBOX 360: CARTELLA (con default.xex) O IMMAGINE ISO"},
+  {"CHOISIR UNE ISO…", "CHOOSE AN ISO…", "ISO WÄHLEN…", "ELEGIR UNA ISO…", "SCEGLI UNA ISO…"},
+  {"Choisis l'image disque (.iso) de WWE 2K15", "Choose the WWE 2K15 disc image (.iso)", "Wähle das Disc-Abbild (.iso) von WWE 2K15", "Elige la imagen de disco (.iso) de WWE 2K15", "Scegli l'immagine disco (.iso) di WWE 2K15"},
+  {"Image disque enregistrée.", "Disc image saved.", "Disc-Abbild gespeichert.", "Imagen de disco guardada.", "Immagine disco salvata."},
+  {"Ce fichier n'est pas une image .iso.", "This file is not an .iso image.", "Diese Datei ist kein .iso-Abbild.", "Este archivo no es una imagen .iso.", "Questo file non è un'immagine .iso."},
   {"Synchronisation verticale (pas de déchirement)", "Vertical sync (no tearing)", "Vertikale Synchronisation (kein Tearing)", "Sincronización vertical (sin tearing)", "Sincronizzazione verticale (niente tearing)"},
   {"Attends la fin de la mise à jour.", "Wait for the update to finish.", "Warte, bis das Update fertig ist.", "Espera a que termine la actualización.", "Attendi la fine dell'aggiornamento."},
   {"Mise à jour disponible : ", "Update available: ", "Update verfügbar: ", "Actualización disponible: ", "Aggiornamento disponibile: "},
