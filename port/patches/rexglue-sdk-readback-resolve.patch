@@ -1,0 +1,252 @@
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 696ff48..1fb1f1d 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -454,6 +454,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+     uint64_t last_used_frame = 0;
+   };
+   void EvictOldReadbackBuffers(std::unordered_map<uint64_t, ReadbackBuffer>& buffer_map);
++  // readback_resolve_formats: whether the current resolve's destination format is read back.
++  bool ReadbackResolveFormatSelected() const;
+   static constexpr uint32_t kReadbackBufferSizeIncrement = 16 * 1024 * 1024;
+   static constexpr size_t kMaxReadbackBuffers = 256;
+   static constexpr uint64_t kReadbackBufferEvictionAgeFrames = 60;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index e487ceb..6f051f8 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -17,6 +17,8 @@
+ #include <iterator>
+ #include <mutex>
+ #include <string>
++#include <unordered_set>
++#include <unordered_map>
+ #include <string_view>
+ #include <tuple>
+ #include <utility>
+@@ -52,6 +54,68 @@ REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+                     "Read render-to-texture results on the CPU")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// Restricts resolve readback to some destination formats (xenos::ColorFormat values, comma
++// separated; empty = every resolve). A title that reads back only its CPU-side texture work (for
++// example WWE 2K15's Superstar Threads attire composites, k_4_4_4_4 = 15) can then use the exact
++// "full" readback without stalling on every shadow and scene resolve of a match.
++REXCVAR_DEFINE_STRING(readback_resolve_formats, "", "GPU/Vulkan",
++                      "Only read back resolves to these color formats (comma-separated "
++                      "xenos::ColorFormat numbers, empty = all)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++REXCVAR_DEFINE_INT32(readback_resolve_repeat_limit, 0, "GPU/Vulkan",
++                     "Stop reading back a resolve target seen this many times with less than 8 "
++                     "frames between them (0 = never stop)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++REXCVAR_DEFINE_BOOL(readback_resolve_stats, false, "GPU/Vulkan",
++                    "Log every 300 frames the busiest resolve targets and which were read back")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++namespace {
++// readback_resolve_stats (GPU thread only).
++struct ResolveStat {
++  uint32_t format = 0, count = 0, reads = 0;
++};
++std::unordered_map<uint64_t, ResolveStat> g_resolve_stats;
++uint64_t g_resolve_stats_start = 0;
++bool g_resolve_last_read = false;
++uint32_t g_resolve_last_address = 0, g_resolve_last_length = 0;
++
++void RecordResolveStat(uint64_t frame, uint32_t format, uint32_t address, uint32_t length,
++                       bool read) {
++  if (!REXCVAR_GET(readback_resolve_stats)) {
++    return;
++  }
++  if (length) {
++    ResolveStat& stat = g_resolve_stats[uint64_t(address) | (uint64_t(length) << 32)];
++    stat.format = format;
++    ++stat.count;
++    stat.reads += read ? 1 : 0;
++  }
++  if (frame - g_resolve_stats_start < 300) {
++    return;
++  }
++  std::vector<std::pair<uint64_t, ResolveStat>> top(g_resolve_stats.begin(), g_resolve_stats.end());
++  std::sort(top.begin(), top.end(),
++            [](const auto& a, const auto& b) { return a.second.count > b.second.count; });
++  uint32_t total = 0, reads = 0;
++  for (const auto& t : top) {
++    total += t.second.count;
++    reads += t.second.reads;
++  }
++  std::string list;
++  for (size_t i = 0; i < top.size() && i < 12; ++i) {
++    list += fmt::format(" [f{} {}B @{:08X} x{} r{}]", top[i].second.format, uint32_t(top[i].first >> 32),
++                        uint32_t(top[i].first), top[i].second.count, top[i].second.reads);
++  }
++  REXGPU_INFO("Resolve stats over {} frames: {} resolves, {} read back:{}",
++              frame - g_resolve_stats_start, total, reads, list);
++  g_resolve_stats.clear();
++  g_resolve_stats_start = frame;
++}
++}  // namespace
++
+ REXCVAR_DEFINE_BOOL(vulkan_readback_memexport, false, "GPU/Vulkan",
+                     "Read data written by memory export in shaders on the CPU")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+@@ -4413,13 +4502,43 @@ bool VulkanCommandProcessor::IssueCopy() {
+   }
+ 
+   ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXCVAR_GET(vulkan_readback_resolve));
+-  if (readback_mode == ReadbackResolveMode::kDisabled) {
+-    uint32_t written_address, written_length;
+-    return render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_,
+-                                         written_address, written_length);
+-  }
++  const uint32_t stat_format =
++      uint32_t(register_file_->Get<reg::RB_COPY_DEST_INFO>().copy_dest_format);
++  if (readback_mode == ReadbackResolveMode::kDisabled || !ReadbackResolveFormatSelected()) {
++    uint32_t written_address = 0, written_length = 0;
++    const bool resolved = render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_,
++                                                        written_address, written_length);
++    RecordResolveStat(frame_current_, stat_format, written_address, written_length, false);
++    return resolved;
++  }
++
++  g_resolve_last_read = false;
++  g_resolve_last_address = g_resolve_last_length = 0;
++  const bool resolved = IssueCopy_ReadbackResolvePath();
++  RecordResolveStat(frame_current_, stat_format, g_resolve_last_address, g_resolve_last_length,
++                    g_resolve_last_read);
++  return resolved;
++}
+ 
+-  return IssueCopy_ReadbackResolvePath();
++bool VulkanCommandProcessor::ReadbackResolveFormatSelected() const {
++  const std::string& formats = REXCVAR_GET(readback_resolve_formats);
++  if (formats.empty()) {
++    return true;
++  }
++  const uint32_t format =
++      uint32_t(register_file_->Get<reg::RB_COPY_DEST_INFO>().copy_dest_format);
++  size_t at = 0;
++  while (at < formats.size()) {
++    size_t end = formats.find(',', at);
++    if (end == std::string::npos) {
++      end = formats.size();
++    }
++    if (uint32_t(std::strtoul(formats.c_str() + at, nullptr, 10)) == format) {
++      return true;
++    }
++    at = end + 1;
++  }
++  return false;
+ }
+ 
+ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+@@ -4433,6 +4552,8 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+     return false;
+   }
+ 
++  g_resolve_last_address = written_address;
++  g_resolve_last_length = written_length;
+   if (!written_length) {
+     return true;
+   }
+@@ -4441,6 +4562,65 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+     return true;
+   }
+ 
++  // readback_resolve_repeat_limit: targets resolved again and again can be left out. Off by
++  // default: a match load composes every attire and skin texture through the same scratch target
++  // many times in a row, and those must all be read back.
++  {
++    struct Streak {
++      uint64_t last_frame = UINT64_MAX;
++      uint32_t frames = 0;
++    };
++    static std::unordered_map<uint64_t, Streak> streaks;
++    if (streaks.size() > 4096) {
++      streaks.clear();
++    }
++    Streak& streak = streaks[MakeReadbackResolveKey(written_address, written_length)];
++    if (streak.last_frame != frame_current_) {
++      // Within 8 frames counts as the same streak (some targets refresh every other frame).
++      streak.frames = streak.last_frame != UINT64_MAX && frame_current_ - streak.last_frame <= 8
++                          ? streak.frames + 1
++                          : 1;
++      streak.last_frame = frame_current_;
++    }
++    const int32_t repeat_limit = REXCVAR_GET(readback_resolve_repeat_limit);
++    if (repeat_limit > 0 && streak.frames >= uint32_t(repeat_limit)) {
++      return true;
++    }
++  }
++  // Screen-shaped resolves (16:9, 1024 pixels wide and more: the front buffer, scene copies) are
++  // never CPU texture work either. Judged by shape, not bytes: a 1024x1024 attire level 0 is
++  // larger than a 1280x720 screen and must be read back (it scrambled close-ups when it was not).
++  {
++    const auto dest_pitch = register_file_->Get<reg::RB_COPY_DEST_PITCH>();
++    const uint32_t w = dest_pitch.copy_dest_pitch, h = dest_pitch.copy_dest_height;
++    if (w >= 1024 && h && w * 9 >= h * 16 * 95 / 100 && w * 9 <= h * 16 * 105 / 100) {
++      return true;
++    }
++  }
++  {
++    static uint64_t window_start = 0;
++    static uint32_t window_count = 0;
++    ++window_count;
++    if (frame_current_ - window_start >= 300) {
++      REXGPU_DEBUG("Resolve readback: {} copies in the last {} frames, last {} bytes at {:08X}",
++                  window_count, frame_current_ - window_start, written_length, written_address);
++      window_start = frame_current_;
++      window_count = 0;
++    }
++  }
++
++  // Diagnostics: each distinct (format, size) read back is logged once.
++  {
++    static std::mutex seen_mutex;
++    static std::unordered_set<uint64_t> seen;
++    const uint32_t format = uint32_t(register_file_->Get<reg::RB_COPY_DEST_INFO>().copy_dest_format);
++    std::lock_guard<std::mutex> lock(seen_mutex);
++    if (seen.insert((uint64_t(format) << 32) | written_length).second) {
++      REXGPU_DEBUG("Resolve readback: format {} length {} at {:08X}", format, written_length,
++                  written_address);
++    }
++  }
++
+   ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXCVAR_GET(vulkan_readback_resolve));
+   if (readback_mode == ReadbackResolveMode::kDisabled) {
+     return true;
+@@ -4666,6 +4846,9 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+     deferred_command_buffer_.CmdVkCopyBuffer(shared_memory_->buffer(),
+                                              readback.buffers[write_index], 1, &readback_region);
+   }
++  // Lets eviction tell a buffer the GPU may still be writing from a finished one.
++  readback.submission_written[write_index] = GetCurrentSubmission();
++  g_resolve_last_read = true;
+ 
+   PushBufferMemoryBarrier(readback.buffers[write_index], 0, written_length,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
+@@ -4725,8 +4908,19 @@ void VulkanCommandProcessor::EvictOldReadbackBuffers(
+   const VkDevice device = vulkan_device->device();
+   for (auto it = buffer_map.begin(); it != buffer_map.end();) {
+     ReadbackBuffer& readback = it->second;
+-    bool evict =
+-        buffer_map.size() > kMaxReadbackBuffers || readback.last_used_frame < eviction_frame_floor;
++    // Never destroy a buffer a submission still in flight copies into (the delayed readback modes
++    // do not wait for their copies): that lost the Vulkan device in busy scenes. Over the limit,
++    // only buffers not used in the current frame go.
++    bool in_flight = false;
++    for (uint32_t i = 0; i < 2; ++i) {
++      if (readback.buffers[i] != VK_NULL_HANDLE &&
++          readback.submission_written[i] > submission_completed_) {
++        in_flight = true;
++      }
++    }
++    bool evict = !in_flight && (readback.last_used_frame < eviction_frame_floor ||
++                                (buffer_map.size() > kMaxReadbackBuffers &&
++                                 readback.last_used_frame < frame_current_));
+     if (!evict) {
+       ++it;
+       continue;

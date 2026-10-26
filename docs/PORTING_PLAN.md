@@ -212,3 +212,20 @@ All ran with no FATAL and reached their end screens:
   inconnu n'est faite que si le journal gpu est en debug. GPU Commands 52 % → 41 %, jeu 112 % → 100 %, 60 fps.
 - Textes : `src/text_hook.cpp` crochète l'inflate du jeu (sub_82B529A0) et remplace « console Xbox 360 » par
   « PC » dans les 5 langues (23 textes au démarrage, vérifié à l'écran en français). Xbox Live / Store inchangés.
+
+## Superstar Threads / readback des resolves (2026-10-26)
+
+- Symptôme (rapport Discord) : tenues et peau en bandes de couleurs brouillées dans Panoplie Superstars et
+  en match. Même cause que WWE '12 (commit b24b370 de ce projet) : le jeu compose la tenue sur le GPU, fait un
+  resolve, puis le CPU relit la texture pour la compresser en DXT ; sans readback il compressait une mémoire vide.
+- `readback_resolve` du SDK était à "none". "some"/"fast" perdaient le device Vulkan dans le match de démo :
+  `EvictOldReadbackBuffers` détruisait des tampons encore écrits par une soumission en vol (et tous au-delà de
+  256 clés). "full" seul : 37-56 fps en match.
+- `rexglue-sdk-readback-resolve.patch` : suivi `submission_written` + éviction seulement des tampons terminés ;
+  cvar `readback_resolve_formats` (2,6,15 = k_8, k_8_8_8_8, k_4_4_4_4 ; les 25/26 = 16_16/16_16_16_16 sont la
+  scène) ; pas de readback pour une cible redessinée 60 images de suite (`readback_resolve_repeat_limit`, ~38 par
+  image en match) ni pour une cible 16:9 de 1024 px et plus (jugée par sa forme : le niveau 0 d'une tenue fait
+  1024x1024 = 4 Mo ; l'exclure par la taille laissait les gros plans brouillés, vu par l'utilisateur).
+  Mesuré (même arène RAW) : match 60 fps, entrées 30 fps ; tenue « ROSE » correcte dans Panoplie.
+- Options de codegen (skip_lr, *_as_local) : avec les huit, blocage au démarrage avant la 1re image (aucune
+  ligne « Guest pacing »). Désactivées dans `wwe2k15_config.toml`, à réactiver une par une. Exe 112 → 81 Mo.

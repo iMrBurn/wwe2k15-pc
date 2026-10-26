@@ -6,6 +6,22 @@
 setjmp_address = 0x833B90F0  # base 0x833AF8F0
 longjmp_address = 0x833B8DD0  # base 0x833AF5D0
 
+# Optimisations du code généré (comme XenonRecomp / Unleashed Recompiled) : les registres PPC
+# deviennent des variables locales C++ que le compilateur garde dans les registres du PC.
+# non_volatile_as_local suppose que setjmp/longjmp ci-dessus restaurent bien le contexte.
+# Essais du 2026-10-26 (match de démo 1 contre 1, 60 fps) : non_argument_as_local bloque le
+# démarrage (probablement r11/r12 passés aux helpers __savegpr/__restgpr du compilateur Xbox) ; les autres
+# démarrent mais ne changent pas le temps processeur (78 % sans, 79-82 % avec : le contexte est déjà
+# __restrict). Laissées désactivées ; skip_lr n'a pas été essayée seule.
+# skip_lr = true
+# skip_msr = true
+# ctr_as_local = true
+# xer_as_local = true
+# reserved_as_local = true
+# cr_as_local = true
+# non_argument_as_local = true
+# non_volatile_as_local = true
+
 [functions]
 # Cibles de tail-call signalées par le codegen initial et retrouvées par find_fptrs.py.
 0x826C5968 = {} # b depuis 0x825E1B94  # base 0x826C13E8
