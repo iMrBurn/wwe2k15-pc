@@ -15,6 +15,21 @@ inline const char* const kKeysQwerty = "Déplacement : W A S D    Stick droit : 
 
 struct Entry { const char* fr; const char* en; const char* de; const char* es; const char* it; };
 inline const Entry kEntries[] = {
+  {"Copies de sécurité de tes parties", "Backups of your saves", "Sicherungen deiner Spielstände", "Copias de seguridad de tus partidas", "Copie di sicurezza dei tuoi salvataggi"},
+  {"Sauvegardes actuelles : ", "Current saves: ", "Aktuelle Spielstände: ", "Partidas actuales: ", "Salvataggi attuali: "},
+  {" fichier(s), ", " file(s), ", " Datei(en), ", " archivo(s), ", " file, "},
+  {"Aucune sauvegarde pour l'instant (elles apparaissent après la première partie).", "No saves yet (they appear after your first game).", "Noch keine Spielstände (sie erscheinen nach dem ersten Spiel).", "Aún no hay partidas (aparecen tras la primera partida).", "Ancora nessun salvataggio (compaiono dopo la prima partita)."},
+  {"SAUVEGARDER MAINTENANT", "BACK UP NOW", "JETZT SICHERN", "COPIAR AHORA", "SALVA ORA"},
+  {"Copie de sécurité créée.", "Backup created.", "Sicherung erstellt.", "Copia de seguridad creada.", "Copia di sicurezza creata."},
+  {"Rien à sauvegarder pour l'instant.", "Nothing to back up yet.", "Noch nichts zu sichern.", "Aún no hay nada que copiar.", "Ancora niente da salvare."},
+  {"Échec de la copie : ", "Backup failed: ", "Sicherung fehlgeschlagen: ", "Error al copiar: ", "Copia non riuscita: "},
+  {"Copie automatique avant chaque lancement (garde les 10 dernières)", "Automatic backup before each launch (keeps the last 10)", "Automatische Sicherung vor jedem Start (die letzten 10 bleiben)", "Copia automática antes de cada inicio (guarda las 10 últimas)", "Copia automatica prima di ogni avvio (conserva le ultime 10)"},
+  {"COPIES DE SÉCURITÉ", "BACKUPS", "SICHERUNGEN", "COPIAS DE SEGURIDAD", "COPIE DI SICUREZZA"},
+  {"Aucune copie pour l'instant.", "No backups yet.", "Noch keine Sicherungen.", "Aún no hay copias.", "Ancora nessuna copia."},
+  {"RESTAURER", "RESTORE", "WIEDERHERSTELLEN", "RESTAURAR", "RIPRISTINA"},
+  {"Ferme le jeu avant de restaurer une sauvegarde.", "Close the game before restoring a backup.", "Schließe das Spiel, bevor du eine Sicherung wiederherstellst.", "Cierra el juego antes de restaurar una copia.", "Chiudi il gioco prima di ripristinare una copia."},
+  {"Sauvegarde restaurée.", "Backup restored.", "Sicherung wiederhergestellt.", "Copia restaurada.", "Copia ripristinata."},
+  {"Échec de la restauration : ", "Restore failed: ", "Wiederherstellung fehlgeschlagen: ", "Error al restaurar: ", "Ripristino non riuscito: "},
   {"PRÉRÉGLAGE", "PRESET", "VOREINSTELLUNG", "PREAJUSTE", "PRESET"},
   {"Performance pour les petites configurations, Qualité pour les PC puissants.", "Performance for low-end PCs, Quality for powerful ones.", "Leistung für schwächere PCs, Qualität für starke PCs.", "Rendimiento para equipos modestos, Calidad para PC potentes.", "Prestazioni per PC modesti, Qualità per PC potenti."},
   {"PERFORMANCE", "PERFORMANCE", "LEISTUNG", "RENDIMIENTO", "PRESTAZIONI"},

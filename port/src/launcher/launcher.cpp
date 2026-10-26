@@ -22,6 +22,7 @@
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
 #include "i18n.h"
+#include "saves.h"
 #include "stfs.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
@@ -47,6 +48,7 @@ struct Options {
   int monitor = 0;            // monitor: 0 = default, 1..3
   int aa = 0;                 // swap_post_effect: 0 none, 1 fxaa, 2 fxaa_extreme
   bool letterbox = true;      // present_letterbox
+  bool auto_backup = true;    // back up saves before each launch (keeps 10)
   int anisotropic = 3;        // anisotropic_override: 0 off, 2 = 2x, 3 = 4x, 4 = 8x, 5 = 16x
   bool fsi = true;            // render_target_path_vulkan = fsi (fixes entrance black screens)
   bool keyboard = false;      // mnk_mode
@@ -105,6 +107,16 @@ void LoadSettings() {
   SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, local);
   user_data = fs::path(local) / L"WWE2K15";
   fs::create_directories(user_data);
+  {
+    // The game started without the launcher keeps saves in Documents\wwe2k15: adopt them once.
+    wchar_t docs[MAX_PATH]{};
+    SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, docs);
+    const fs::path old_root = fs::path(docs) / L"wwe2k15";
+    std::error_code mec;
+    if (saves::ProfileFolders(user_data).empty())
+      for (const auto& p : saves::ProfileFolders(old_root))
+        fs::copy(p, user_data / p.filename(), fs::copy_options::recursive, mec);
+  }
   const fs::path cfg = root / L"launcher-settings.txt";
   std::error_code ec;
   if (fs::exists(cfg, ec)) {
@@ -218,7 +230,7 @@ void SaveOptions() {
   if (!out) return;
   out << "fullscreen=" << opt.fullscreen << "\nresolution_scale=" << opt.resolution_scale
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nwindow_size=" << opt.window_size << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nwindow_size=" << opt.window_size << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\n";
 }
 
 void LoadOptions() {
@@ -235,6 +247,7 @@ void LoadOptions() {
     else if (k == "monitor") opt.monitor = std::clamp(v, 0, 3);
     else if (k == "aa") opt.aa = std::clamp(v, 0, 2);
     else if (k == "letterbox") opt.letterbox = v != 0;
+    else if (k == "auto_backup") opt.auto_backup = v != 0;
     else if (k == "anisotropic") opt.anisotropic = std::clamp(v, 0, 5);
     else if (k == "fsi") opt.fsi = v != 0;
     else if (k == "keyboard") opt.keyboard = v != 0;
@@ -334,6 +347,10 @@ void LaunchGame() {
   if (!HasGame()) { status = tr("Sélectionne le dossier qui contient default.xex."); page = "RÉGLAGES"; return; }
   if (!HasTitleUpdate()) { status = tr("Ajoute la Title Update 4 (RÉGLAGES > AJOUTER TU / DLC)."); page = "RÉGLAGES"; return; }
   SaveSettings();
+  if (opt.auto_backup) {
+    std::string err;
+    if (saves::CreateBackup(user_data, err)) saves::PruneBackups(user_data, 10);
+  }
   const std::wstring args = L"--game_data_root=\"" + game_data.wstring() +
       L"\" --user_data_root=\"" + user_data.wstring() +
       L"\" --gpu_plugin=xenos --gpu_backend=vulkan --input_backend=sdl --hid_mappings_file=\"" +
@@ -715,6 +732,75 @@ void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
              tr(opt.azerty ? i18n::kKeysAzerty : i18n::kKeysQwerty));
 }
 
+std::string FormatSize(uint64_t bytes) {
+  char buf[32];
+  if (bytes >= (1ull << 20)) std::snprintf(buf, sizeof(buf), "%.1f MB", bytes / 1048576.0);
+  else std::snprintf(buf, sizeof(buf), "%.0f KB", bytes / 1024.0);
+  return buf;
+}
+
+void DrawSaves(ImDrawList* d, ImVec2 o, ImVec2 area) {
+  static std::vector<saves::Backup> backups;
+  static uint64_t current_bytes = 0;
+  static int current_files = 0;
+  static double refreshed_at = -100;
+  const double now = ImGui::GetTime();
+  if (now - refreshed_at > 3.0) {  // folder scans are not free; refresh every few seconds
+    backups = saves::ListBackups(user_data);
+    current_bytes = 0;
+    current_files = 0;
+    for (const auto& p : saves::ProfileFolders(user_data)) current_bytes += saves::FolderSize(p, &current_files);
+    refreshed_at = now;
+  }
+  const bool running = game_process && WaitForSingleObject(game_process, 0) == WAIT_TIMEOUT;
+
+  Panel(d, o, {o.x + area.x, o.y + area.y});
+  SectionTitle(d, {o.x + 40, o.y + 26}, tr("SAUVEGARDES"), tr("Copies de sécurité de tes parties"));
+  const std::string cur = current_files
+      ? std::string(tr("Sauvegardes actuelles : ")) + std::to_string(current_files) + tr(" fichier(s), ") + FormatSize(current_bytes)
+      : std::string(tr("Aucune sauvegarde pour l'instant (elles apparaissent après la première partie)."));
+  d->AddText(ui_font, 18, {o.x + 48, o.y + 108}, kWhite, cur.c_str());
+
+  ImGui::SetCursorScreenPos({o.x + 48, o.y + 146});
+  if (Tile("backup_now", tr("SAUVEGARDER MAINTENANT"), {300, 48}, false, true, 19)) {
+    std::string err;
+    status = saves::CreateBackup(user_data, err) ? tr("Copie de sécurité créée.")
+             : err == "empty" ? tr("Rien à sauvegarder pour l'instant.") : std::string(tr("Échec de la copie : ")) + err;
+    refreshed_at = -100;
+  }
+  ImGui::SetCursorScreenPos({o.x + 368, o.y + 146});
+  if (Tile("saves_open", tr("OUVRIR LE DOSSIER"), {260, 48}, false, false, 19)) OpenFolder(user_data);
+  ImGui::SetCursorScreenPos({o.x + 48, o.y + 214});
+  if (ImGui::Checkbox(tr("Copie automatique avant chaque lancement (garde les 10 dernières)"), &opt.auto_backup)) SaveOptions();
+
+  d->AddText(ui_font, 18, {o.x + 48, o.y + 262}, kWhite, tr("COPIES DE SÉCURITÉ"));
+  if (backups.empty()) {
+    d->AddText(ui_font, 16, {o.x + 48, o.y + 292}, kMuted, tr("Aucune copie pour l'instant."));
+  }
+  float y = o.y + 292;
+  for (size_t i = 0; i < backups.size() && i < 6; ++i) {
+    const auto& b = backups[i];
+    std::string when = b.name;  // yyyy-mm-dd_hh-mm-ss -> yyyy-mm-dd hh:mm:ss
+    if (when.size() == 19) { when[10] = ' '; when[13] = ':'; when[16] = ':'; }
+    const std::string line = when + "   " + FormatSize(b.bytes);
+    d->AddText(ui_font, 17, {o.x + 48, y + 10}, kWhite, line.c_str());
+    ImGui::SetCursorScreenPos({o.x + 420, y});
+    ImGui::PushID(static_cast<int>(i));
+    if (Tile("restore", tr("RESTAURER"), {170, 38}, false, false, 16)) {
+      if (running) status = tr("Ferme le jeu avant de restaurer une sauvegarde.");
+      else {
+        std::string err;
+        status = saves::RestoreBackup(user_data, b, err) ? tr("Sauvegarde restaurée.")
+                                                          : std::string(tr("Échec de la restauration : ")) + err;
+      }
+      refreshed_at = -100;
+    }
+    ImGui::PopID();
+    y += 44;
+  }
+  if (!status.empty()) d->AddText(ui_font, 17, {o.x + 48, o.y + area.y - 40}, kWhite, status.c_str());
+}
+
 void DrawTextPage(ImDrawList* d, ImVec2 o, ImVec2 area, const char* title, const char* sub, const char* body) {
   Panel(d, o, {o.x + area.x, o.y + area.y});
   SectionTitle(d, {o.x + 40, o.y + 26}, title, sub);
@@ -753,10 +839,7 @@ void DrawUi() {
     ImGui::SetCursorScreenPos({o.x + 48, o.y + 230});
     if (Tile("mods", tr("OUVRIR LE DOSSIER MODS"), {320, 48}, false, true, 19)) OpenFolder(root / L"mods");
   } else if (page == "SAUVEGARDES") {
-    DrawTextPage(d, o, area, tr("SAUVEGARDES"), tr("Données utilisateur"),
-        tr("Sauvegardes et données utilisateur stockées dans\nLocalAppData\\WWE2K15."));
-    ImGui::SetCursorScreenPos({o.x + 48, o.y + 230});
-    if (Tile("saves", tr("OUVRIR LE DOSSIER"), {280, 48}, false, true, 19)) OpenFolder(user_data);
+    DrawSaves(d, o, area);
   } else {
     DrawTextPage(d, o, area, tr("À PROPOS"), "WWE 2K15 PC",
         tr("Portage PC non officiel de WWE 2K15, basé sur ReXGlue.\nAucune donnée du jeu n'est fournie.\n\nSans affiliation avec WWE, 2K ou Yuke's."));
