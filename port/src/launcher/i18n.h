@@ -15,6 +15,23 @@ inline const char* const kKeysQwerty = "Déplacement : W A S D    Stick droit : 
 
 struct Entry { const char* fr; const char* en; const char* de; const char* es; const char* it; };
 inline const Entry kEntries[] = {
+  {"PRÉRÉGLAGE", "PRESET", "VOREINSTELLUNG", "PREAJUSTE", "PRESET"},
+  {"Performance pour les petites configurations, Qualité pour les PC puissants.", "Performance for low-end PCs, Quality for powerful ones.", "Leistung für schwächere PCs, Qualität für starke PCs.", "Rendimiento para equipos modestos, Calidad para PC potentes.", "Prestazioni per PC modesti, Qualità per PC potenti."},
+  {"PERFORMANCE", "PERFORMANCE", "LEISTUNG", "RENDIMIENTO", "PRESTAZIONI"},
+  {"ÉQUILIBRÉ", "BALANCED", "AUSGEWOGEN", "EQUILIBRADO", "BILANCIATO"},
+  {"QUALITÉ", "QUALITY", "QUALITÄT", "CALIDAD", "QUALITÀ"},
+  {"RÉSOLUTION DE RENDU", "RENDER RESOLUTION", "RENDERAUFLÖSUNG", "RESOLUCIÓN DE RENDERIZADO", "RISOLUZIONE DI RENDERING"},
+  {"1x = 720p comme sur Xbox 360. 2x et plus : plus net, bien plus lourd (expérimental).", "1x = 720p like on Xbox 360. 2x and above: sharper, much heavier (experimental).", "1x = 720p wie auf der Xbox 360. Ab 2x: schärfer, deutlich anspruchsvoller (experimentell).", "1x = 720p como en Xbox 360. 2x o más: más nítido, mucho más exigente (experimental).", "1x = 720p come su Xbox 360. Da 2x: più nitido, molto più pesante (sperimentale)."},
+  {"ANTICRÉNELAGE", "ANTI-ALIASING", "KANTENGLÄTTUNG", "ANTIALIASING", "ANTIALIASING"},
+  {"Adoucit les bords en escalier (FXAA).", "Smooths jagged edges (FXAA).", "Glättet gezackte Kanten (FXAA).", "Suaviza los bordes dentados (FXAA).", "Ammorbidisce i bordi seghettati (FXAA)."},
+  {"AFFICHAGE", "DISPLAY", "ANZEIGE", "PANTALLA", "SCHERMO"},
+  {"PLEIN ÉCRAN", "FULLSCREEN", "VOLLBILD", "PANTALLA COMPLETA", "SCHERMO INTERO"},
+  {"FENÊTRE", "WINDOWED", "FENSTER", "VENTANA", "FINESTRA"},
+  {"TAILLE DE LA FENÊTRE", "WINDOW SIZE", "FENSTERGRÖSSE", "TAMAÑO DE VENTANA", "DIMENSIONE FINESTRA"},
+  {"ÉCRAN", "MONITOR", "BILDSCHIRM", "MONITOR", "MONITOR"},
+  {"AUTO", "AUTO", "AUTO", "AUTO", "AUTO"},
+  {"Bandes noires (garder le format 16:9)", "Black bars (keep 16:9)", "Schwarze Balken (16:9 beibehalten)", "Bandas negras (mantener 16:9)", "Bande nere (mantieni il 16:9)"},
+  {"Corrige les écrans noirs des entrées (NVIDIA, Intel).", "Fixes black screens during entrances (NVIDIA, Intel).", "Behebt schwarze Bilder bei den Einzügen (NVIDIA, Intel).", "Corrige las pantallas negras de las entradas (NVIDIA, Intel).", "Corregge le schermate nere degli ingressi (NVIDIA, Intel)."},
   {"Afficher le compteur d'images/s", "Show FPS counter", "FPS-Anzeige einblenden", "Mostrar contador de FPS", "Mostra contatore FPS"},
   {"Dossier du jeu et options de lancement", "Game folder and launch options", "Spielordner und Startoptionen", "Carpeta del juego y opciones de inicio", "Cartella del gioco e opzioni di avvio"},
   {"JOUER", "PLAY", "SPIELEN", "JUGAR", "GIOCA"},

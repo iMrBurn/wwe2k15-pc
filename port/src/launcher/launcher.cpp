@@ -42,7 +42,11 @@ bool disable_obs_vulkan_hook = true;
 // Game options passed to wwe2k15.exe as cvars (saved in launcher-options.ini).
 struct Options {
   bool fullscreen = true;
-  int resolution_scale = 1;   // resolution_scale (1-3)
+  int resolution_scale = 1;   // resolution_scale (1-4)
+  int window_size = 2;        // windowed size index into kWindowSizes
+  int monitor = 0;            // monitor: 0 = default, 1..3
+  int aa = 0;                 // swap_post_effect: 0 none, 1 fxaa, 2 fxaa_extreme
+  bool letterbox = true;      // present_letterbox
   int anisotropic = 3;        // anisotropic_override: 0 off, 2 = 2x, 3 = 4x, 4 = 8x, 5 = 16x
   bool fsi = true;            // render_target_path_vulkan = fsi (fixes entrance black screens)
   bool keyboard = false;      // mnk_mode
@@ -214,7 +218,7 @@ void SaveOptions() {
   if (!out) return;
   out << "fullscreen=" << opt.fullscreen << "\nresolution_scale=" << opt.resolution_scale
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nwindow_size=" << opt.window_size << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\n";
 }
 
 void LoadOptions() {
@@ -226,7 +230,11 @@ void LoadOptions() {
     const std::string k = line.substr(0, eq);
     const int v = std::atoi(line.c_str() + eq + 1);
     if (k == "fullscreen") opt.fullscreen = v != 0;
-    else if (k == "resolution_scale") opt.resolution_scale = std::clamp(v, 1, 3);
+    else if (k == "resolution_scale") opt.resolution_scale = std::clamp(v, 1, 4);
+    else if (k == "window_size") opt.window_size = std::clamp(v, 0, 4);
+    else if (k == "monitor") opt.monitor = std::clamp(v, 0, 3);
+    else if (k == "aa") opt.aa = std::clamp(v, 0, 2);
+    else if (k == "letterbox") opt.letterbox = v != 0;
     else if (k == "anisotropic") opt.anisotropic = std::clamp(v, 0, 5);
     else if (k == "fsi") opt.fsi = v != 0;
     else if (k == "keyboard") opt.keyboard = v != 0;
@@ -247,6 +255,11 @@ void LoadOptions() {
   }
 }
 
+struct WindowSize { int w, h; const char* label; };
+constexpr WindowSize kWindowSizes[] = {
+    {1280, 720, "1280x720"}, {1600, 900, "1600x900"}, {1920, 1080, "1920x1080"},
+    {2560, 1440, "2560x1440"}, {3840, 2160, "3840x2160"}};
+
 std::wstring OptionArgs() {
   auto b = [](bool v) { return std::wstring(v ? L"true" : L"false"); };
   return L" --fullscreen=" + b(opt.fullscreen) +
@@ -257,6 +270,11 @@ std::wstring OptionArgs() {
          L" --user_language=" + std::to_wstring(opt.language) +
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
          L" --wwe2k15_show_fps=" + b(opt.show_fps) +
+         L" --window_width=" + std::to_wstring(kWindowSizes[opt.window_size].w) +
+         L" --window_height=" + std::to_wstring(kWindowSizes[opt.window_size].h) +
+         L" --monitor=" + std::to_wstring(opt.monitor) +
+         L" --swap_post_effect=" + (opt.aa == 2 ? L"fxaa_extreme" : opt.aa == 1 ? L"fxaa" : L"none") +
+         L" --present_letterbox=" + b(opt.letterbox) +
          // The keyboard pad reads layout-dependent virtual keys: on AZERTY move the left stick
          // to Z Q S D and the keys it displaces (LT on Q, Back on Z) elsewhere.
          (opt.keyboard && opt.azerty
@@ -592,42 +610,96 @@ bool Choice(const char* id, ImVec2 pos, const char* const* labels, const int* va
   return changed;
 }
 
+// Graphics presets: 1 performance, 2 balanced, 3 quality; 0 = custom.
+int CurrentPreset() {
+  if (opt.resolution_scale == 1 && opt.anisotropic == 0 && opt.aa == 0) return 1;
+  if (opt.resolution_scale == 1 && opt.anisotropic == 3 && opt.aa == 0) return 2;
+  if (opt.resolution_scale == 2 && opt.anisotropic == 5 && opt.aa == 1) return 3;
+  return 0;
+}
+
+void ApplyPreset(int preset) {
+  switch (preset) {
+    case 1: opt.resolution_scale = 1; opt.anisotropic = 0; opt.aa = 0; break;
+    case 2: opt.resolution_scale = 1; opt.anisotropic = 3; opt.aa = 0; break;
+    case 3: opt.resolution_scale = 2; opt.anisotropic = 5; opt.aa = 1; break;
+  }
+}
+
 void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   Panel(d, o, {o.x + area.x, o.y + area.y});
   SectionTitle(d, {o.x + 40, o.y + 26}, tr("GRAPHISMES"), tr("Appliqués au prochain lancement du jeu"));
-  float y = o.y + 110;
-  auto label = [&](const char* t, const char* help) {
-    d->AddText(ui_font, 18, {o.x + 48, y}, kWhite, t);
-    d->AddText(ui_font, 15, {o.x + 48, y + 24}, kMuted, help);
+  const float col2 = o.x + area.x * 0.5f + 16;
+  auto label = [&](float x, float y, const char* t, const char* help) {
+    d->AddText(ui_font, 18, {x, y}, kWhite, t);
+    if (help) d->AddText(ui_font, 14, {x, y + 23}, kMuted, help);
   };
-  label(tr("RÉSOLUTION INTERNE"), tr("1x = 720p comme sur Xbox 360. 2x et 3x sont plus nets mais bien plus lourds (expérimental)."));
+  // Left column: quality.
+  float y = o.y + 104;
+  label(o.x + 48, y, tr("PRÉRÉGLAGE"), tr("Performance pour les petites configurations, Qualité pour les PC puissants."));
   {
-    static const char* l[] = {"1x", "2x", "3x"};
+    const char* l[] = {tr("PERFORMANCE"), tr("ÉQUILIBRÉ"), tr("QUALITÉ")};
     static const int v[] = {1, 2, 3};
-    if (Choice("res", {o.x + 48, y + 50}, l, v, 3, opt.resolution_scale)) SaveOptions();
+    int preset = CurrentPreset();
+    if (Choice("preset", {o.x + 48, y + 46}, l, v, 3, preset, 170)) { ApplyPreset(preset); SaveOptions(); }
   }
-  y += 116;
-  label(tr("FILTRAGE DES TEXTURES"), tr("Rend le sol et le public plus nets de loin."));
+  y += 106;
+  label(o.x + 48, y, tr("RÉSOLUTION DE RENDU"), tr("1x = 720p comme sur Xbox 360. 2x et plus : plus net, bien plus lourd (expérimental)."));
+  {
+    static const char* l[] = {"1x", "2x", "3x", "4x"};
+    static const int v[] = {1, 2, 3, 4};
+    if (Choice("res", {o.x + 48, y + 46}, l, v, 4, opt.resolution_scale, 110)) SaveOptions();
+  }
+  y += 106;
+  label(o.x + 48, y, tr("FILTRAGE DES TEXTURES"), tr("Rend le sol et le public plus nets de loin."));
   {
     const char* l[] = {tr("AUCUN"), "2x", "4x", "8x", "16x"};
     static const int v[] = {0, 2, 3, 4, 5};
-    if (Choice("aniso", {o.x + 48, y + 50}, l, v, 5, opt.anisotropic)) SaveOptions();
+    if (Choice("aniso", {o.x + 48, y + 46}, l, v, 5, opt.anisotropic, 98)) SaveOptions();
   }
-  y += 116;
-  ImGui::SetCursorScreenPos({o.x + 48, y});
-  if (ImGui::Checkbox(tr("Plein écran"), &opt.fullscreen)) SaveOptions();
-  ImGui::SetCursorScreenPos({o.x + 360, y});
+  y += 106;
+  label(o.x + 48, y, tr("ANTICRÉNELAGE"), tr("Adoucit les bords en escalier (FXAA)."));
+  {
+    const char* l[] = {tr("AUCUN"), "FXAA", "FXAA +"};
+    static const int v[] = {0, 1, 2};
+    if (Choice("aa", {o.x + 48, y + 46}, l, v, 3, opt.aa, 150)) SaveOptions();
+  }
+  // Right column: display.
+  y = o.y + 104;
+  label(col2, y, tr("AFFICHAGE"), nullptr);
+  {
+    const char* l[] = {tr("PLEIN ÉCRAN"), tr("FENÊTRE")};
+    static const int v[] = {1, 0};
+    int fs = opt.fullscreen ? 1 : 0;
+    if (Choice("mode", {col2, y + 30}, l, v, 2, fs, 200)) { opt.fullscreen = fs != 0; SaveOptions(); }
+  }
+  y += 90;
+  label(col2, y, tr("TAILLE DE LA FENÊTRE"), nullptr);
+  {
+    const char* l[] = {"720p", "900p", "1080p", "1440p", "4K"};
+    static const int v[] = {0, 1, 2, 3, 4};
+    if (Choice("wsize", {col2, y + 30}, l, v, 5, opt.window_size, 96)) SaveOptions();
+  }
+  y += 90;
+  label(col2, y, tr("ÉCRAN"), nullptr);
+  {
+    const char* l[] = {tr("AUTO"), "1", "2", "3"};
+    static const int v[] = {0, 1, 2, 3};
+    if (Choice("monitor", {col2, y + 30}, l, v, 4, opt.monitor, 96)) SaveOptions();
+  }
+  y += 94;
+  ImGui::SetCursorScreenPos({col2, y});
+  if (ImGui::Checkbox(tr("Bandes noires (garder le format 16:9)"), &opt.letterbox)) SaveOptions();
+  y += 34;
+  ImGui::SetCursorScreenPos({col2, y});
   if (ImGui::Checkbox(tr("Afficher le compteur d'images/s"), &opt.show_fps)) SaveOptions();
-  y += 40;
-  ImGui::SetCursorScreenPos({o.x + 48, y});
+  y += 34;
+  ImGui::SetCursorScreenPos({col2, y});
   if (ImGui::Checkbox(tr("Rendu précis (FSI)"), &opt.fsi)) SaveOptions();
-  d->AddText(ui_font, 15, {o.x + 76, y + 30}, kMuted,
-             tr("Recommandé : corrige les écrans noirs pendant les entrées. Nécessite une carte NVIDIA ou Intel récente."));
-  y += 70;
-  ImGui::SetCursorScreenPos({o.x + 48, y});
+  d->AddText(ui_font, 14, {col2 + 28, y + 27}, kMuted, tr("Corrige les écrans noirs des entrées (NVIDIA, Intel)."));
+  y += 54;
+  ImGui::SetCursorScreenPos({col2, y});
   if (ImGui::Checkbox(tr("Réduire l'utilisation du processeur (expérimental)"), &opt.cpu_yield)) SaveOptions();
-  d->AddText(ui_font, 15, {o.x + 76, y + 30}, kMuted,
-             tr("Laisse le fil de rendu se reposer pendant qu'il attend la carte graphique. Peut changer la fluidité."));
 }
 
 void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
