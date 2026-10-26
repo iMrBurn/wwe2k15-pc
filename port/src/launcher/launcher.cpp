@@ -37,6 +37,21 @@ ComPtr<IDXGISwapChain> swapchain;
 ComPtr<ID3D11RenderTargetView> target;
 UINT resize_w = 0, resize_h = 0;
 fs::path root, user_data, game_data;
+
+// The game is a folder holding default.xex, or an Xbox 360 disc image (.iso) read in place.
+bool IsIso(const fs::path& p) {
+  std::error_code ec;
+  std::wstring ext = p.extension().wstring();
+  for (auto& c : ext) c = towlower(c);
+  return ext == L".iso" && fs::is_regular_file(p, ec);
+}
+bool ValidGame(const fs::path& p) {
+  std::error_code ec;
+  return !p.empty() && (IsIso(p) || fs::exists(p / L"default.xex", ec));
+}
+// Where the title update and DLC go: the game folder, or game_update\ beside the launcher for a
+// disc image (the game looks there too).
+fs::path Extras() { return IsIso(game_data) ? root / L"game_update" : game_data; }
 std::string page = "JOUER", status;
 HANDLE game_process = nullptr;
 Updater updater;
@@ -127,7 +142,7 @@ void LoadSettings() {
     std::wstring line;
     std::wifstream in(cfg);
     std::getline(in, line);
-    if (!line.empty() && fs::exists(fs::path(line) / L"default.xex", ec)) game_data = line;
+    if (!line.empty() && ValidGame(line)) game_data = line;
     std::getline(in, line);
     if (line == L"0") disable_obs_vulkan_hook = false;
     else if (line == L"1") disable_obs_vulkan_hook = true;
@@ -138,25 +153,27 @@ void LoadSettings() {
                          fs::path(desktop) / L"WWE2K15"}) {
     if (game_data.empty() && fs::exists(p / L"default.xex", ec)) game_data = p;
   }
+  // A disc image put in game\ or beside the launcher.
+  for (const auto& dir : {root / L"game", root})
+    for (const auto& e : fs::directory_iterator(dir, ec))
+      if (game_data.empty() && IsIso(e.path())) game_data = e.path();
   LoadOptions();
 }
 
-bool HasGame() {
-  std::error_code ec;
-  return !game_data.empty() && fs::exists(game_data / L"default.xex", ec);
-}
+bool HasGame() { return ValidGame(game_data); }
 
-// The game is generated from Title Update 4: default.xexp must sit beside default.xex.
+// The game is generated from Title Update 4: default.xexp must sit beside default.xex (or in
+// game_update\ for a disc image).
 bool HasTitleUpdate() {
   std::error_code ec;
-  return HasGame() && fs::exists(game_data / L"default.xexp", ec);
+  return HasGame() && fs::exists(Extras() / L"default.xexp", ec);
 }
 
 int DlcCount() {
   std::error_code ec;
   int count = 0;
   if (HasGame())
-    for (const auto& e : fs::directory_iterator(game_data / L"dlc", ec))
+    for (const auto& e : fs::directory_iterator(Extras() / L"dlc", ec))
       if (e.is_regular_file(ec)) ++count;
   return count;
 }
@@ -173,8 +190,8 @@ bool InstallPackage(const fs::path& file, std::string& msg) {
   if (pkg.title_id != kTitleId) { msg = name + tr(" : ce package n'est pas pour WWE 2K15."); return false; }
   std::error_code ec;
   if (pkg.content_type == stfs::kTypeMarketplace) {
-    fs::create_directories(game_data / L"dlc", ec);
-    fs::copy_file(file, game_data / L"dlc" / file.filename(), fs::copy_options::overwrite_existing, ec);
+    fs::create_directories(Extras() / L"dlc", ec);
+    fs::copy_file(file, Extras() / L"dlc" / file.filename(), fs::copy_options::overwrite_existing, ec);
     msg = ec ? name + tr(" : copie impossible (") + ec.message() + ")."
              : tr("DLC ajouté : ") + pkg.display_name + ".";
     return !ec;
@@ -184,8 +201,8 @@ bool InstallPackage(const fs::path& file, std::string& msg) {
   for (size_t i = 0; i < pkg.entries.size(); ++i) {
     const auto& entry = pkg.entries[i];
     const std::string rel = pkg.PathOf(i);
-    const fs::path dst = rel == "default.xexp" ? game_data / L"default.xexp"
-                                               : game_data / L"update" / fs::path(rel);
+    const fs::path dst = rel == "default.xexp" ? Extras() / L"default.xexp"
+                                               : Extras() / L"update" / fs::path(rel);
     if (entry.directory) { fs::create_directories(dst, ec); continue; }
     fs::create_directories(dst.parent_path(), ec);
     if (!pkg.Extract(entry, dst)) { msg = name + tr(" : extraction échouée pour ") + rel + "."; return false; }
@@ -315,6 +332,35 @@ void OpenFolder(const fs::path& p) {
   std::error_code ec;
   fs::create_directories(p, ec);
   ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void BrowseIso() {
+  IFileDialog* dialog = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                              IID_PPV_ARGS(&dialog)))) return;
+  DWORD options = 0;
+  dialog->GetOptions(&options);
+  dialog->SetOptions(options | FOS_FILEMUSTEXIST);
+  const COMDLG_FILTERSPEC filter[] = {{L"ISO", L"*.iso"}};
+  dialog->SetFileTypes(1, filter);
+  dialog->SetTitle(Widen(tr("Choisis l'image disque (.iso) de WWE 2K15")).c_str());
+  if (SUCCEEDED(dialog->Show(nullptr))) {
+    IShellItem* item = nullptr;
+    if (SUCCEEDED(dialog->GetResult(&item))) {
+      PWSTR path = nullptr;
+      if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+        const fs::path selected(path);
+        if (IsIso(selected)) {
+          game_data = selected;
+          SaveSettings();
+          status = tr("Image disque enregistrée.");
+        } else status = tr("Ce fichier n'est pas une image .iso.");
+        CoTaskMemFree(path);
+      }
+      item->Release();
+    }
+  }
+  dialog->Release();
 }
 
 void BrowseGame() {
@@ -610,16 +656,18 @@ bool Choice(const char* id, ImVec2 pos, const char* const* labels, const int* va
 void DrawSettings(ImDrawList* d, ImVec2 o, ImVec2 area) {
   Panel(d, o, {o.x + area.x, o.y + area.y});
   SectionTitle(d, {o.x + 40, o.y + 26}, tr("RÉGLAGES"), tr("Dossier du jeu et options de lancement"));
-  d->AddText(ui_font, 16, {o.x + 48, o.y + 112}, kMuted, tr("DOSSIER DU JEU XBOX 360 (doit contenir default.xex)"));
+  d->AddText(ui_font, 16, {o.x + 48, o.y + 112}, kMuted, tr("JEU XBOX 360 : DOSSIER (avec default.xex) OU IMAGE ISO"));
   d->AddRectFilled({o.x + 48, o.y + 138}, {o.x + area.x - 48, o.y + 184}, IM_COL32(10, 10, 12, 255));
   const std::string path = game_data.empty() ? std::string(tr("Aucun dossier sélectionné")) : game_data.string();
   d->AddText(ui_font, 18, {o.x + 60, o.y + 150}, game_data.empty() ? kMuted : kWhite, path.c_str());
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 204});
   if (Tile("browse", tr("PARCOURIR…"), {210, 48}, false, true, 20)) BrowseGame();
   ImGui::SetCursorScreenPos({o.x + 280, o.y + 204});
-  if (Tile("save", tr("ENREGISTRER"), {210, 48}, false, false, 20)) { SaveSettings(); status = tr("Réglages enregistrés."); }
-  ImGui::SetCursorScreenPos({o.x + 512, o.y + 204});
+  if (Tile("iso", tr("CHOISIR UNE ISO…"), {230, 48}, false, false, 20)) BrowseIso();
+  ImGui::SetCursorScreenPos({o.x + 532, o.y + 204});
   if (Tile("packages", tr("AJOUTER TU / DLC…"), {260, 48}, false, false, 20)) AddPackages();
+  ImGui::SetCursorScreenPos({o.x + 814, o.y + 204});
+  if (Tile("save", tr("ENREGISTRER"), {200, 48}, false, false, 20)) { SaveSettings(); status = tr("Réglages enregistrés."); }
 
   d->AddText(ui_font, 18, {o.x + 48, o.y + 280}, kWhite, tr("LANGUE"));
   d->AddText(ui_font, 15, {o.x + 48, o.y + 304}, kMuted, tr("Langue du jeu et de ce lanceur."));

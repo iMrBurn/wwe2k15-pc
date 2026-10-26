@@ -229,3 +229,15 @@ All ran with no FATAL and reached their end screens:
   Mesuré (même arène RAW) : match 60 fps, entrées 30 fps ; tenue « ROSE » correcte dans Panoplie.
 - Options de codegen (skip_lr, *_as_local) : avec les huit, blocage au démarrage avant la 1re image (aucune
   ligne « Guest pacing »). Désactivées dans `wwe2k15_config.toml`, à réactiver une par une. Exe 112 → 81 Mo.
+
+## Image disque (.iso) (2026-10-26)
+
+- Demandé par 2-3 joueurs. `rexglue-sdk-disc-image.patch` (repris du port WWE '12) : `game_data_root` peut
+  être un fichier `.iso` (XDVDFS), monté par le `DiscImageDevice` du SDK au lieu d'un `HostPathDevice`.
+- Le code est généré depuis l'image TU4 : avec une ISO, `default.xexp`, `update\` et `dlc\` sont dans
+  `game_update\` à côté de l'exe ; `OnLoadXexImage` superpose ce dossier au disque (overlay VFS) pour que
+  le chargeur trouve `game:\default.xexp`. Le launcher a « CHOISIR UNE ISO… », détecte une `.iso` dans `game\`
+  et installe la TU / les DLC dans `game_update\`.
+- Testé : ISO fabriquée avec `port/tools/dev/make_xiso.py` (sans TU ni DLC, 7,6 Go), TU ajoutée par le
+  launcher, jeu lancé depuis le launcher jusqu'aux écrans de chargement à 60 fps. Pas encore testé avec une
+  ISO de joueur (XGD2/XGD3 à l'offset de partition, gérés par le SDK).

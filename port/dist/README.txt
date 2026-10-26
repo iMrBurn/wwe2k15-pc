@@ -15,6 +15,8 @@ SETUP
 1. Copy your Xbox 360 game files (default.xex, pac, sound, movies...) into the
    "game" folder next to the launcher, or keep them elsewhere and pick the folder
    in the launcher (SETTINGS > BROWSE).
+   A disc image works too: SETTINGS > CHOOSE AN ISO, or put the .iso in "game".
+   With an ISO, the title update and DLC are kept in "game_update" next to the launcher.
 2. Start "WWE 2K15 Launcher.exe".
 3. SETTINGS > ADD TU / DLC...: pick the Title Update 4 file (tu00000004_00000000)
    and, if you own them, your DLC packages (folder 545408B6\00000002).

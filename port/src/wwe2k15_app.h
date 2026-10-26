@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <system_error>
@@ -124,10 +125,24 @@ class Wwe2k15App : public rex::ReXApp {
           break;
         }
       }
+      // Or a disc image (.iso) in game\ or beside the executable, read in place; its title
+      // update and DLC then live in game_update\ beside the executable.
+      for (const auto& dir : {exe_dir / "game", exe_dir}) {
+        if (!paths.game_data_root.empty()) break;
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+          if (entry.is_regular_file(ec) && IsDiscImage(entry.path()) &&
+              std::filesystem::is_regular_file(exe_dir / "game_update" / "default.xexp", ec)) {
+            paths.game_data_root = entry.path();
+            REXLOG_INFO("Using the disc image {}", paths.game_data_root.string());
+            break;
+          }
+        }
+      }
       if (paths.game_data_root.empty()) {
         REXLOG_ERROR("Could not find default.xex with its title update (default.xexp). Put the game folder beside the executable as 'assets' or 'game', or under Desktop\\WWE2K15.");
       }
-    } else {
+    } else if (!IsDiscImage(paths.game_data_root)) {
       std::error_code ec;
       if (!std::filesystem::is_regular_file(paths.game_data_root / "default.xexp", ec)) {
         REXLOG_ERROR("{} has no default.xexp: this build needs WWE 2K15 Title Update 4 beside default.xex.",
@@ -144,6 +159,31 @@ class Wwe2k15App : public rex::ReXApp {
     }
     user_data_root_ = paths.user_data_root;
     game_data_root_ = paths.game_data_root;
+    // Title update and DLC: beside default.xex in a game folder; a disc image cannot hold them,
+    // so they go in game_update\ beside the executable (the launcher installs them there).
+    extras_root_ = IsDiscImage(game_data_root_) ? exe_dir / "game_update" : game_data_root_;
+    if (IsDiscImage(game_data_root_)) {
+      std::error_code ec;
+      if (!std::filesystem::is_regular_file(extras_root_ / "default.xexp", ec)) {
+        REXLOG_ERROR("{} has no default.xexp: this build needs WWE 2K15 Title Update 4 (add it from the launcher).",
+                     extras_root_.string());
+      }
+    }
+  }
+
+  // With a disc image, default.xexp is not beside default.xex on the disc: game_update\ is laid
+  // over the disc (as the mods folder is) before the executable loads, so the loader finds
+  // game:\default.xexp there and applies the title update.
+  void OnLoadXexImage(std::string& xex_image) override {
+    if (!IsDiscImage(game_data_root_)) return;
+    auto* fs = REX_KERNEL_FS();
+    auto device = std::make_unique<rex::filesystem::HostPathDevice>("\\GAMEUPDATE", extras_root_, true);
+    if (!fs || !device->Initialize() || !fs->RegisterDevice(std::move(device))) {
+      REXLOG_ERROR("Unable to mount {} for the disc image", extras_root_.string());
+      return;
+    }
+    fs->RegisterOverlay("\\Device\\Harddisk0\\Partition1", "\\GAMEUPDATE");
+    REXLOG_INFO("Disc image: title update read from {}", extras_root_.string());
   }
 
   // The title reads and writes its Xbox HDD cache (for example EditEx.cac).
@@ -184,7 +224,6 @@ class Wwe2k15App : public rex::ReXApp {
 
   // Override virtual hooks for customization:
   // void OnPostInitLogging() override {}
-  // void OnLoadXexImage(std::string& xex_image) override {}
   // void OnPostLoadXexImage() override {}
   // void OnPostSetup() override {}
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
@@ -201,9 +240,9 @@ class Wwe2k15App : public rex::ReXApp {
   // applies it, and the generated code is built from the patched image); the rest
   // of the TU package (pac/, plist360.*) is read by the title through UPDATE:.
   void MountTitleUpdate() {
-    const auto update_root = game_data_root_ / "update";
+    const auto update_root = extras_root_ / "update";
     std::error_code ec;
-    if (game_data_root_.empty() || !std::filesystem::is_directory(update_root, ec)) {
+    if (extras_root_.empty() || !std::filesystem::is_directory(update_root, ec)) {
       REXLOG_WARN("No title update data folder at {}", update_root.string());
       return;
     }
@@ -245,9 +284,9 @@ class Wwe2k15App : public rex::ReXApp {
   // SDK's content manager into user data, where XContent enumeration finds it.
   void InstallDlcPackages() {
     using rex::X_RESULT;
-    const auto dlc_root = game_data_root_ / "dlc";
+    const auto dlc_root = extras_root_ / "dlc";
     std::error_code ec;
-    if (game_data_root_.empty() || !std::filesystem::is_directory(dlc_root, ec)) {
+    if (extras_root_.empty() || !std::filesystem::is_directory(dlc_root, ec)) {
       return;
     }
     auto* kernel_state = REX_KERNEL_STATE();
@@ -275,7 +314,15 @@ class Wwe2k15App : public rex::ReXApp {
     }
   }
 
+  static bool IsDiscImage(const std::filesystem::path& p) {
+    std::error_code ec;
+    std::string ext = p.extension().string();
+    for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return ext == ".iso" && std::filesystem::is_regular_file(p, ec);
+  }
+
   std::filesystem::path user_data_root_;
   std::filesystem::path game_data_root_;
+  std::filesystem::path extras_root_;  // holds default.xexp, the update folder and the dlc folder
   std::unique_ptr<FpsCounterDialog> fps_counter_;
 };
