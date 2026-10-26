@@ -334,54 +334,38 @@ void OpenFolder(const fs::path& p) {
   ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
-void BrowseIso() {
-  IFileDialog* dialog = nullptr;
-  if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
-                              IID_PPV_ARGS(&dialog)))) return;
-  DWORD options = 0;
-  dialog->GetOptions(&options);
-  dialog->SetOptions(options | FOS_FILEMUSTEXIST);
-  const COMDLG_FILTERSPEC filter[] = {{L"ISO", L"*.iso"}};
-  dialog->SetFileTypes(1, filter);
-  dialog->SetTitle(Widen(tr("Choisis l'image disque (.iso) de WWE 2K15")).c_str());
-  if (SUCCEEDED(dialog->Show(nullptr))) {
-    IShellItem* item = nullptr;
-    if (SUCCEEDED(dialog->GetResult(&item))) {
-      PWSTR path = nullptr;
-      if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-        const fs::path selected(path);
-        if (IsIso(selected)) {
-          game_data = selected;
-          SaveSettings();
-          status = tr("Image disque enregistrée.");
-        } else status = tr("Ce fichier n'est pas une image .iso.");
-        CoTaskMemFree(path);
-      }
-      item->Release();
-    }
-  }
-  dialog->Release();
-}
-
+// One file picker for both kinds of game: default.xex (its folder becomes the game folder) or an
+// .iso (the file itself).
 void BrowseGame() {
   IFileDialog* dialog = nullptr;
   if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
                               IID_PPV_ARGS(&dialog)))) return;
   DWORD options = 0;
   dialog->GetOptions(&options);
-  dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_PATHMUSTEXIST);
-  dialog->SetTitle(Widen(tr("Choisis le dossier contenant default.xex")).c_str());
+  dialog->SetOptions(options | FOS_FILEMUSTEXIST);
+  const std::wstring game_filter = Widen(tr("Jeu Xbox 360 (default.xex, *.iso)"));
+  const std::wstring all_filter = Widen(tr("Tous les fichiers"));
+  const COMDLG_FILTERSPEC filter[] = {{game_filter.c_str(), L"default.xex;*.iso"},
+                                      {all_filter.c_str(), L"*.*"}};
+  dialog->SetFileTypes(2, filter);
+  dialog->SetTitle(Widen(tr("Choisis default.xex ou l'image disque (.iso) de WWE 2K15")).c_str());
   if (SUCCEEDED(dialog->Show(nullptr))) {
     IShellItem* item = nullptr;
     if (SUCCEEDED(dialog->GetResult(&item))) {
       PWSTR path = nullptr;
       if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-        fs::path selected(path);
-        if (fs::exists(selected / L"default.xex")) {
+        const fs::path selected(path);
+        std::wstring name = selected.filename().wstring();
+        for (auto& c : name) c = towlower(c);
+        if (IsIso(selected)) {
           game_data = selected;
           SaveSettings();
+          status = tr("Image disque enregistrée.");
+        } else if (name == L"default.xex") {
+          game_data = selected.parent_path();
+          SaveSettings();
           status = tr("Dossier du jeu enregistré.");
-        } else status = tr("Ce dossier ne contient pas default.xex.");
+        } else status = tr("Ce fichier n'est ni default.xex ni une image .iso.");
         CoTaskMemFree(path);
       }
       item->Release();
@@ -656,17 +640,15 @@ bool Choice(const char* id, ImVec2 pos, const char* const* labels, const int* va
 void DrawSettings(ImDrawList* d, ImVec2 o, ImVec2 area) {
   Panel(d, o, {o.x + area.x, o.y + area.y});
   SectionTitle(d, {o.x + 40, o.y + 26}, tr("RÉGLAGES"), tr("Dossier du jeu et options de lancement"));
-  d->AddText(ui_font, 16, {o.x + 48, o.y + 112}, kMuted, tr("JEU XBOX 360 : DOSSIER (avec default.xex) OU IMAGE ISO"));
+  d->AddText(ui_font, 16, {o.x + 48, o.y + 112}, kMuted, tr("JEU XBOX 360 : FICHIER default.xex OU IMAGE ISO"));
   d->AddRectFilled({o.x + 48, o.y + 138}, {o.x + area.x - 48, o.y + 184}, IM_COL32(10, 10, 12, 255));
-  const std::string path = game_data.empty() ? std::string(tr("Aucun dossier sélectionné")) : game_data.string();
+  const std::string path = game_data.empty() ? std::string(tr("Aucun jeu sélectionné")) : game_data.string();
   d->AddText(ui_font, 18, {o.x + 60, o.y + 150}, game_data.empty() ? kMuted : kWhite, path.c_str());
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 204});
   if (Tile("browse", tr("PARCOURIR…"), {210, 48}, false, true, 20)) BrowseGame();
   ImGui::SetCursorScreenPos({o.x + 280, o.y + 204});
-  if (Tile("iso", tr("CHOISIR UNE ISO…"), {230, 48}, false, false, 20)) BrowseIso();
-  ImGui::SetCursorScreenPos({o.x + 532, o.y + 204});
   if (Tile("packages", tr("AJOUTER TU / DLC…"), {260, 48}, false, false, 20)) AddPackages();
-  ImGui::SetCursorScreenPos({o.x + 814, o.y + 204});
+  ImGui::SetCursorScreenPos({o.x + 562, o.y + 204});
   if (Tile("save", tr("ENREGISTRER"), {200, 48}, false, false, 20)) { SaveSettings(); status = tr("Réglages enregistrés."); }
 
   d->AddText(ui_font, 18, {o.x + 48, o.y + 280}, kWhite, tr("LANGUE"));

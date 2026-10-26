@@ -14,8 +14,8 @@ CONFIGURATION REQUISE
 INSTALLATION
 1. Copie les fichiers de ton jeu Xbox 360 (default.xex, pac, sound, movies...)
    dans le dossier « game » à côté du lanceur. Tu peux aussi les laisser ailleurs
-   et choisir le dossier dans le lanceur (RÉGLAGES > PARCOURIR).
-   Une image disque marche aussi : RÉGLAGES > CHOISIR UNE ISO, ou pose le .iso dans « game ».
+   et choisir le fichier default.xex dans le lanceur (RÉGLAGES > PARCOURIR).
+   Une image disque marche aussi : RÉGLAGES > PARCOURIR et choisis le .iso, ou pose le .iso dans « game ».
    Avec une ISO, la Title Update et les DLC vont dans « game_update » à côté du lanceur.
 2. Lance « WWE 2K15 Launcher.exe ».
 3. RÉGLAGES > AJOUTER TU / DLC… : choisis le fichier de la Title Update 4
