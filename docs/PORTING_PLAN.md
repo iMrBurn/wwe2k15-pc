@@ -280,3 +280,9 @@ All ran with no FATAL and reached their end screens:
   journal garde « frontbuffer 115D6000 1280x720 » (3 mesures sur 3) et l'image est identique. 2K15 ignore le mode
   vidéo, au moins aux menus : le 540p par simple réglage ne marche pas. La suite (patcher les tailles de cibles)
   demanderait beaucoup de sites : pas de chantier sans l'accord de l'utilisateur.
+
+## (Rendu) "BaseHeap::Alloc failed to find contiguous range" is a probe, not a shortage (2026-10-26)
+
+- Every launch logged ~460-600 `[error] [sys] BaseHeap::Alloc failed to find contiguous range` (459 in one burst on the main guest thread right after the pipeline storage load, ~62 more ~40 s later on another thread).
+- One launch to the title screen with `[log.levels] krnl = "trace"` and `--log_noisy=true`: all 459 come from `MmAllocatePhysicalMemoryEx` (physical heap, 64 KB pages, min=0 max=0xffffffff, align 0x10000). The game asks for 0x1e000000 (480 MB), then drops 1 MB per refusal until a size fits (0x2a00000 = 42 MB), then frees that block at once (`MmFreePhysicalMemory`): it measures the largest free physical block. The 0 return is handled by the game. No `NtAllocateVirtualMemory` failed. The second burst was not traced (after the measurement window), probably the same probe.
+- Fix: `rexglue-sdk-log-noise.patch` now logs this miss at debug (as it already did for the sibling messages); new `rexglue-sdk-alloc-fail-warning.patch` logs one warning, the first time `NtAllocateVirtualMemory` really fails, so a real shortage on a tester's PC is still visible. SDK rebuilt and installed, game relinked; not run after the change (check the next log: the error lines should be gone).
