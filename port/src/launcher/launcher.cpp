@@ -24,6 +24,7 @@
 #include "i18n.h"
 #include "saves.h"
 #include "stfs.h"
+#include "updater.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 using Microsoft::WRL::ComPtr;
@@ -38,6 +39,7 @@ UINT resize_w = 0, resize_h = 0;
 fs::path root, user_data, game_data;
 std::string page = "JOUER", status;
 HANDLE game_process = nullptr;
+Updater updater;
 fs::file_time_type launch_time{};
 bool disable_obs_vulkan_hook = true;
 
@@ -345,6 +347,7 @@ void LaunchGame() {
     return;
   }
   if (game_process) { CloseHandle(game_process); game_process = nullptr; }
+  if (updater.Busy()) { status = tr("Attends la fin de la mise à jour."); return; }
   const fs::path exe = root / L"wwe2k15.exe";
   if (!fs::exists(exe)) { status = tr("wwe2k15.exe est introuvable : reconstruis le projet."); return; }
   if (!HasGame()) { status = tr("Sélectionne le dossier qui contient default.xex."); page = "RÉGLAGES"; return; }
@@ -542,7 +545,7 @@ void DrawFooter(ImDrawList* d, ImVec2 size) {
 #ifndef WWE2K15_VERSION
 #define WWE2K15_VERSION "dev"
 #endif
-  const std::string ver_text = std::string("v" WWE2K15_VERSION "  ·  ") + tr("Beta de développement");
+  const std::string ver_text = std::string("v" WWE2K15_VERSION);
   const char* ver = ver_text.c_str();
   d->AddText(ui_font, 15, {size.x - TextW(ui_font, 15, ver) - 44, size.y - 32}, kMuted, ver);
 }
@@ -576,6 +579,12 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (Tile("logs", tr("JOURNAUX"), {190, 52}, false, false, 20)) OpenFolder(root / L"logs");
 
   if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 416}, kWhite, status.c_str());
+  if (const std::string latest = updater.AvailableVersion(); !latest.empty()) {
+    const std::string notice = tr("Mise à jour disponible : ") + latest;
+    d->AddText(ui_font, 17, {o.x + 48, o.y + area.y - 92}, kGold, notice.c_str());
+    ImGui::SetCursorScreenPos({o.x + 48, o.y + area.y - 66});
+    if (Tile("update_go", tr("VOIR LA MISE À JOUR"), {260, 40}, false, false, 17)) page = "À PROPOS";
+  }
   if (!running) {
     static fs::path report;
     static double checked_at = -100;
@@ -919,6 +928,22 @@ void DrawUi() {
     ImGui::SetCursorScreenPos({o.x + 48, o.y + 250});
     if (Tile("gh", tr("DÉPÔT GITHUB"), {250, 48}, false, true, 19))
       ShellExecuteW(nullptr, L"open", L"https://github.com/iMrBurn/wwe2k15-pc", nullptr, nullptr, SW_SHOWNORMAL);
+    d->AddText(ui_font, 18, {o.x + 48, o.y + 322}, kWhite, tr("MISES À JOUR"));
+    const std::string current = std::string(tr("Version installée : ")) + WWE2K15_VERSION;
+    d->AddText(ui_font, 15, {o.x + 48, o.y + 346}, kMuted, current.c_str());
+    ImGui::SetCursorScreenPos({o.x + 48, o.y + 376});
+    ImGui::BeginGroup();
+    ImGui::PushTextWrapPos(o.x + area.x - 48);
+    const UpdaterTexts texts{tr("Recherche d'une mise à jour..."), tr("Tu as la dernière version."),
+                             tr("Nouvelle version disponible :"), tr("INSTALLER LA MISE À JOUR"),
+                             tr("Impossible de vérifier les mises à jour (pas d'internet ?)."),
+                             tr("Vérifier maintenant"), tr("Vérifier au démarrage"),
+                             tr("Téléchargement..."), tr("La mise à jour a échoué :"),
+                             tr("Inclure les versions bêta"),
+                             tr("Ferme le jeu avant d'installer la mise à jour.")};
+    updater.Draw(texts);
+    ImGui::PopTextWrapPos();
+    ImGui::EndGroup();
   }
   DrawFooter(d, size);
   ImGui::End();
@@ -937,6 +962,7 @@ LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   root = ExeDir(); LoadSettings();
+  updater.Start(root);
   HICON icon = LoadIconW(instance, MAKEINTRESOURCEW(1));
   WNDCLASSEXW wc{sizeof(wc), CS_CLASSDC, WndProc, 0, 0, instance, icon, nullptr, nullptr, nullptr,
                  L"WWE2K15Launcher", icon};
@@ -967,6 +993,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   bool done=false;
   while (!done) {
     MSG msg; while (PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); if(msg.message==WM_QUIT) done=true; }
+    if (updater.RestartRequested()) done = true;  // the updated launcher is starting
     if(done) break;
     // Idle cheaply: nothing to draw while minimised, and only a slow refresh while the game runs.
     if (IsIconic(hwnd)) { Sleep(150); continue; }
@@ -976,6 +1003,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     const float bg[]={.035f,.035f,.04f,1}; context->OMSetRenderTargets(1,target.GetAddressOf(),nullptr); context->ClearRenderTargetView(target.Get(),bg);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); swapchain->Present(1,0);
   }
+  updater.Shutdown();
   ImGui_ImplDX11_Shutdown(); ImGui_ImplWin32_Shutdown(); ImGui::DestroyContext();
   target.Reset(); swapchain.Reset(); context.Reset(); device.Reset(); DestroyWindow(hwnd); UnregisterClassW(wc.lpszClassName,wc.hInstance);
   if (game_process) CloseHandle(game_process);

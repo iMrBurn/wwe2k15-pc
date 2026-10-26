@@ -15,6 +15,22 @@ inline const char* const kKeysQwerty = "Déplacement : W A S D    Stick droit : 
 
 struct Entry { const char* fr; const char* en; const char* de; const char* es; const char* it; };
 inline const Entry kEntries[] = {
+  {"Attends la fin de la mise à jour.", "Wait for the update to finish.", "Warte, bis das Update fertig ist.", "Espera a que termine la actualización.", "Attendi la fine dell'aggiornamento."},
+  {"Mise à jour disponible : ", "Update available: ", "Update verfügbar: ", "Actualización disponible: ", "Aggiornamento disponibile: "},
+  {"VOIR LA MISE À JOUR", "SEE THE UPDATE", "UPDATE ANSEHEN", "VER LA ACTUALIZACIÓN", "VEDI L'AGGIORNAMENTO"},
+  {"MISES À JOUR", "UPDATES", "UPDATES", "ACTUALIZACIONES", "AGGIORNAMENTI"},
+  {"Version installée : ", "Installed version: ", "Installierte Version: ", "Versión instalada: ", "Versione installata: "},
+  {"Recherche d'une mise à jour...", "Checking for updates...", "Suche nach Updates...", "Buscando actualizaciones...", "Ricerca aggiornamenti..."},
+  {"Tu as la dernière version.", "You have the latest version.", "Du hast die neueste Version.", "Tienes la última versión.", "Hai l'ultima versione."},
+  {"Nouvelle version disponible :", "New version available:", "Neue Version verfügbar:", "Nueva versión disponible:", "Nuova versione disponibile:"},
+  {"INSTALLER LA MISE À JOUR", "INSTALL THE UPDATE", "UPDATE INSTALLIEREN", "INSTALAR LA ACTUALIZACIÓN", "INSTALLA L'AGGIORNAMENTO"},
+  {"Impossible de vérifier les mises à jour (pas d'internet ?).", "Could not check for updates (no internet?).", "Updates konnten nicht geprüft werden (kein Internet?).", "No se pudieron buscar actualizaciones (¿sin internet?).", "Impossibile cercare aggiornamenti (niente internet?)."},
+  {"Vérifier maintenant", "Check now", "Jetzt prüfen", "Comprobar ahora", "Controlla ora"},
+  {"Vérifier au démarrage", "Check at startup", "Beim Start prüfen", "Comprobar al iniciar", "Controlla all'avvio"},
+  {"Téléchargement...", "Downloading...", "Wird heruntergeladen...", "Descargando...", "Download in corso..."},
+  {"La mise à jour a échoué :", "The update failed:", "Das Update ist fehlgeschlagen:", "La actualización falló:", "L'aggiornamento non è riuscito:"},
+  {"Inclure les versions bêta", "Include beta versions", "Beta-Versionen einbeziehen", "Incluir versiones beta", "Includi le versioni beta"},
+  {"Ferme le jeu avant d'installer la mise à jour.", "Close the game before installing the update.", "Schließe das Spiel, bevor du das Update installierst.", "Cierra el juego antes de instalar la actualización.", "Chiudi il gioco prima di installare l'aggiornamento."},
   {"720p : l'image d'origine du jeu. Au-dessus : plus net, plus lourd pour la carte graphique.", "720p: the game's original image. Higher: sharper, heavier on the graphics card.", "720p: das Originalbild des Spiels. Höher: schärfer, mehr Last für die Grafikkarte.", "720p: la imagen original del juego. Más alto: más nítido, más carga para la tarjeta gráfica.", "720p: l'immagine originale del gioco. Più alto: più nitido, più pesante per la scheda grafica."},
   {"RÉSOLUTION", "RESOLUTION", "AUFLÖSUNG", "RESOLUCIÓN", "RISOLUZIONE"},
   {"Remplace des fichiers du jeu sans le modifier", "Replace game files without modifying the game", "Ersetzt Spieldateien, ohne das Spiel zu verändern", "Sustituye archivos del juego sin modificarlo", "Sostituisce file del gioco senza modificarlo"},
