@@ -286,3 +286,18 @@ All ran with no FATAL and reached their end screens:
 - Every launch logged ~460-600 `[error] [sys] BaseHeap::Alloc failed to find contiguous range` (459 in one burst on the main guest thread right after the pipeline storage load, ~62 more ~40 s later on another thread).
 - One launch to the title screen with `[log.levels] krnl = "trace"` and `--log_noisy=true`: all 459 come from `MmAllocatePhysicalMemoryEx` (physical heap, 64 KB pages, min=0 max=0xffffffff, align 0x10000). The game asks for 0x1e000000 (480 MB), then drops 1 MB per refusal until a size fits (0x2a00000 = 42 MB), then frees that block at once (`MmFreePhysicalMemory`): it measures the largest free physical block. The 0 return is handled by the game. No `NtAllocateVirtualMemory` failed. The second burst was not traced (after the measurement window), probably the same probe.
 - Fix: `rexglue-sdk-log-noise.patch` now logs this miss at debug (as it already did for the sibling messages); new `rexglue-sdk-alloc-fail-warning.patch` logs one warning, the first time `NtAllocateVirtualMemory` really fails, so a real shortage on a tester's PC is still visible. SDK rebuilt and installed, game relinked; not run after the change (check the next log: the error lines should be gone).
+
+## Petit processeur simulé (2026-10-26, Perf)
+
+- Affinité posée par `(Get-Process wwe2k15).ProcessorAffinity` après le lancement (`start /affinity` n'a eu aucun
+  effet : masque resté FFFF). Scripts : `port/tools/dev/smallcpu.sh <tag> <masque> <exe dir>` (démo),
+  `AFF=<masque> bash ab3.sh|loadsample.sh ...`.
+- PC de test (RTX 5070 Ti, cœurs rapides). Démo de l'écran titre : 8+ cœurs 60 fps ; 4 cœurs 60 fps (écart max
+  19-33 ms) ; 2 cœurs 48-59 fps, un écart de 354 ms.
+- Match complet (ab3), 4 cœurs : entrée 30 fps, match 60 fps, écarts 18-33 ms, comme sans limite. 2 cœurs : entrée
+  30 fps avec pointes de 235 ms, début de match 50-59 fps avec écarts de 33-35 ms, une pointe de 394 ms à la
+  transition.
+- CPU par fil en match : « GPU Commands » 45 % (4 cœurs) / 52 % (2 cœurs) d'un cœur, le plus lourd de loin ; puis
+  trois fils du jeu à 12-16 % chacun, audio ~3 %. Total ~100-120 % d'un cœur. Sur un vrai petit processeur
+  (cœurs 2x plus lents), « GPU Commands » approcherait 100 % d'un cœur : il serait le goulot, car il est
+  séquentiel. Piste principale : alléger ce fil (SDK `command_processor`, UpdateBindings, IssueDraw).
