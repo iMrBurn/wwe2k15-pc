@@ -9,8 +9,10 @@ longjmp_address = 0x833B8DD0  # base 0x833AF5D0
 # Optimisations du code généré (comme XenonRecomp / Unleashed Recompiled) : les registres PPC
 # deviennent des variables locales C++ que le compilateur garde dans les registres du PC.
 # non_volatile_as_local suppose que setjmp/longjmp ci-dessus restaurent bien le contexte.
-# DÉSACTIVÉES le 2026-10-26 : avec les huit options, le jeu se bloque au démarrage avant la
-# première image. À réactiver une par une pour trouver la fautive.
+# Essais du 2026-10-26 (match de démo 1 contre 1, 60 fps) : non_argument_as_local bloque le
+# démarrage (probablement r11/r12 passés aux helpers __savegpr/__restgpr du compilateur Xbox) ; les autres
+# démarrent mais ne changent pas le temps processeur (78 % sans, 79-82 % avec : le contexte est déjà
+# __restrict). Laissées désactivées ; skip_lr n'a pas été essayée seule.
 # skip_lr = true
 # skip_msr = true
 # ctr_as_local = true
