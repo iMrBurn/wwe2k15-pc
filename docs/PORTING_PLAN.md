@@ -317,3 +317,20 @@ Demo match from the title screen (`port/tools/dev/gpu_matrix.sh`, `gpu_compare.s
 - Cold shader cache (exe copy with an empty `cache\`): FSI held 60 fps, 229 pipelines built during the run; host path dipped to 55-58 fps with ~34 ms gaps and built 418 pipelines (the host path needs about twice as many pipeline variants). `skipped for pending shaders` stayed 0 in every run; the demo only covers an easy scene, so this is a lower bound.
 - Host path visual check (NVIDIA): entrances (see section above), match in RAW, and Superstar Threads attire (Adam Rose, clean, not scrambled) are correct. Victory scene and shadows were not compared side by side.
 - Caches are per path (`545408B6.fsi.vk.xpso` / `.fbo.vk.xpso`): switching path restarts from a cold cache for that path.
+
+## « GPU Commands » allégé : jeux de textures et constantes (2026-10-26, Perf)
+
+- `rexglue-sdk-descriptor-reuse.patch` : (1) `UpdateBindings` réécrivait à chaque dessin les jeux de descripteurs
+  textures/échantillonneurs (TODO d'origine « Reuse texture and sampler bindings if not changed ») ; il compare
+  maintenant les vues/échantillonneurs au dernier jeu écrit de l'image et ne réécrit que s'ils changent (oublié à
+  l'ouverture de chaque image). (2) La copie des constantes flottantes des shaders se fait par séries de
+  constantes consécutives (un memcpy par série) au lieu d'un par constante ; sortie identique octet pour octet.
+- Échantillon (match, 2 cœurs) : après le correctif 1, les lignes chaudes de `UpdateBindings` étaient la copie des
+  constantes du vertex shader (ce qui a mené au correctif 2) ; viennent ensuite `ExecutePacket`,
+  `UpdateSystemConstantValues`, `IssueDraw`, `log::gpu`.
+- Mesures, 2 cœurs, match 1v1 : « GPU Commands » 52,4 % → 47 % d'un cœur, total 126 % → 119 %. Sans limite :
+  GPU Commands 38,9 %, total 96 % (avant ~41 % / ~100 %), 60 fps match / 30 fps entrées, aucune perte de
+  périphérique. L'image est identique à l'œil (arène RAW : textures, foule, ring corrects). Gain réel mais
+  modeste (~10 % du fil) : bruit de mesure ±3 points.
+- Reste à voir : `rex::log::gpu` apparaît dans les échantillons (journal à gpu = info ?), `ExecutePacket`,
+  `UpdateSystemConstantValues`.
