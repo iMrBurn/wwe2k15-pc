@@ -679,7 +679,7 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
     if (Choice("preset", {o.x + 48, y + 46}, l, v, 3, preset, 170)) { ApplyPreset(preset); SaveOptions(); }
   }
   y += 106;
-  label(o.x + 48, y, tr("RÉSOLUTION"), tr("720p comme sur Xbox 360. Au-dessus : plus net, plus lourd pour la carte graphique."));
+  label(o.x + 48, y, tr("RÉSOLUTION"), tr("720p : l'image d'origine du jeu. Au-dessus : plus net, plus lourd pour la carte graphique."));
   {
     static const char* l[] = {"720p", "1080p", "1440p", "4K"};
     static const int v[] = {720, 1080, 1440, 2160};

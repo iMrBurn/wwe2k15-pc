@@ -29,8 +29,9 @@ if ($Sdk) {
     if (-not (Test-Path "out\build\win-amd64\CMakeCache.txt")) {
       cmake --preset win-amd64 -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
         -DREXGLUE_USE_VULKAN=ON -DREXGLUE_ENABLE_TRACY=OFF "-DCMAKE_INSTALL_PREFIX=$install" `
-        "-DCMAKE_C_FLAGS=/clang:-march=x86-64-v3 /clang:-Wno-everything" `
-        "-DCMAKE_CXX_FLAGS=/EHsc /Zc:char8_t- /clang:-march=x86-64-v3 /clang:-Wno-everything"
+        "-DCMAKE_C_FLAGS=/clang:-march=x86-64-v2 /clang:-Wno-everything /Z7" `
+        "-DCMAKE_CXX_FLAGS=/EHsc /Zc:char8_t- /clang:-march=x86-64-v2 /clang:-Wno-everything /Z7" `
+        "-DCMAKE_SHARED_LINKER_FLAGS=/machine:x64 /DEBUG /OPT:REF /OPT:ICF"
       if ($LASTEXITCODE) { throw "SDK configure failed" }
     }
     cmake --build out/build/win-amd64 --config Release; if ($LASTEXITCODE) { throw "SDK build failed" }

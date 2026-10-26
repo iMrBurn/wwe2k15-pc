@@ -202,3 +202,13 @@ All ran with no FATAL and reached their end screens:
   200 % → 115 %, écart max 20,4 → 18,6 ms. Le fil de rendu (XThread F8000058) passe de ~92 % à ~1 %.
 - Reste : « GPU Commands » ~53 % d'un cœur en match (fil du SDK) ; chargements (le budget du chargeur de WWE '12,
   sub_82819258, n'a pas d'équivalent évident dans 2K15 : à chercher en échantillonnant un chargement).
+- Processeurs : le jeu et le SDK sont compilés en `x86-64-v2` (SSE4.2, processeurs de 2009 et après) au lieu de
+  `x86-64-v3` (AVX2), qui aurait planté au lancement sur les vieux processeurs et certains Pentium/Celeron. Aucune
+  instruction AVX écrite à la main dans le SDK ni le code généré. Mesuré en match : 113 % d'un cœur (v2) contre
+  115 % (v3), 60 fps. Le SDK produit maintenant ses PDB (`/Z7`, `/DEBUG /OPT:REF /OPT:ICF`, même code).
+- « GPU Commands » échantillonné en match (PDB + llvm-symbolizer) : 35 % d'attente, puis WriteRegister (~15 %),
+  UpdateBindings (7 %), IssueDraw. `rexglue-sdk-gpu-register-writes.patch` : les paquets type 0 consécutifs
+  passent par WriteRegisterRangeFromRing (copie groupée des constantes de shaders) et la recherche du registre
+  inconnu n'est faite que si le journal gpu est en debug. GPU Commands 52 % → 41 %, jeu 112 % → 100 %, 60 fps.
+- Textes : `src/text_hook.cpp` crochète l'inflate du jeu (sub_82B529A0) et remplace « console Xbox 360 » par
+  « PC » dans les 5 langues (23 textes au démarrage, vérifié à l'écran en français). Xbox Live / Store inchangés.

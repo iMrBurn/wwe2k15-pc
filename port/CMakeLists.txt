@@ -20,6 +20,7 @@ set(WWE2K15_SOURCES
     src/render_wait_hook.cpp
     src/framerate_hook.cpp
     src/crash_report.cpp
+    src/text_hook.cpp
 )
 
 if(WIN32)
