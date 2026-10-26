@@ -38,6 +38,7 @@ UINT resize_w = 0, resize_h = 0;
 fs::path root, user_data, game_data;
 std::string page = "JOUER", status;
 HANDLE game_process = nullptr;
+fs::file_time_type launch_time{};
 bool disable_obs_vulkan_hook = true;
 
 // Game options passed to wwe2k15.exe as cvars (saved in launcher-options.ini).
@@ -49,6 +50,7 @@ struct Options {
   int aa = 0;                 // swap_post_effect: 0 none, 1 fxaa, 2 fxaa_extreme
   bool letterbox = true;      // present_letterbox
   bool auto_backup = true;    // back up saves before each launch (keeps 10)
+  bool mods = true;           // wwe2k15_mods
   int anisotropic = 3;        // anisotropic_override: 0 off, 2 = 2x, 3 = 4x, 4 = 8x, 5 = 16x
   bool fsi = true;            // render_target_path_vulkan = fsi (fixes entrance black screens)
   bool keyboard = false;      // mnk_mode
@@ -230,7 +232,7 @@ void SaveOptions() {
   if (!out) return;
   out << "fullscreen=" << opt.fullscreen << "\nresolution_scale=" << opt.resolution_scale
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nwindow_size=" << opt.window_size << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nwindow_size=" << opt.window_size << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
 void LoadOptions() {
@@ -248,6 +250,7 @@ void LoadOptions() {
     else if (k == "aa") opt.aa = std::clamp(v, 0, 2);
     else if (k == "letterbox") opt.letterbox = v != 0;
     else if (k == "auto_backup") opt.auto_backup = v != 0;
+    else if (k == "mods") opt.mods = v != 0;
     else if (k == "anisotropic") opt.anisotropic = std::clamp(v, 0, 5);
     else if (k == "fsi") opt.fsi = v != 0;
     else if (k == "keyboard") opt.keyboard = v != 0;
@@ -288,6 +291,7 @@ std::wstring OptionArgs() {
          L" --monitor=" + std::to_wstring(opt.monitor) +
          L" --swap_post_effect=" + (opt.aa == 2 ? L"fxaa_extreme" : opt.aa == 1 ? L"fxaa" : L"none") +
          L" --present_letterbox=" + b(opt.letterbox) +
+         L" --wwe2k15_mods=" + b(opt.mods) +
          // The keyboard pad reads layout-dependent virtual keys: on AZERTY move the left stick
          // to Z Q S D and the keys it displaces (LT on Q, Back on Z) elsewhere.
          (opt.keyboard && opt.azerty
@@ -347,6 +351,7 @@ void LaunchGame() {
   if (!HasGame()) { status = tr("Sélectionne le dossier qui contient default.xex."); page = "RÉGLAGES"; return; }
   if (!HasTitleUpdate()) { status = tr("Ajoute la Title Update 4 (RÉGLAGES > AJOUTER TU / DLC)."); page = "RÉGLAGES"; return; }
   SaveSettings();
+  launch_time = fs::file_time_type::clock::now();
   if (opt.auto_backup) {
     std::string err;
     if (saves::CreateBackup(user_data, err)) saves::PruneBackups(user_data, 10);
@@ -543,6 +548,8 @@ void DrawFooter(ImDrawList* d, ImVec2 size) {
   d->AddText(ui_font, 15, {size.x - TextW(ui_font, 15, ver) - 44, size.y - 32}, kMuted, ver);
 }
 
+fs::path NewestReport();
+
 void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   UpdateGameProcess();
   Panel(d, o, {o.x + area.x, o.y + area.y});
@@ -570,6 +577,18 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (Tile("logs", tr("JOURNAUX"), {190, 52}, false, false, 20)) OpenFolder(root / L"logs");
 
   if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 416}, kWhite, status.c_str());
+  if (!running) {
+    static fs::path report;
+    static double checked_at = -100;
+    if (ImGui::GetTime() - checked_at > 2.0) { report = NewestReport(); checked_at = ImGui::GetTime(); }
+    if (!report.empty()) {
+      d->AddText(ui_font, 17, {o.x + 48, o.y + 452}, kGold,
+                 tr("Un rapport de plantage ou de gel a été créé. Envoie-le avec ton signalement."));
+      ImGui::SetCursorScreenPos({o.x + 48, o.y + 480});
+      if (Tile("report", tr("OUVRIR LE RAPPORT"), {260, 44}, false, false, 18))
+        ShellExecuteW(nullptr, L"open", report.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+  }
   d->AddText(ui_font, 15, {o.x + 48, o.y + area.y - 30}, kMuted,
              tr("Aucune donnée du jeu n'est incluse. Une copie légale du jeu est requise."));
 }
@@ -801,6 +820,71 @@ void DrawSaves(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (!status.empty()) d->AddText(ui_font, 17, {o.x + 48, o.y + area.y - 40}, kWhite, status.c_str());
 }
 
+// Newest crash/freeze report written since the last launch, if any.
+fs::path NewestReport() {
+  fs::path best;
+  fs::file_time_type best_time{};
+  std::error_code ec;
+  if (launch_time == fs::file_time_type{}) return best;
+  for (const auto& e : fs::directory_iterator(root / L"logs", ec)) {
+    const std::wstring n = e.path().filename().wstring();
+    if (e.path().extension() != L".txt" || (n.rfind(L"crash_", 0) != 0 && n.rfind(L"freeze_", 0) != 0)) continue;
+    const auto t = e.last_write_time(ec);
+    if (t >= launch_time && t > best_time) { best = e.path(); best_time = t; }
+  }
+  return best;
+}
+
+void DrawMods(ImDrawList* d, ImVec2 o, ImVec2 area) {
+  static std::vector<std::string> files;
+  static size_t total = 0;
+  static double refreshed_at = -100;
+  const fs::path mods = root / L"mods";
+  if (ImGui::GetTime() - refreshed_at > 3.0) {
+    files.clear();
+    total = 0;
+    std::error_code ec;
+    for (const auto& e : fs::recursive_directory_iterator(mods, ec)) {
+      if (!e.is_regular_file(ec)) continue;
+      const auto name = e.path().filename();
+      if (name == L"LISEZMOI.txt" || name == L"README.txt") continue;
+      ++total;
+      if (files.size() < 10) files.push_back(fs::relative(e.path(), mods, ec).string());
+    }
+    refreshed_at = ImGui::GetTime();
+  }
+  Panel(d, o, {o.x + area.x, o.y + area.y});
+  SectionTitle(d, {o.x + 40, o.y + 26}, tr("MODS"), tr("Remplace des fichiers du jeu sans le modifier"));
+  d->AddText(ui_font, 16, {o.x + 48, o.y + 106}, kWhite,
+             tr("Place un fichier dans le dossier mods au même chemin que dans le jeu, par exemple\nmods\\pac\\menu\\menu.pac : il remplace l'original au prochain lancement."),
+             nullptr, area.x - 96);
+  ImGui::SetCursorScreenPos({o.x + 48, o.y + 164});
+  if (Tile("mods_open", tr("OUVRIR LE DOSSIER MODS"), {320, 48}, false, true, 19)) {
+    std::error_code ec;
+    fs::create_directories(mods, ec);
+    const fs::path readme = mods / L"LISEZMOI.txt";
+    if (!fs::exists(readme, ec)) {
+      std::ofstream r(readme);
+      r << "Place ici les fichiers qui remplacent ceux du jeu, au meme chemin.\n"
+           "Exemple : mods\\pac\\menu\\menu.pac remplace pac\\menu\\menu.pac.\n"
+           "Put replacement files here, at the same path as in the game.\n";
+    }
+    OpenFolder(mods);
+  }
+  ImGui::SetCursorScreenPos({o.x + 400, o.y + 176});
+  if (ImGui::Checkbox(tr("Activer les mods"), &opt.mods)) SaveOptions();
+  const std::string count = total ? std::to_string(total) + tr(" fichier(s) de mod trouvé(s) :") : std::string(tr("Aucun mod installé."));
+  d->AddText(ui_font, 18, {o.x + 48, o.y + 236}, kWhite, count.c_str());
+  float y = o.y + 266;
+  for (const auto& f : files) {
+    d->AddText(ui_font, 15, {o.x + 64, y}, kMuted, f.c_str());
+    y += 22;
+  }
+  if (total > files.size()) d->AddText(ui_font, 15, {o.x + 64, y}, kMuted, "...");
+  d->AddText(ui_font, 14, {o.x + 48, o.y + area.y - 36}, kMuted,
+             tr("Ne partage pas de fichiers du jeu d'origine. Retire un mod en supprimant son fichier."));
+}
+
 void DrawTextPage(ImDrawList* d, ImVec2 o, ImVec2 area, const char* title, const char* sub, const char* body) {
   Panel(d, o, {o.x + area.x, o.y + area.y});
   SectionTitle(d, {o.x + 40, o.y + 26}, title, sub);
@@ -834,10 +918,7 @@ void DrawUi() {
   else if (page == "GRAPHISMES") DrawGraphics(d, o, area);
   else if (page == "CONTRÔLES") DrawControls(d, o, area);
   else if (page == "MODS") {
-    DrawTextPage(d, o, area, tr("MODS"), tr("Préparation"),
-        tr("Espace de préparation des mods.\nLe remplacement de fichiers n'est pas encore activé dans cette beta."));
-    ImGui::SetCursorScreenPos({o.x + 48, o.y + 230});
-    if (Tile("mods", tr("OUVRIR LE DOSSIER MODS"), {320, 48}, false, true, 19)) OpenFolder(root / L"mods");
+    DrawMods(d, o, area);
   } else if (page == "SAUVEGARDES") {
     DrawSaves(d, o, area);
   } else {

@@ -15,6 +15,14 @@ inline const char* const kKeysQwerty = "Déplacement : W A S D    Stick droit : 
 
 struct Entry { const char* fr; const char* en; const char* de; const char* es; const char* it; };
 inline const Entry kEntries[] = {
+  {"Remplace des fichiers du jeu sans le modifier", "Replace game files without modifying the game", "Ersetzt Spieldateien, ohne das Spiel zu verändern", "Sustituye archivos del juego sin modificarlo", "Sostituisce file del gioco senza modificarlo"},
+  {"Place un fichier dans le dossier mods au même chemin que dans le jeu, par exemple\nmods\\pac\\menu\\menu.pac : il remplace l'original au prochain lancement.", "Put a file in the mods folder at the same path as in the game, for example\nmods\\pac\\menu\\menu.pac: it replaces the original at the next launch.", "Lege eine Datei im mods-Ordner unter demselben Pfad wie im Spiel ab, z. B.\nmods\\pac\\menu\\menu.pac: Sie ersetzt beim nächsten Start das Original.", "Coloca un archivo en la carpeta mods con la misma ruta que en el juego, por ejemplo\nmods\\pac\\menu\\menu.pac: sustituye al original en el próximo inicio.", "Metti un file nella cartella mods allo stesso percorso del gioco, ad esempio\nmods\\pac\\menu\\menu.pac: sostituisce l'originale al prossimo avvio."},
+  {"Activer les mods", "Enable mods", "Mods aktivieren", "Activar mods", "Attiva le mod"},
+  {" fichier(s) de mod trouvé(s) :", " mod file(s) found:", " Mod-Datei(en) gefunden:", " archivo(s) de mod encontrados:", " file mod trovati:"},
+  {"Aucun mod installé.", "No mods installed.", "Keine Mods installiert.", "No hay mods instalados.", "Nessuna mod installata."},
+  {"Ne partage pas de fichiers du jeu d'origine. Retire un mod en supprimant son fichier.", "Do not share original game files. Remove a mod by deleting its file.", "Teile keine Originaldateien des Spiels. Entferne eine Mod, indem du ihre Datei löschst.", "No compartas archivos originales del juego. Quita un mod borrando su archivo.", "Non condividere file originali del gioco. Rimuovi una mod eliminando il suo file."},
+  {"Un rapport de plantage ou de gel a été créé. Envoie-le avec ton signalement.", "A crash or freeze report was created. Send it with your bug report.", "Ein Absturz- oder Hänger-Bericht wurde erstellt. Schicke ihn mit deiner Fehlermeldung.", "Se ha creado un informe de cierre o bloqueo. Envíalo con tu reporte.", "È stato creato un rapporto di crash o blocco. Invialo con la tua segnalazione."},
+  {"OUVRIR LE RAPPORT", "OPEN REPORT", "BERICHT ÖFFNEN", "ABRIR INFORME", "APRI RAPPORTO"},
   {"Copies de sécurité de tes parties", "Backups of your saves", "Sicherungen deiner Spielstände", "Copias de seguridad de tus partidas", "Copie di sicurezza dei tuoi salvataggi"},
   {"Sauvegardes actuelles : ", "Current saves: ", "Aktuelle Spielstände: ", "Partidas actuales: ", "Salvataggi attuali: "},
   {" fichier(s), ", " file(s), ", " Datei(en), ", " archivo(s), ", " file, "},

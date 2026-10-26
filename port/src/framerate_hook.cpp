@@ -21,6 +21,7 @@
 #include <rex/logging/macros.h>
 
 REXCVAR_DEFINE_BOOL(wwe2k15_show_fps, false, "WWE2K15", "Show an FPS counter in the game");
+REXCVAR_DEFINE_BOOL(wwe2k15_mods, true, "WWE2K15", "Load replacement files from the mods folder");
 
 REXCVAR_DEFINE_BOOL(wwe2k15_60fps, false, "WWE2K15",
                     "Keep the game at 60 FPS (50 on PAL) when it asks for 30 (25)");
@@ -34,6 +35,7 @@ extern std::atomic<uint64_t> g_wwe2k15_gpu_wait_us;
 // in-game FPS counter (wwe2k15_app.h).
 std::atomic<uint32_t> g_wwe2k15_fps_x10{0};
 std::atomic<uint32_t> g_wwe2k15_worst_frame_us{0};
+std::atomic<uint64_t> g_wwe2k15_present_count{0};  // heartbeat for the freeze watchdog
 
 namespace {
 std::atomic<uint32_t> g_calls{0};
@@ -76,6 +78,7 @@ struct Counter {
 }  // namespace
 
 extern "C" REX_FUNC(sub_82BADF20) {
+  g_wwe2k15_present_count.fetch_add(1, std::memory_order_relaxed);
   const uint64_t now = NowUs();
   Counter& c = g_counter;
   if (!c.start) {

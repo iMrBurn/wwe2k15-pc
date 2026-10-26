@@ -32,6 +32,8 @@
 #include <rex/cvar.h>
 
 REXCVAR_DECLARE(bool, wwe2k15_show_fps);
+REXCVAR_DECLARE(bool, wwe2k15_mods);
+void InstallWwe2k15CrashReporter();
 extern std::atomic<uint32_t> g_wwe2k15_fps_x10;
 extern std::atomic<uint32_t> g_wwe2k15_worst_frame_us;
 
@@ -147,7 +149,9 @@ class Wwe2k15App : public rex::ReXApp {
   // The title reads and writes its Xbox HDD cache (for example EditEx.cac).
   // ReXGlue does not mount cache: by default, so give it a writable local folder.
   void OnPostSetup() override {
+    InstallWwe2k15CrashReporter();
     MountTitleUpdate();
+    MountMods();
     InstallDlcPackages();
 
     if (user_data_root_.empty()) {
@@ -212,6 +216,28 @@ class Wwe2k15App : public rex::ReXApp {
     }
     fs->RegisterSymbolicLink("update:", "\\UPDATE");
     REXLOG_INFO("Title update mounted at {}", update_root.string());
+  }
+
+  // Mods: files in <exe>\mods replace the game's files at the same relative path (for example
+  // mods\pac\menu\menu.pac), for both GAME: and the title update's UPDATE:. Read-only; the
+  // game folder itself is never modified. Disabled with --wwe2k15_mods=false.
+  void MountMods() {
+    if (!REXCVAR_GET(wwe2k15_mods)) return;
+    const auto mods = rex::filesystem::GetExecutableFolder() / "mods";
+    std::error_code ec;
+    size_t files = 0;
+    for (const auto& e : std::filesystem::recursive_directory_iterator(mods, ec))
+      if (e.is_regular_file(ec) && e.path().filename() != "LISEZMOI.txt" && e.path().filename() != "README.txt") ++files;
+    if (!files) return;
+    auto* fs = REX_KERNEL_FS();
+    auto device = std::make_unique<rex::filesystem::HostPathDevice>("\\MODS", mods, true);
+    if (!fs || !device->Initialize() || !fs->RegisterDevice(std::move(device))) {
+      REXLOG_ERROR("Unable to mount mods folder {}", mods.string());
+      return;
+    }
+    fs->RegisterOverlay("\\Device\\Harddisk0\\Partition1", "\\MODS");
+    fs->RegisterOverlay("\\UPDATE", "\\MODS");
+    REXLOG_INFO("Mods enabled: {} file(s) from {}", files, mods.string());
   }
 
   // DLC: STFS packages (as copied from the console, e.g. 545408B6\00000002\*) go in
