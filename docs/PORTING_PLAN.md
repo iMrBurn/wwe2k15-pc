@@ -241,3 +241,13 @@ All ran with no FATAL and reached their end screens:
 - Testé : ISO fabriquée avec `port/tools/dev/make_xiso.py` (sans TU ni DLC, 7,6 Go), TU ajoutée par le
   launcher, jeu lancé depuis le launcher jusqu'aux écrans de chargement à 60 fps. Pas encore testé avec une
   ISO de joueur (XGD2/XGD3 à l'offset de partition, gérés par le SDK).
+
+## (Rendu) Host render-target path ("rtv") on NVIDIA and AMD: entrance black-outs not reproduced (2026-10-26)
+
+- The PC has two Vulkan devices: RTX 5070 Ti (device 0) and an AMD Radeon iGPU (0x1002:0x164E, device 1; select with `--vulkan_device=1`). The AMD iGPU does expose `VK_EXT_fragment_shader_interlock`, so with the default config it also runs the FSI path. Any `render_target_path_vulkan` value other than `fsi` selects the host render-target path (the SDK has no "rtv" value; `fbo` is only a documentation name). The SDK does not log which path it took.
+- Test: `ab3.sh`-style run (title -> 1v1 Cena vs Reigns, RAW) with a capture every ~3 s through the entrances, TU4 + DLC, current build.
+  - NVIDIA, `--render_target_path_vulkan=rtv`: entrances (Cena, Reigns, The Shield titantron) render correctly; 4 black captures of 30, isolated, load transitions.
+  - AMD iGPU, default (FSI): entrances correct (3-4 fps, the iGPU is slow).
+  - AMD iGPU, `--render_target_path_vulkan=rtv` (real host-RT path on AMD): entrances correct, one black stretch of ~4 captures between Cena's and Reigns' entrances = the load transition (same spot as the 2026-10-20 note), Reigns' entrance then renders.
+- So the "everything black, thousands of draws lost" entrance bug of 2026-10-20/22 is not reproduced with the host path any more, on either vendor. Likely fixed since by other changes (invalid-fetch of GPU-written data, empty resolve, readback resolve), or it depends on a GPU/driver we do not have. No SDK change made.
+- Next if an AMD tester still reports it: ask for the log and GPU model; a log line naming the selected render-target path would help (not added).
