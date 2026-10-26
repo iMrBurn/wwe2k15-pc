@@ -687,19 +687,20 @@ bool Choice(const char* id, ImVec2 pos, const char* const* labels, const int* va
   return changed;
 }
 
-// Graphics presets: 1 performance, 2 balanced, 3 quality; 0 = custom.
+// Graphics presets: 1 performance, 2 balanced, 3 quality; 0 = custom. Performance leaves FSI off
+// (host render targets, about 35 % less GPU load); the others turn it on.
 int CurrentPreset() {
-  if (opt.resolution == 720 && opt.anisotropic == 0 && opt.aa == 0) return 1;
-  if (opt.resolution == 720 && opt.anisotropic == 3 && opt.aa == 0) return 2;
-  if (opt.resolution == 1440 && opt.anisotropic == 5 && opt.aa == 1) return 3;
+  if (opt.resolution == 720 && opt.anisotropic == 0 && opt.aa == 0 && !opt.fsi) return 1;
+  if (opt.resolution == 720 && opt.anisotropic == 3 && opt.aa == 0 && opt.fsi) return 2;
+  if (opt.resolution == 1440 && opt.anisotropic == 5 && opt.aa == 1 && opt.fsi) return 3;
   return 0;
 }
 
 void ApplyPreset(int preset) {
   switch (preset) {
-    case 1: opt.resolution = 720; opt.anisotropic = 0; opt.aa = 0; break;
-    case 2: opt.resolution = 720; opt.anisotropic = 3; opt.aa = 0; break;
-    case 3: opt.resolution = 1440; opt.anisotropic = 5; opt.aa = 1; break;
+    case 1: opt.resolution = 720; opt.anisotropic = 0; opt.aa = 0; opt.fsi = false; break;
+    case 2: opt.resolution = 720; opt.anisotropic = 3; opt.aa = 0; opt.fsi = true; break;
+    case 3: opt.resolution = 1440; opt.anisotropic = 5; opt.aa = 1; opt.fsi = true; break;
   }
 }
 
@@ -769,8 +770,10 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   y += 34;
   ImGui::SetCursorScreenPos({col2, y});
   if (ImGui::Checkbox(tr("Rendu précis (FSI)"), &opt.fsi)) SaveOptions();
-  d->AddText(ui_font, 14, {col2 + 28, y + 27}, kMuted, tr("Corrige les écrans noirs des entrées (NVIDIA, Intel)."));
-  y += 54;
+  const char* fsi_help = tr("Décoché : environ 35 % plus léger pour la carte graphique (conseillé pour les petites cartes, GTX 1650 et moins) ; les premières parties peuvent saccader le temps que le cache se remplisse.");
+  const float fsi_wrap = o.x + area.x - 40 - (col2 + 28);
+  d->AddText(ui_font, 14, {col2 + 28, y + 27}, kMuted, fsi_help, nullptr, fsi_wrap);
+  y += 34 + ui_font->CalcTextSizeA(14, FLT_MAX, fsi_wrap, fsi_help).y;
   ImGui::SetCursorScreenPos({col2, y});
   if (ImGui::Checkbox(tr("Réduire l'utilisation du processeur"), &opt.cpu_yield)) SaveOptions();
 }
