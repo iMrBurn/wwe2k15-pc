@@ -36,3 +36,7 @@ render_target_path_vulkan = "fsi"
 readback_resolve = "full"
 readback_resolve_formats = "2,6,15"
 readback_resolve_repeat_limit = 60
+
+# Present without tearing: the SDK prefers the "immediate" mode (no vertical sync, visible tears).
+# Mailbox keeps latency low without tearing. The launcher's vertical sync box sets this.
+vulkan_allow_present_mode_immediate = false

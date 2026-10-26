@@ -58,6 +58,7 @@ struct Options {
   bool azerty = true;         // French keyboard layout for the keyboard pad
   int language = 0;           // user_language (XLanguage): 1 en, 3 de, 4 fr, 5 es, 6 it; 0 = unset
   bool cpu_yield = true;      // wwe2k15_render_wait_yield
+  bool vsync = true;          // no tearing (vulkan_allow_present_mode_immediate = false)
   bool show_fps = false;      // wwe2k15_show_fps
 } opt;
 
@@ -233,7 +234,7 @@ void SaveOptions() {
   if (!out) return;
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
 void LoadOptions() {
@@ -260,6 +261,7 @@ void LoadOptions() {
     else if (k == "language") opt.language = v;
     else if (k == "gpu_wait_yield") opt.cpu_yield = v != 0;  // (the old cpu_yield key defaulted to off)
     else if (k == "show_fps") opt.show_fps = v != 0;
+    else if (k == "vsync") opt.vsync = v != 0;
   }
   if (opt.language != 1 && opt.language != 3 && opt.language != 4 && opt.language != 5 &&
       opt.language != 6) {
@@ -287,6 +289,7 @@ std::wstring OptionArgs() {
          L" --user_language=" + std::to_wstring(opt.language) +
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
          L" --wwe2k15_show_fps=" + b(opt.show_fps) +
+         L" --vulkan_allow_present_mode_immediate=" + b(!opt.vsync) +
          L" --window_width=" + std::to_wstring(opt.resolution * 16 / 9) +
          L" --window_height=" + std::to_wstring(opt.resolution) +
          L" --monitor=" + std::to_wstring(opt.monitor) +
@@ -730,6 +733,9 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   y += 34;
   ImGui::SetCursorScreenPos({col2, y});
   if (ImGui::Checkbox(tr("Afficher le compteur d'images/s"), &opt.show_fps)) SaveOptions();
+  y += 34;
+  ImGui::SetCursorScreenPos({col2, y});
+  if (ImGui::Checkbox(tr("Synchronisation verticale (pas de déchirement)"), &opt.vsync)) SaveOptions();
   y += 34;
   ImGui::SetCursorScreenPos({col2, y});
   if (ImGui::Checkbox(tr("Rendu précis (FSI)"), &opt.fsi)) SaveOptions();

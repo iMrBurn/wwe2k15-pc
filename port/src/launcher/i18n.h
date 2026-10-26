@@ -15,6 +15,7 @@ inline const char* const kKeysQwerty = "Déplacement : W A S D    Stick droit : 
 
 struct Entry { const char* fr; const char* en; const char* de; const char* es; const char* it; };
 inline const Entry kEntries[] = {
+  {"Synchronisation verticale (pas de déchirement)", "Vertical sync (no tearing)", "Vertikale Synchronisation (kein Tearing)", "Sincronización vertical (sin tearing)", "Sincronizzazione verticale (niente tearing)"},
   {"Attends la fin de la mise à jour.", "Wait for the update to finish.", "Warte, bis das Update fertig ist.", "Espera a que termine la actualización.", "Attendi la fine dell'aggiornamento."},
   {"Mise à jour disponible : ", "Update available: ", "Update verfügbar: ", "Actualización disponible: ", "Aggiornamento disponibile: "},
   {"VOIR LA MISE À JOUR", "SEE THE UPDATE", "UPDATE ANSEHEN", "VER LA ACTUALIZACIÓN", "VEDI L'AGGIORNAMENTO"},
