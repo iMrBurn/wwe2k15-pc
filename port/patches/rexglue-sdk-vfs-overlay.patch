@@ -1,0 +1,74 @@
+diff --git a/include/rex/filesystem/vfs.h b/include/rex/filesystem/vfs.h
+index 96f86fe..55001f3 100644
+--- a/include/rex/filesystem/vfs.h
++++ b/include/rex/filesystem/vfs.h
+@@ -35,6 +35,9 @@ class VirtualFileSystem {
+   bool UnregisterDevice(const std::string_view path);
+ 
+   bool RegisterSymbolicLink(const std::string_view path, const std::string_view target);
++  // Read-only file overlay: a file found at the same relative path on the overlay device
++  // replaces the one on the target device (used for mods). Directories are not overlaid.
++  void RegisterOverlay(const std::string_view target_mount, const std::string_view overlay_mount);
+   bool UnregisterSymbolicLink(const std::string_view path);
+   bool FindSymbolicLink(const std::string_view path, std::string& target);
+ 
+@@ -51,6 +54,7 @@ class VirtualFileSystem {
+  private:
+   rex::thread::global_critical_region global_critical_region_;
+   std::vector<std::unique_ptr<Device>> devices_;
++  std::vector<std::pair<std::string, std::string>> overlays_;
+   std::unordered_map<std::string, std::string> symlinks_;
+ 
+   bool ResolveSymbolicLink(const std::string_view path, std::string& result);
+diff --git a/src/filesystem/virtual_file_system.cpp b/src/filesystem/virtual_file_system.cpp
+index a1b4dad..9b8d527 100644
+--- a/src/filesystem/virtual_file_system.cpp
++++ b/src/filesystem/virtual_file_system.cpp
+@@ -102,6 +102,12 @@ bool VirtualFileSystem::ResolveSymbolicLink(const std::string_view path, std::st
+   return was_resolved;
+ }
+ 
++void VirtualFileSystem::RegisterOverlay(const std::string_view target_mount,
++                                        const std::string_view overlay_mount) {
++  auto global_lock = global_critical_region_.Acquire();
++  overlays_.emplace_back(std::string(target_mount), std::string(overlay_mount));
++}
++
+ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
+   auto global_lock = global_critical_region_.Acquire();
+ 
+@@ -131,6 +137,17 @@ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
+ 
+   const auto& device = *it;
+   auto relative_path = normalized_path.substr(device->mount_path().size());
++  for (const auto& [target, overlay] : overlays_) {
++    if (!rex::string::utf8_equal_case(device->mount_path(), target)) continue;
++    auto ov = std::find_if(devices_.cbegin(), devices_.cend(),
++                           [&](const auto& d) { return d->mount_path() == overlay; });
++    if (ov == devices_.cend()) continue;
++    auto* ov_entry = (*ov)->ResolvePath(relative_path);
++    if (ov_entry && !(ov_entry->attributes() & kFileAttributeDirectory)) {
++      REXFS_DEBUG("VFS overlay: '{}' -> '{}'", path, ov_entry->absolute_path());
++      return ov_entry;
++    }
++  }
+   auto* entry = device->ResolvePath(relative_path);
+ 
+   if (entry) {
+@@ -225,6 +242,16 @@ X_STATUS VirtualFileSystem::OpenFile(Entry* root_entry, const std::string_view p
+ 
+     auto file_name = rex::string::utf8_find_name_from_guest_path(path);
+     entry = parent_entry->GetChild(file_name);
++    // Read-only overlays (mods): a matching overlay file wins over the base file.
++    if (!root_entry && !overlays_.empty() &&
++        !(desired_access & (FileAccess::kFileWriteData | FileAccess::kGenericWrite)) &&
++        creation_disposition != FileDisposition::kCreate) {
++      auto* resolved = ResolvePath(path);
++      if (resolved && resolved != entry && !(resolved->attributes() & kFileAttributeDirectory)) {
++        entry = resolved;
++        parent_entry = nullptr;  // skip the host-existence check against the base folder
++      }
++    }
+   } else {
+     entry = !root_entry ? ResolvePath(path) : root_entry->GetChild(path);
+   }

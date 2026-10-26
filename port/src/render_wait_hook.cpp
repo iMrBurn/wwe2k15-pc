@@ -20,8 +20,11 @@
 
 #include <intrin.h>
 
-// Disabled by default until an A/B run shows it does not change pacing (PORTING_PLAN.md rules).
-REXCVAR_DEFINE_BOOL(wwe2k15_render_wait_yield, false, "WWE2K15",
+#include <atomic>
+
+// On by default since the 2026-10-26 A/B run: same pacing (60 fps in match, 30 in entrances), the
+// render thread drops from ~92 % of a core to ~1 % and the whole game from 200 % to 115 %.
+REXCVAR_DEFINE_BOOL(wwe2k15_render_wait_yield, true, "WWE2K15",
                     "Let the render thread sleep briefly while waiting for the GPU ring");
 
 REX_EXTERN(__imp__sub_82BAC6B0);
@@ -61,8 +64,30 @@ void SleepSlice(WaitState& s) {
 
 }  // namespace
 
+// Microseconds the render thread spent waiting for the GPU ring (diagnostics, read by
+// framerate_hook.cpp).
+std::atomic<uint64_t> g_wwe2k15_gpu_wait_us{0};
+
+namespace {
+thread_local bool t_in_wait = false;
+thread_local uint64_t t_wait_begin = 0;
+uint64_t QpcUs() {
+  LARGE_INTEGER f, c;
+  QueryPerformanceFrequency(&f);
+  QueryPerformanceCounter(&c);
+  return static_cast<uint64_t>(c.QuadPart * 1000000.0 / f.QuadPart);
+}
+}  // namespace
+
 extern "C" REX_FUNC(sub_82BAC6B0) {
   __imp__sub_82BAC6B0(ctx, base);
+  if (ctx.r3.u32 == 1 && !t_in_wait) {
+    t_in_wait = true;
+    t_wait_begin = QpcUs();
+  } else if (ctx.r3.u32 != 1 && t_in_wait) {
+    t_in_wait = false;
+    g_wwe2k15_gpu_wait_us.fetch_add(QpcUs() - t_wait_begin, std::memory_order_relaxed);
+  }
   // r3 == 1: the poll says the GPU has not caught up yet, so the caller will call again.
   if (ctx.r3.u32 != 1 || !REXCVAR_GET(wwe2k15_render_wait_yield)) {
     return;

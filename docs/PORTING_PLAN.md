@@ -170,3 +170,45 @@ The working manifest contains a machine-local path to the user's XEX and is igno
 - The bypass had been enabled only to stop a log flood (~16,000 warnings and 40+ MB of rotated logs per match). `port/patches/rexglue-sdk-texture-fetch-log-once.patch` now logs each distinct rejected constant once (cap 256), so a full match logs ~26 such lines. The tracked runtime config sets `gpu_allow_invalid_fetch_constants = false`.
 - `port/patches/rexglue-sdk-empty-resolve.patch` treats an empty resolve region as a successful zero-sized copy (as the console and the WWE '13 recomp do) instead of failing the draw: 48 `Resolve region is empty` / `PM4_DRAW_INDX_2 Failed in backend` pairs per match went to 0.
 - Not yet tested: `execute_unclipped_draw_vs_on_cpu = true` (Xenia default, enabled by the WWE '13 recomp for an EDRAM wrap). Try it next if match flicker remains.
+
+## Black screens during entrances (2026-10-20, TU4)
+
+- A rejected "invalid"-type fetch constant first appeared just before an entrance black-out: `81404800 10A69086 000B209F ...`, a 160x90 8888 texture (1/8 of 1280x720), i.e. a post-processing render target. The SDK now accepts invalid-type constants whose base page holds GPU-written (resolve) data, cvar `gpu_allow_invalid_fetch_of_gpu_written` (default on), while still rejecting the rest (stale asset memory caused the victory-scene corruption). Rejected constants per match dropped from 26 to 2, and the victory scene stayed clean.
+- That did not remove the black-outs. Captures every 5 s show ~20 s of black between Cena's and Reigns' entrances, plus ~10 s inside Reigns' entrance, at 30 swaps/s and with no GPU error. The black-out starts exactly when the title opens `GAME:\Sound\streaming_install.pck` and `dlcN:\sound\streaming_install.pck` (all absent). The leading hypothesis is that entrance loading waits on that missing streamed content; not confirmed. Compare with a console capture or a dump that contains the pack.
+
+## Entrance black-outs fixed with the FSI render-target path (2026-10-22)
+
+- Frame counters added to the Vulkan presentation sample showed 4,000-11,000 draws and ~80 resolves per frame during the black entrance frames: the game renders the scene, the output is lost. Removing the titantron videos did not change it (not Bink), and `readback_resolve=full` did not either.
+- `render_target_path_vulkan = "fsi"` (EDRAM emulated with fragment shader interlock) removed the black-outs: Reigns' entrance, The Shield titantron and the walk to the ring render correctly, with 0-2 black frames per run left at load transitions, ~30 swaps/s in entrances and ~60 in the match (RTX 5070 Ti). The host render-target path is the likely culprit (EDRAM aliasing between formats); FSI is now set in the tracked runtime config.
+- A full Cena vs Reigns match under FSI (RAW arena) ran 10 min to the victory scene and the Exit/Rematch menu: 1 black capture out of 120 (a load transition), no FATAL, clean victory scene. Still unchecked: GPUs without fragment shader interlock (AMD), which fall back to the host-RT path.
+
+## Mode sweep under FSI (2026-10-22, TU4 + DLC, RTX 5070 Ti, keyboard)
+
+All ran with no FATAL and reached their end screens:
+- One on One, I Quit (Cena vs Reigns, SummerSlam): entrances with titantron, match, victory, Exit/Rematch. 2 black captures of 100 (load transitions).
+- 2K Showcase: archive Bink videos (1280x720, smooth), CM Punk Money in the Bank entrance and match load.
+- Creations > Superstar: 3D editor, head/hair parts and their thumbnails (render-to-texture) correct.
+- Universe: RAW card, Divas match (AJ Lee vs Nikki Bella, AI vs AI) to victory and Next Match; tag rivalry match (R-Truth & Xavier Woods vs Ryback & Curtis Axel) to victory and Next Match.
+- Swap rate alternates between 60 and 30 per second in matches (30 dominates in the tag match). The original Xbox 360 game targets 30 FPS in matches, so 30 is not necessarily a regression; an uncapped 60 FPS mode would need a game-side patch.
+- Not tested: Who Got NXT, Hell in a Cell / ladder / Royal Rumble, MyCareer, saves of created content.
+
+## Optimisation CPU (2026-10-26)
+
+- Patchs SDK repris du port WWE '12 : `rexglue-sdk-timer-sleep.patch` (fil TimerQueue qui tournait à vide),
+  `rexglue-sdk-cores-warning.patch` (avertissement « Too few processor cores » une seule fois sur les PC < 6 fils),
+  `rexglue-sdk-thread-name.patch` (course sur le nom d'un thread).
+- `wwe2k15_render_wait_yield` activé par défaut (jeu et launcher, clé `gpu_wait_yield`). Mesure A/B, 1v1 Cena vs
+  Reigns, 720p : entrées 30 fps dans les deux cas, 170 % → 84 % d'un cœur ; match 60 fps dans les deux cas,
+  200 % → 115 %, écart max 20,4 → 18,6 ms. Le fil de rendu (XThread F8000058) passe de ~92 % à ~1 %.
+- Reste : « GPU Commands » ~53 % d'un cœur en match (fil du SDK) ; chargements (le budget du chargeur de WWE '12,
+  sub_82819258, n'a pas d'équivalent évident dans 2K15 : à chercher en échantillonnant un chargement).
+- Processeurs : le jeu et le SDK sont compilés en `x86-64-v2` (SSE4.2, processeurs de 2009 et après) au lieu de
+  `x86-64-v3` (AVX2), qui aurait planté au lancement sur les vieux processeurs et certains Pentium/Celeron. Aucune
+  instruction AVX écrite à la main dans le SDK ni le code généré. Mesuré en match : 113 % d'un cœur (v2) contre
+  115 % (v3), 60 fps. Le SDK produit maintenant ses PDB (`/Z7`, `/DEBUG /OPT:REF /OPT:ICF`, même code).
+- « GPU Commands » échantillonné en match (PDB + llvm-symbolizer) : 35 % d'attente, puis WriteRegister (~15 %),
+  UpdateBindings (7 %), IssueDraw. `rexglue-sdk-gpu-register-writes.patch` : les paquets type 0 consécutifs
+  passent par WriteRegisterRangeFromRing (copie groupée des constantes de shaders) et la recherche du registre
+  inconnu n'est faite que si le journal gpu est en debug. GPU Commands 52 % → 41 %, jeu 112 % → 100 %, 60 fps.
+- Textes : `src/text_hook.cpp` crochète l'inflate du jeu (sub_82B529A0) et remplace « console Xbox 360 » par
+  « PC » dans les 5 langues (23 textes au démarrage, vérifié à l'écran en français). Xbox Live / Store inchangés.

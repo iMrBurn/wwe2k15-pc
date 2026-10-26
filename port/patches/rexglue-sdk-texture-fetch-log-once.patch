@@ -1,5 +1,35 @@
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+index d26cd4f..8a91a84 100644
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -531,8 +531,8 @@ class TextureCache {
+   // Converts a texture fetch constant to a texture key, normalizing and
+   // validating the values, or creating an invalid key, and also gets the
+   // post-guest-swizzle signedness.
+-  static void BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetch_t& fetch,
+-                                           TextureKey& key_out, uint8_t* swizzled_signs_out);
++  void BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetch_t& fetch,
++                                           TextureKey& key_out, uint8_t* swizzled_signs_out) const;
+ 
+   // Makes all texture bindings invalid. Also requesting textures after calling
+   // this will cause another attempt to create a texture or to untile it if
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index 4d85a2b..266c50b 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -95,6 +95,10 @@ class SharedMemory {
+   // regions in those pages.
+   void RangeWrittenByGpu(uint32_t start, uint32_t length);
+ 
++  // Whether any page in the range currently holds GPU-written data (such as a resolve
++  // destination) that the CPU has not overwritten since.
++  bool IsRangeGpuWritten(uint32_t start, uint32_t length);
++
+  protected:
+   SharedMemory(memory::Memory& memory);
+   // Call in implementation-specific initialization.
 diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
-index 76f5600..bfdff75 100644
+index 76f5600..3156b24 100644
 --- a/src/graphics/pipeline/texture/cache.cpp
 +++ b/src/graphics/pipeline/texture/cache.cpp
 @@ -11,6 +11,8 @@
@@ -11,10 +41,14 @@ index 76f5600..bfdff75 100644
  #include <utility>
  
  #include <rex/assert.h>
-@@ -899,6 +901,32 @@ bool TextureCache::LoadTextureData(Texture& texture) {
+@@ -899,8 +901,39 @@ bool TextureCache::LoadTextureData(Texture& texture) {
    return CommitPreparedTextureLoad(pending_load);
  }
  
++REXCVAR_DEFINE_BOOL(gpu_allow_invalid_fetch_of_gpu_written, true, "GPU",
++                    "Accept \"invalid\"-type texture fetch constants whose data was written by "
++                    "the GPU (render-to-texture targets)");
++
 +namespace {
 +// Titles can sample the same rejected fetch constant on every draw (WWE 2K15 logged ~16000
 +// warnings per match, rotating the log and costing CPU). Report each distinct constant once.
@@ -42,19 +76,33 @@ index 76f5600..bfdff75 100644
 +}  // namespace
 +
  void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetch_t& fetch,
-                                                 TextureKey& key_out, uint8_t* swizzled_signs_out) {
+-                                                TextureKey& key_out, uint8_t* swizzled_signs_out) {
++                                                TextureKey& key_out,
++                                                uint8_t* swizzled_signs_out) const {
    // Reset the key and the signedness.
-@@ -914,6 +942,9 @@ void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetc
+   key_out.MakeInvalid();
+   if (swizzled_signs_out != nullptr) {
+@@ -914,6 +947,19 @@ void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetc
        if (REXCVAR_GET(gpu_allow_invalid_fetch_constants)) {
          break;
        }
++      if (REXCVAR_GET(gpu_allow_invalid_fetch_of_gpu_written)) {
++        // Titles such as WWE 2K15 sample their own post-processing render targets
++        // (resolve destinations) through "invalid"-type constants. Rejecting those blacks
++        // out the whole frame, while accepting every invalid constant samples stale asset
++        // memory. Accept only constants whose base page holds data the GPU wrote.
++        uint32_t page_base = fetch.base_address << 12;
++        if (page_base && shared_memory().IsRangeGpuWritten(page_base, 1u << 12)) {
++          break;
++        }
++      }
 +      if (!ShouldLogRejectedFetchConstant(fetch)) {
 +        return;
 +      }
        REXGPU_WARN(
            "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
            "has \"invalid\" type! This is incorrect behavior, but you can try "
-@@ -922,6 +953,9 @@ void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetc
+@@ -922,6 +968,9 @@ void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetc
            fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4, fetch.dword_5);
        return;
      default:
@@ -64,3 +112,39 @@ index 76f5600..bfdff75 100644
        REXGPU_WARN(
            "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
            "is completely invalid!",
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index ec0df7c..298cda5 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -315,6 +315,31 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length, bool written_
+   }
+ }
+ 
++bool SharedMemory::IsRangeGpuWritten(uint32_t start, uint32_t length) {
++  if (!length || start >= kBufferSize) {
++    return false;
++  }
++  length = std::min(length, kBufferSize - start);
++  uint32_t page_first = start >> page_size_log2_;
++  uint32_t page_last = (start + length - 1) >> page_size_log2_;
++  uint32_t block_first = page_first >> 6;
++  uint32_t block_last = page_last >> 6;
++  auto global_lock = global_critical_region_.Acquire();
++  for (uint32_t i = block_first; i <= block_last; ++i) {
++    uint64_t bits = UINT64_MAX;
++    if (i == block_first) {
++      bits &= ~((uint64_t(1) << (page_first & 63)) - 1);
++    }
++    if (i == block_last && (page_last & 63) != 63) {
++      bits &= (uint64_t(1) << ((page_last & 63) + 1)) - 1;
++    }
++    if (system_page_flags_valid_and_gpu_written_[i] & bits) {
++      return true;
++    }
++  }
++  return false;
++}
++
+ void SharedMemory::UnlinkWatchRange(WatchRange* range) {
+   uint32_t bucket = range->page_first << page_size_log2_ >> kWatchBucketSizeLog2;
+   WatchNode* node = range->node_first;

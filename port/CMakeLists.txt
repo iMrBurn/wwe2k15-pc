@@ -18,6 +18,9 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/gamecontrollerdb.txt"
 set(WWE2K15_SOURCES
     src/main.cpp
     src/render_wait_hook.cpp
+    src/framerate_hook.cpp
+    src/crash_report.cpp
+    src/text_hook.cpp
 )
 
 if(WIN32)
@@ -27,6 +30,18 @@ else()
 endif()
 
 rexglue_setup_target(wwe2k15 GPU_PLUGINS xenos)
+
+# Keep a PDB beside the release exe (not shipped) so crash/hang addresses and CPU profiles
+# can be symbolized; /OPT:REF,ICF keep the exe the same as a plain release link.
+if(MSVC)
+    target_link_options(wwe2k15 PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+endif()
+if(WIN32)
+    target_sources(wwe2k15 PRIVATE res/wwe2k15.rc)
+    # rc.exe dependency scanning misses the icon; rebuild the resource when it changes.
+    set_source_files_properties(res/wwe2k15.rc PROPERTIES
+        OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/res/wwe2k15.ico)
+endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # Native Win32 launcher, styled after the project's WWE '12 launcher.
@@ -45,12 +60,15 @@ if(WIN32)
         "${WWE2K15_IMGUI_DIR}/imgui_tables.cpp"
         "${WWE2K15_IMGUI_DIR}/imgui_widgets.cpp"
         "${WWE2K15_IMGUI_DIR}/backends/imgui_impl_win32.cpp"
-        "${WWE2K15_IMGUI_DIR}/backends/imgui_impl_dx11.cpp")
+        "${WWE2K15_IMGUI_DIR}/backends/imgui_impl_dx11.cpp"
+        res/wwe2k15.rc)
     target_include_directories(wwe2k15_launcher PRIVATE
         "${WWE2K15_IMGUI_DIR}" "${WWE2K15_IMGUI_DIR}/backends")
     find_package(SDL3 CONFIG REQUIRED)
-    target_link_libraries(wwe2k15_launcher PRIVATE SDL3::SDL3-static d3d11 dxgi d3dcompiler shell32 ole32 oleaut32 dwmapi winmm setupapi imm32 version cfgmgr32)
+    target_link_libraries(wwe2k15_launcher PRIVATE SDL3::SDL3-static d3d11 dxgi d3dcompiler shell32 ole32 oleaut32 dwmapi winmm setupapi imm32 version cfgmgr32 winhttp)
     set_target_properties(wwe2k15_launcher PROPERTIES OUTPUT_NAME "WWE 2K15 Launcher")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" WWE2K15_VERSION LIMIT_COUNT 1)
+    target_compile_definitions(wwe2k15_launcher PRIVATE WWE2K15_VERSION="${WWE2K15_VERSION}")
     add_dependencies(wwe2k15 wwe2k15_launcher)
 endif()
 
