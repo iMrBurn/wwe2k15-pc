@@ -25,3 +25,11 @@ gpu_vsync = false
 # issued, so the scene was rendered but lost in EDRAM aliasing); FSI renders them correctly
 # at the same frame rate on NVIDIA. GPUs without VK_EXT_fragment_shader_interlock fall back.
 render_target_path_vulkan = "fsi"
+
+# Superstar Threads (and created superstars) build attire and skin textures on the GPU, then the
+# CPU reads them back to compress them in DXT. Without readback it compressed stale memory:
+# attire in scrambled colour bands. "full" copies each resolve back at once; the SDK patch
+# rexglue-sdk-readback-resolve.patch limits it to these formats (k_8, k_8_8_8_8, k_4_4_4_4) and
+# skips screen-sized and repeatedly redrawn targets, so matches stay at 60 FPS.
+readback_resolve = "full"
+readback_resolve_formats = "2,6,15"
