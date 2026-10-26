@@ -1,0 +1,32 @@
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 3a3cbf5..889cde9 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -9,6 +9,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <atomic>
+ #include <algorithm>
+ #include <cinttypes>
+ #include <cmath>
+@@ -357,8 +358,17 @@ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+   const_cast<volatile uint32_t&>(regs.values[index]) = value;
+   // The register lookup only feeds a debug message: skip it unless that level is on (this runs
+   // for every register the game writes).
+-  if (auto* gpu_log = ::rex::GetLoggerRaw(::rex::log::gpu());
+-      gpu_log && gpu_log->should_log(spdlog::level::debug) && !regs.GetRegisterInfo(index)) {
++  // The level is read once (it comes from the config at startup) instead of through the logger on
++  // every write.
++  static std::atomic<int> gpu_debug_logging{-1};
++  int gpu_debug = gpu_debug_logging.load(std::memory_order_relaxed);
++  if (gpu_debug < 0) {
++    if (auto* gpu_log = ::rex::GetLoggerRaw(::rex::log::gpu())) {
++      gpu_debug = gpu_log->should_log(spdlog::level::debug) ? 1 : 0;
++      gpu_debug_logging.store(gpu_debug, std::memory_order_relaxed);
++    }
++  }
++  if (gpu_debug > 0 && !regs.GetRegisterInfo(index)) {
+     REXGPU_DEBUG("GPU: Write to unknown register ({:04X} = {:08X})", index, value);
+   }
+ 

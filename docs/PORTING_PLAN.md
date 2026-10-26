@@ -334,3 +334,8 @@ Demo match from the title screen (`port/tools/dev/gpu_matrix.sh`, `gpu_compare.s
   modeste (~10 % du fil) : bruit de mesure ±3 points.
 - Reste à voir : `rex::log::gpu` apparaît dans les échantillons (journal à gpu = info ?), `ExecutePacket`,
   `UpdateSystemConstantValues`.
+- `rexglue-sdk-gpu-register-writes2-level-cache.patch` (s'applique après `gpu-register-writes`) : le niveau de
+  journal gpu est lu une fois (statique) au lieu d'un appel inter-DLL à chaque écriture de registre. Mesure à 2
+  cœurs : 46,4 % contre 47 % pour « GPU Commands » : dans le bruit, gain d'environ 1-2 %. Après les deux
+  correctifs précédents le profil de « GPU Commands » est plat (aucune ligne ne dépasse ~2 % des échantillons) ;
+  d'autres gains demanderaient de réduire le nombre de dessins ou de paralléliser, pas de micro-optimiser.
