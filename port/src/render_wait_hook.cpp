@@ -22,8 +22,9 @@
 
 #include <atomic>
 
-// Disabled by default until an A/B run shows it does not change pacing (PORTING_PLAN.md rules).
-REXCVAR_DEFINE_BOOL(wwe2k15_render_wait_yield, false, "WWE2K15",
+// On by default since the 2026-10-26 A/B run: same pacing (60 fps in match, 30 in entrances), the
+// render thread drops from ~92 % of a core to ~1 % and the whole game from 200 % to 115 %.
+REXCVAR_DEFINE_BOOL(wwe2k15_render_wait_yield, true, "WWE2K15",
                     "Let the render thread sleep briefly while waiting for the GPU ring");
 
 REX_EXTERN(__imp__sub_82BAC6B0);

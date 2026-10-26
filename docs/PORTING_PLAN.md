@@ -191,3 +191,14 @@ All ran with no FATAL and reached their end screens:
 - Universe: RAW card, Divas match (AJ Lee vs Nikki Bella, AI vs AI) to victory and Next Match; tag rivalry match (R-Truth & Xavier Woods vs Ryback & Curtis Axel) to victory and Next Match.
 - Swap rate alternates between 60 and 30 per second in matches (30 dominates in the tag match). The original Xbox 360 game targets 30 FPS in matches, so 30 is not necessarily a regression; an uncapped 60 FPS mode would need a game-side patch.
 - Not tested: Who Got NXT, Hell in a Cell / ladder / Royal Rumble, MyCareer, saves of created content.
+
+## Optimisation CPU (2026-10-26)
+
+- Patchs SDK repris du port WWE '12 : `rexglue-sdk-timer-sleep.patch` (fil TimerQueue qui tournait à vide),
+  `rexglue-sdk-cores-warning.patch` (avertissement « Too few processor cores » une seule fois sur les PC < 6 fils),
+  `rexglue-sdk-thread-name.patch` (course sur le nom d'un thread).
+- `wwe2k15_render_wait_yield` activé par défaut (jeu et launcher, clé `gpu_wait_yield`). Mesure A/B, 1v1 Cena vs
+  Reigns, 720p : entrées 30 fps dans les deux cas, 170 % → 84 % d'un cœur ; match 60 fps dans les deux cas,
+  200 % → 115 %, écart max 20,4 → 18,6 ms. Le fil de rendu (XThread F8000058) passe de ~92 % à ~1 %.
+- Reste : « GPU Commands » ~53 % d'un cœur en match (fil du SDK) ; chargements (le budget du chargeur de WWE '12,
+  sub_82819258, n'a pas d'équivalent évident dans 2K15 : à chercher en échantillonnant un chargement).

@@ -55,7 +55,7 @@ struct Options {
   bool keyboard = false;      // mnk_mode
   bool azerty = true;         // French keyboard layout for the keyboard pad
   int language = 0;           // user_language (XLanguage): 1 en, 3 de, 4 fr, 5 es, 6 it; 0 = unset
-  bool cpu_yield = false;     // wwe2k15_render_wait_yield (experimental)
+  bool cpu_yield = true;      // wwe2k15_render_wait_yield
   bool show_fps = false;      // wwe2k15_show_fps
 } opt;
 
@@ -231,7 +231,7 @@ void SaveOptions() {
   if (!out) return;
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
 void LoadOptions() {
@@ -256,7 +256,7 @@ void LoadOptions() {
     else if (k == "keyboard") opt.keyboard = v != 0;
     else if (k == "azerty") opt.azerty = v != 0;
     else if (k == "language") opt.language = v;
-    else if (k == "cpu_yield") opt.cpu_yield = v != 0;
+    else if (k == "gpu_wait_yield") opt.cpu_yield = v != 0;  // (the old cpu_yield key defaulted to off)
     else if (k == "show_fps") opt.show_fps = v != 0;
   }
   if (opt.language != 1 && opt.language != 3 && opt.language != 4 && opt.language != 5 &&
@@ -727,7 +727,7 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   d->AddText(ui_font, 14, {col2 + 28, y + 27}, kMuted, tr("Corrige les écrans noirs des entrées (NVIDIA, Intel)."));
   y += 54;
   ImGui::SetCursorScreenPos({col2, y});
-  if (ImGui::Checkbox(tr("Réduire l'utilisation du processeur (expérimental)"), &opt.cpu_yield)) SaveOptions();
+  if (ImGui::Checkbox(tr("Réduire l'utilisation du processeur"), &opt.cpu_yield)) SaveOptions();
 }
 
 void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
