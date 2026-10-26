@@ -1,0 +1,63 @@
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 0298f06..7604efc 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -206,10 +206,13 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+       device_properties.fragmentStoresAndAtomics && device_properties.sampleRateShading &&
+       device_properties.standardSampleLocations &&
+       shared_memory_binding_count < device_properties.maxPerStageDescriptorStorageBuffers;
++  const char* path_reason;
+   if (REXCVAR_GET(render_target_path_vulkan) == "fsi") {
+     path_ = Path::kPixelShaderInterlock;
++    path_reason = "render_target_path_vulkan = fsi";
+   } else {
+     path_ = Path::kHostRenderTargets;
++    path_reason = "render_target_path_vulkan is not fsi";
+   }
+   // Fragment shader interlock is a feature implemented by pretty advanced GPUs,
+   // closer to Direct3D 11 / OpenGL ES 3.2 level mainly, not Direct3D 10 /
+@@ -235,6 +238,9 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+     // for simplicity.
+     if (!fsi_path_supported) {
+       path_ = Path::kHostRenderTargets;
++      path_reason =
++          "fsi requested but the device lacks fragment shader interlock or a required "
++          "feature";
+     }
+   }
+ 
+@@ -307,6 +313,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+           color_rg16_draw_format_supported ? "available" : "unavailable",
+           color_rgba16_draw_format_supported ? "available" : "unavailable");
+       path_ = Path::kPixelShaderInterlock;
++      path_reason = "host render target 16-bit formats are unsupported";
+     } else {
+       REXGPU_ERROR(
+           "VulkanRenderTargetCache: Host render target 16-bit formats are unsupported "
+@@ -325,6 +332,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+           "is unavailable for k_8_8_8_8_GAMMA linear storage; switching to "
+           "fragment shader interlock path for D3D12 parity");
+       path_ = Path::kPixelShaderInterlock;
++      path_reason = "R16G16B16A16_UNORM render targets are unsupported";
+     } else {
+       REXGPU_ERROR(
+           "VulkanRenderTargetCache: R16G16B16A16_UNORM render target support "
+@@ -405,6 +413,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+           "can't be bit-exact on this device; switching to fragment shader "
+           "interlock path for D3D12 parity");
+       path_ = Path::kPixelShaderInterlock;
++      path_reason = "host render target transfers can't be bit-exact on this device";
+     } else {
+       REXGPU_ERROR(
+           "VulkanRenderTargetCache: Bit-exact host render target ownership "
+@@ -413,6 +422,10 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+       return false;
+     }
+   }
++  REXGPU_INFO("VulkanRenderTargetCache: render target path: {} ({}; fragment shader interlock {})",
++              path_ == Path::kPixelShaderInterlock ? "fragment shader interlock (fsi)"
++                                                   : "host render targets",
++              path_reason, fsi_path_supported ? "supported" : "not supported");
+ 
+   // Descriptor set layouts.
+   VkDescriptorSetLayoutBinding descriptor_set_layout_bindings[2];
