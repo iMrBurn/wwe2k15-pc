@@ -86,8 +86,11 @@ files, with `git add <paths>`, never `git add -A`; never overwrite another chat'
 ## Known facts
 - Function hints and hooks are TU4 addresses; comments keep the base-game address.
 - `gpu_allow_invalid_fetch_constants` must stay false (stale textures).
-- `render_target_path_vulkan = "fsi"` fixes the entrance black frames. AMD has no fragment shader
-  interlock and falls back to host RT.
+- `render_target_path_vulkan = "fsi"` fixed the entrance black frames (Oct 20-22). Retested on
+  2026-10-26: the host RT path (`rtv`, used by GPUs without fragment shader interlock) no longer
+  loses entrances on NVIDIA nor on the PC's AMD iGPU (`--vulkan_device=1`, which also has FSI); only
+  short black frames at loading transitions. If an AMD tester still reports it: ask for the log and
+  the GPU model.
 - Superstar Threads / created attire: the game composes textures on the GPU and compresses them on
   the CPU; `readback_resolve = "full"` with `readback_resolve_formats = "2,6,15"` and
   `readback_resolve_repeat_limit = 60` (SDK patch `rexglue-sdk-readback-resolve.patch`) reads them
@@ -105,5 +108,7 @@ files, with `git add <paths>`, never `git add -A`; never overwrite another chat'
   2K15's equivalent is not found yet (sample a real loading screen).
 - (Perf) True 540p (and lower) for weak GPUs: the Xenos plugin only scales by whole multiples of
   720p; would need the game to render smaller.
-- (Rendu) AMD entrance black frames without FSI.
+- ~~(Rendu) AMD entrance black frames without FSI~~: not reproduced on 2026-10-26 (see Known facts).
+- ~~(Rendu) Log which render target path the SDK picked~~: done (`rexglue-sdk-render-path-log.patch`,
+  one "render target path: ..." gpu info line at startup). In the next release.
 - (Launcher) Possibly a square icon variant for small sizes.

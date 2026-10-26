@@ -1,0 +1,27 @@
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_memory.cpp b/src/kernel/xboxkrnl/xboxkrnl_memory.cpp
+index f83521b..3f8ffe8 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_memory.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_memory.cpp
+@@ -12,6 +12,7 @@
+ // Disable warnings about unused parameters for kernel functions
+ #pragma GCC diagnostic ignored "-Wunused-parameter"
+ 
++#include <atomic>
+ #include <cstring>
+ 
+ #include <rex/assert.h>
+@@ -172,7 +173,13 @@ u32 NtAllocateVirtualMemory_entry(mapped_u32 base_addr_ptr, mapped_u32 region_si
+     heap->Alloc(adjusted_size, page_size, allocation_type, protect, top_down, &address);
+   }
+   if (!address) {
+-    // Failed - assume no memory available.
++    // Failed - assume no memory available. Log it once: BaseHeap no longer reports misses at
++    // error level (games probe with shrinking sizes), so a real shortage must not go unseen.
++    static std::atomic<bool> warned_no_memory{false};
++    if (!warned_no_memory.exchange(true)) {
++      REXKRNL_WARN("NtAllocateVirtualMemory failed (first occurrence): base={:#x} size={:#x} type={:#x}",
++                   adjusted_base, adjusted_size, uint32_t(alloc_type));
++    }
+     return X_STATUS_NO_MEMORY;
+   }
+ 

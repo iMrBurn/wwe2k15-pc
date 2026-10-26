@@ -1,4 +1,4 @@
-param([int]$seconds = 20, [int]$topThreads = 4, [string]$out = "samples.txt")
+param([int]$delay = 0, [int]$seconds = 20, [int]$topThreads = 4, [string]$out = "samples.txt")
 # Statistical sampler: periodically suspends the busiest wwe2k15 threads and records RIP.
 Add-Type @"
 using System; using System.Runtime.InteropServices;
@@ -18,6 +18,7 @@ public static class Smp {
   }
 }
 "@
+if ($delay) { Start-Sleep $delay }
 $p = Get-Process wwe2k15 -ErrorAction Stop
 $mods = $p.Modules | ForEach-Object { [pscustomobject]@{ Name = $_.ModuleName; Base = [uint64]$_.BaseAddress.ToInt64(); End = [uint64]$_.BaseAddress.ToInt64() + [uint64]$_.ModuleMemorySize } }
 # Pick the busiest threads over one second.

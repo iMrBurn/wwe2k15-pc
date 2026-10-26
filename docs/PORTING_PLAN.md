@@ -241,3 +241,101 @@ All ran with no FATAL and reached their end screens:
 - Testé : ISO fabriquée avec `port/tools/dev/make_xiso.py` (sans TU ni DLC, 7,6 Go), TU ajoutée par le
   launcher, jeu lancé depuis le launcher jusqu'aux écrans de chargement à 60 fps. Pas encore testé avec une
   ISO de joueur (XGD2/XGD3 à l'offset de partition, gérés par le SDK).
+
+## (Rendu) Host render-target path ("rtv") on NVIDIA and AMD: entrance black-outs not reproduced (2026-10-26)
+
+- The PC has two Vulkan devices: RTX 5070 Ti (device 0) and an AMD Radeon iGPU (0x1002:0x164E, device 1; select with `--vulkan_device=1`). The AMD iGPU does expose `VK_EXT_fragment_shader_interlock`, so with the default config it also runs the FSI path. Any `render_target_path_vulkan` value other than `fsi` selects the host render-target path (the SDK has no "rtv" value; `fbo` is only a documentation name). The SDK does not log which path it took.
+- Test: `ab3.sh`-style run (title -> 1v1 Cena vs Reigns, RAW) with a capture every ~3 s through the entrances, TU4 + DLC, current build.
+  - NVIDIA, `--render_target_path_vulkan=rtv`: entrances (Cena, Reigns, The Shield titantron) render correctly; 4 black captures of 30, isolated, load transitions.
+  - AMD iGPU, default (FSI): entrances correct (3-4 fps, the iGPU is slow).
+  - AMD iGPU, `--render_target_path_vulkan=rtv` (real host-RT path on AMD): entrances correct, one black stretch of ~4 captures between Cena's and Reigns' entrances = the load transition (same spot as the 2026-10-20 note), Reigns' entrance then renders.
+- So the "everything black, thousands of draws lost" entrance bug of 2026-10-20/22 is not reproduced with the host path any more, on either vendor. Likely fixed since by other changes (invalid-fetch of GPU-written data, empty resolve, readback resolve), or it depends on a GPU/driver we do not have. No SDK change made.
+- Next if an AMD tester still reports it: ask for the log and GPU model; a log line naming the selected render-target path would help (not added).
+
+## 540p : étude sur le code, sans le PC (2026-10-26, Perf)
+
+- Le jeu n'a pas de constantes 1280x720 faciles à compter : 105 `li ...,1280`, 58 `li ...,720`, 76 `li ...,640`
+  dans le code généré, mais seulement 8 fonctions ont les deux (`sub_8228E420`, `82908AF8`, `82A363B0`,
+  `82A368E0`, `82AB1390`, `832E5668`, `833B8DD0/90F0` dont les deux dernières sont setjmp/longjmp, faux positifs).
+  Aucun comptage fiable de « sites de création de cibles » par recherche de constantes.
+- La bibliothèque D3D de la console (`sub_82BBAD00`, `82BBB280`, `82BC02D8`, `82BBE760`) appelle
+  `VdQueryVideoMode` / `XGetVideoMode` / `VdSetDisplayMode` : le jeu lit le mode vidéo de la console
+  (largeur, hauteur, widescreen, hi-def). Les jeux 360 adaptent d'ordinaire leur taille de rendu à ce mode
+  (480p, 720p, 1080i), donc le jeu sait peut-être déjà rendre en 848x480 ou autre.
+- Le SDK expose ce mode par deux cvars : `video_mode_width` (1280) et `video_mode_height` (720) (SDK
+  `src/kernel/xboxkrnl/xboxkrnl_video.cpp`, `src/ui/window.cpp`). Le plugin Xenos ne fait que multiplier par
+  `resolution_scale`; il ne choisit pas la taille des cibles, c'est le jeu qui le fait.
+- Hypothèse à tester (aucun code à écrire) : lancer avec `--video_mode_width=960 --video_mode_height=540`
+  (puis 848x480 = vrai mode SD 16:9 de la console). Commande prête :
+  `bash port/tools/dev/ab3.sh res540 <dossier exe> --video_mode_width=960 --video_mode_height=540`
+  et lire dans le journal la ligne « Frame activity ... frontbuffer ... WxH » ainsi que les captures
+  (menus, entrées, ombres, interface). Si la taille du frontbuffer change, le jeu suit le mode : faisable
+  par simple réglage + option du launcher. Si elle reste 1280x720, il faudra chercher les tailles de cibles
+  dans `sub_82BBAD00` et la création de surfaces D3D (`RB_SURFACE_INFO`, pitch), ce qui est risqué
+  (post-traitement, ombres et interface sont probablement calibrés en 1280x720).
+- Estimation : faisable si le jeu suit le mode vidéo (test d'une minute), risqué sinon, pas raisonnable si
+  il faut patcher plusieurs dizaines de sites. Rappel : le goulot de 2K15 est le processeur, le 540p ne
+  sert qu'aux cartes graphiques intégrées.
+- Résultat du test (fait par (Main), écran titre, ~1 min) : avec `--video_mode_width=960 --video_mode_height=540`, le
+  journal garde « frontbuffer 115D6000 1280x720 » (3 mesures sur 3) et l'image est identique. 2K15 ignore le mode
+  vidéo, au moins aux menus : le 540p par simple réglage ne marche pas. La suite (patcher les tailles de cibles)
+  demanderait beaucoup de sites : pas de chantier sans l'accord de l'utilisateur.
+
+## (Rendu) "BaseHeap::Alloc failed to find contiguous range" is a probe, not a shortage (2026-10-26)
+
+- Every launch logged ~460-600 `[error] [sys] BaseHeap::Alloc failed to find contiguous range` (459 in one burst on the main guest thread right after the pipeline storage load, ~62 more ~40 s later on another thread).
+- One launch to the title screen with `[log.levels] krnl = "trace"` and `--log_noisy=true`: all 459 come from `MmAllocatePhysicalMemoryEx` (physical heap, 64 KB pages, min=0 max=0xffffffff, align 0x10000). The game asks for 0x1e000000 (480 MB), then drops 1 MB per refusal until a size fits (0x2a00000 = 42 MB), then frees that block at once (`MmFreePhysicalMemory`): it measures the largest free physical block. The 0 return is handled by the game. No `NtAllocateVirtualMemory` failed. The second burst was not traced (after the measurement window), probably the same probe.
+- Fix: `rexglue-sdk-log-noise.patch` now logs this miss at debug (as it already did for the sibling messages); new `rexglue-sdk-alloc-fail-warning.patch` logs one warning, the first time `NtAllocateVirtualMemory` really fails, so a real shortage on a tester's PC is still visible. SDK rebuilt and installed, game relinked; not run after the change (check the next log: the error lines should be gone).
+
+## Petit processeur simulé (2026-10-26, Perf)
+
+- Affinité posée par `(Get-Process wwe2k15).ProcessorAffinity` après le lancement (`start /affinity` n'a eu aucun
+  effet : masque resté FFFF). Scripts : `port/tools/dev/smallcpu.sh <tag> <masque> <exe dir>` (démo),
+  `AFF=<masque> bash ab3.sh|loadsample.sh ...`.
+- PC de test (RTX 5070 Ti, cœurs rapides). Démo de l'écran titre : 8+ cœurs 60 fps ; 4 cœurs 60 fps (écart max
+  19-33 ms) ; 2 cœurs 48-59 fps, un écart de 354 ms.
+- Match complet (ab3), 4 cœurs : entrée 30 fps, match 60 fps, écarts 18-33 ms, comme sans limite. 2 cœurs : entrée
+  30 fps avec pointes de 235 ms, début de match 50-59 fps avec écarts de 33-35 ms, une pointe de 394 ms à la
+  transition.
+- CPU par fil en match : « GPU Commands » 45 % (4 cœurs) / 52 % (2 cœurs) d'un cœur, le plus lourd de loin ; puis
+  trois fils du jeu à 12-16 % chacun, audio ~3 %. Total ~100-120 % d'un cœur. Sur un vrai petit processeur
+  (cœurs 2x plus lents), « GPU Commands » approcherait 100 % d'un cœur : il serait le goulot, car il est
+  séquentiel. Piste principale : alléger ce fil (SDK `command_processor`, UpdateBindings, IssueDraw).
+
+## (Rendu) FSI vs host render-target path: GPU cost, cold shader cache (2026-10-26, RTX 5070 Ti)
+
+Demo match from the title screen (`port/tools/dev/gpu_matrix.sh`, `gpu_compare.sh`; `nvidia-smi` every 0.5 s over 30 s). Warm cache = the dev PC's. Host = any `render_target_path_vulkan` other than `fsi`.
+
+| run | GPU load avg (max) | GPU power | CPU | fps / worst gap |
+|---|---|---|---|---|
+| host 720p | 30 % (35) | 60 W | 101 % | 60 / 18.7 ms |
+| FSI 720p | 48 % (60) | 71 W | 95 % | 60 / 18.9 ms (one 35.8 ms) |
+| host 1440p | 46 % (51) | 91 W | 111 % | 60 / 18.8 ms |
+| FSI 1440p | 73 % (77) | 106 W | 106 % | 57-60 / 19.3 ms (two ~34 ms) |
+
+- The host path costs about 35-40 % less GPU time than FSI at both resolutions (30 vs 48 %, 46 vs 73 %); CPU is the same.
+- Cold shader cache (exe copy with an empty `cache\`): FSI held 60 fps, 229 pipelines built during the run; host path dipped to 55-58 fps with ~34 ms gaps and built 418 pipelines (the host path needs about twice as many pipeline variants). `skipped for pending shaders` stayed 0 in every run; the demo only covers an easy scene, so this is a lower bound.
+- Host path visual check (NVIDIA): entrances (see section above), match in RAW, and Superstar Threads attire (Adam Rose, clean, not scrambled) are correct. Victory scene and shadows were not compared side by side.
+- Caches are per path (`545408B6.fsi.vk.xpso` / `.fbo.vk.xpso`): switching path restarts from a cold cache for that path.
+
+## « GPU Commands » allégé : jeux de textures et constantes (2026-10-26, Perf)
+
+- `rexglue-sdk-descriptor-reuse.patch` : (1) `UpdateBindings` réécrivait à chaque dessin les jeux de descripteurs
+  textures/échantillonneurs (TODO d'origine « Reuse texture and sampler bindings if not changed ») ; il compare
+  maintenant les vues/échantillonneurs au dernier jeu écrit de l'image et ne réécrit que s'ils changent (oublié à
+  l'ouverture de chaque image). (2) La copie des constantes flottantes des shaders se fait par séries de
+  constantes consécutives (un memcpy par série) au lieu d'un par constante ; sortie identique octet pour octet.
+- Échantillon (match, 2 cœurs) : après le correctif 1, les lignes chaudes de `UpdateBindings` étaient la copie des
+  constantes du vertex shader (ce qui a mené au correctif 2) ; viennent ensuite `ExecutePacket`,
+  `UpdateSystemConstantValues`, `IssueDraw`, `log::gpu`.
+- Mesures, 2 cœurs, match 1v1 : « GPU Commands » 52,4 % → 47 % d'un cœur, total 126 % → 119 %. Sans limite :
+  GPU Commands 38,9 %, total 96 % (avant ~41 % / ~100 %), 60 fps match / 30 fps entrées, aucune perte de
+  périphérique. L'image est identique à l'œil (arène RAW : textures, foule, ring corrects). Gain réel mais
+  modeste (~10 % du fil) : bruit de mesure ±3 points.
+- Reste à voir : `rex::log::gpu` apparaît dans les échantillons (journal à gpu = info ?), `ExecutePacket`,
+  `UpdateSystemConstantValues`.
+- `rexglue-sdk-gpu-register-writes2-level-cache.patch` (s'applique après `gpu-register-writes`) : le niveau de
+  journal gpu est lu une fois (statique) au lieu d'un appel inter-DLL à chaque écriture de registre. Mesure à 2
+  cœurs : 46,4 % contre 47 % pour « GPU Commands » : dans le bruit, gain d'environ 1-2 %. Après les deux
+  correctifs précédents le profil de « GPU Commands » est plat (aucune ligne ne dépasse ~2 % des échantillons) ;
+  d'autres gains demanderaient de réduire le nombre de dessins ou de paralléliser, pas de micro-optimiser.

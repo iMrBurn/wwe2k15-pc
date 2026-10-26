@@ -20,7 +20,7 @@ index bd5de65..cf2f384 100644
        out_length = 0;
        break;
 diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
-index 76cc877..673d206 100644
+index 76cc877..c9f9071 100644
 --- a/src/system/xmemory.cpp
 +++ b/src/system/xmemory.cpp
 @@ -1409,7 +1409,10 @@ bool BaseHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint32_t
@@ -35,7 +35,20 @@ index 76cc877..673d206 100644
      return false;
    }
  
-@@ -1912,7 +1915,7 @@ bool PhysicalHeap::Alloc(uint32_t size, uint32_t alignment, uint32_t allocation_
+@@ -1497,8 +1500,10 @@ bool BaseHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint32_t
+     }
+   }
+   if (start_page_number == UINT_MAX || end_page_number == UINT_MAX) {
+-    // Out of memory.
+-    REXSYS_ERROR("BaseHeap::Alloc failed to find contiguous range");
++    // Out of memory. Games probe for their largest free block by retrying ever smaller sizes
++    // (WWE 2K15 steps down 1 MB at a time from 480 MB, ~460 misses at every launch); the caller
++    // gets the failure and reports it when it matters, so this is not an error by itself.
++    REXSYS_DEBUG("BaseHeap::Alloc failed to find contiguous range");
+     assert_always("Heap exhausted!");
+     return false;
+   }
+@@ -1912,7 +1917,7 @@ bool PhysicalHeap::Alloc(uint32_t size, uint32_t alignment, uint32_t allocation_
    uint32_t parent_address;
    if (!parent_heap_->AllocRange(parent_heap_start, parent_heap_end, size, alignment,
                                  allocation_type, protect, top_down, &parent_address)) {
@@ -44,7 +57,7 @@ index 76cc877..673d206 100644
      return false;
    }
  
-@@ -1945,7 +1948,7 @@ bool PhysicalHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t ali
+@@ -1945,7 +1950,7 @@ bool PhysicalHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t ali
    // TODO(benvanik): flag for ensure-not-committed?
    uint32_t parent_base_address = GetPhysicalAddress(base_address);
    if (!parent_heap_->AllocFixed(parent_base_address, size, alignment, allocation_type, protect)) {
@@ -53,7 +66,7 @@ index 76cc877..673d206 100644
      return false;
    }
  
-@@ -1983,7 +1986,7 @@ bool PhysicalHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint3
+@@ -1983,7 +1988,7 @@ bool PhysicalHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint3
    uint32_t parent_address;
    if (!parent_heap_->AllocRange(parent_low_address, parent_high_address, size, alignment,
                                  allocation_type, protect, top_down, &parent_address)) {
