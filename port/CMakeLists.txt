@@ -37,6 +37,9 @@ if(MSVC)
 endif()
 if(WIN32)
     target_sources(wwe2k15 PRIVATE res/wwe2k15.rc)
+    # rc.exe dependency scanning misses the icon; rebuild the resource when it changes.
+    set_source_files_properties(res/wwe2k15.rc PROPERTIES
+        OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/res/wwe2k15.ico)
 endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
