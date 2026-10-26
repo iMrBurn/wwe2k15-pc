@@ -1,6 +1,8 @@
 # usage: loadsample.sh <tag> <exe dir> [game args]: title -> 1v1 match start, then RIP samples during the load
 D=$(cd "$(dirname "$0")" && pwd); S=/c/Dev/wwe2k15-pc2/work/dev; mkdir -p $S; N="$(cygpath -w $D/nav.ps1)"; T=$1; B=$2; shift 2
-cd $B; (./wwe2k15.exe "--game_data_root=C:/Dev/games/WWE2K15-TU4" --log_max_files=200 --mnk_mode=true --keybind_dpad_up=Up --keybind_dpad_down=Down --keybind_dpad_left=Left --keybind_dpad_right=Right --keybind_rstick_up=I --keybind_rstick_down=K --keybind_rstick_left=J --keybind_rstick_right=L "$@" > /dev/null 2>&1 &)
+# AFF=<hex mask> limits the game to some logical cores (F = 4, 3 = 2)
+if [ -n "$AFF" ]; then LAUNCH="cmd //c start //b //affinity $AFF wwe2k15.exe"; else LAUNCH=./wwe2k15.exe; fi
+cd $B; ($LAUNCH "--game_data_root=C:/Dev/games/WWE2K15-TU4" --log_max_files=200 --mnk_mode=true --keybind_dpad_up=Up --keybind_dpad_down=Down --keybind_dpad_left=Left --keybind_dpad_right=Right --keybind_rstick_up=I --keybind_rstick_down=K --keybind_rstick_left=J --keybind_rstick_right=L "$@" > /dev/null 2>&1 &)
 sleep 90
 powershell -NoProfile -ExecutionPolicy Bypass -File "$N" -keys "ENTER:500" -shot ${T}_s0
 for i in 1 2 3; do powershell -NoProfile -ExecutionPolicy Bypass -File "$N" -keys "WAIT0" -shot ${T}_s$i; done
