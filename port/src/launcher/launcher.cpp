@@ -44,8 +44,7 @@ bool disable_obs_vulkan_hook = true;
 // Game options passed to wwe2k15.exe as cvars (saved in launcher-options.ini).
 struct Options {
   bool fullscreen = true;
-  int resolution_scale = 1;   // resolution_scale (1-4)
-  int window_size = 2;        // windowed size index into kWindowSizes
+  int resolution = 720;       // 720, 1080, 1440 or 2160: render scale and windowed size
   int monitor = 0;            // monitor: 0 = default, 1..3
   int aa = 0;                 // swap_post_effect: 0 none, 1 fxaa, 2 fxaa_extreme
   bool letterbox = true;      // present_letterbox
@@ -230,9 +229,9 @@ void AddPackages() {
 void SaveOptions() {
   std::ofstream out(root / L"launcher-options.ini", std::ios::trunc);
   if (!out) return;
-  out << "fullscreen=" << opt.fullscreen << "\nresolution_scale=" << opt.resolution_scale
+  out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nwindow_size=" << opt.window_size << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ncpu_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
 void LoadOptions() {
@@ -244,8 +243,9 @@ void LoadOptions() {
     const std::string k = line.substr(0, eq);
     const int v = std::atoi(line.c_str() + eq + 1);
     if (k == "fullscreen") opt.fullscreen = v != 0;
-    else if (k == "resolution_scale") opt.resolution_scale = std::clamp(v, 1, 4);
-    else if (k == "window_size") opt.window_size = std::clamp(v, 0, 4);
+    else if (k == "resolution") opt.resolution = v == 1080 || v == 1440 || v == 2160 ? v : 720;
+    // Files from before the single resolution choice.
+    else if (k == "resolution_scale") opt.resolution = v >= 3 ? 2160 : v == 2 ? 1440 : 720;
     else if (k == "monitor") opt.monitor = std::clamp(v, 0, 3);
     else if (k == "aa") opt.aa = std::clamp(v, 0, 2);
     else if (k == "letterbox") opt.letterbox = v != 0;
@@ -271,23 +271,22 @@ void LoadOptions() {
   }
 }
 
-struct WindowSize { int w, h; const char* label; };
-constexpr WindowSize kWindowSizes[] = {
-    {1280, 720, "1280x720"}, {1600, 900, "1600x900"}, {1920, 1080, "1920x1080"},
-    {2560, 1440, "2560x1440"}, {3840, 2160, "3840x2160"}};
+// The GPU emulation renders whole multiples of the Xbox 360's 720p: 1080p renders at 2x (1440p)
+// and is scaled down to the 1080p window or screen, which is sharper than a native 1080p.
+int RenderScale(int resolution) { return resolution >= 2160 ? 3 : resolution >= 1080 ? 2 : 1; }
 
 std::wstring OptionArgs() {
   auto b = [](bool v) { return std::wstring(v ? L"true" : L"false"); };
   return L" --fullscreen=" + b(opt.fullscreen) +
-         L" --resolution_scale=" + std::to_wstring(opt.resolution_scale) +
+         L" --resolution_scale=" + std::to_wstring(RenderScale(opt.resolution)) +
          L" --anisotropic_override=" + std::to_wstring(opt.anisotropic) +
          L" --render_target_path_vulkan=" + (opt.fsi ? L"fsi" : L"rtv") +
          L" --mnk_mode=" + b(opt.keyboard) +
          L" --user_language=" + std::to_wstring(opt.language) +
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
          L" --wwe2k15_show_fps=" + b(opt.show_fps) +
-         L" --window_width=" + std::to_wstring(kWindowSizes[opt.window_size].w) +
-         L" --window_height=" + std::to_wstring(kWindowSizes[opt.window_size].h) +
+         L" --window_width=" + std::to_wstring(opt.resolution * 16 / 9) +
+         L" --window_height=" + std::to_wstring(opt.resolution) +
          L" --monitor=" + std::to_wstring(opt.monitor) +
          L" --swap_post_effect=" + (opt.aa == 2 ? L"fxaa_extreme" : opt.aa == 1 ? L"fxaa" : L"none") +
          L" --present_letterbox=" + b(opt.letterbox) +
@@ -648,17 +647,17 @@ bool Choice(const char* id, ImVec2 pos, const char* const* labels, const int* va
 
 // Graphics presets: 1 performance, 2 balanced, 3 quality; 0 = custom.
 int CurrentPreset() {
-  if (opt.resolution_scale == 1 && opt.anisotropic == 0 && opt.aa == 0) return 1;
-  if (opt.resolution_scale == 1 && opt.anisotropic == 3 && opt.aa == 0) return 2;
-  if (opt.resolution_scale == 2 && opt.anisotropic == 5 && opt.aa == 1) return 3;
+  if (opt.resolution == 720 && opt.anisotropic == 0 && opt.aa == 0) return 1;
+  if (opt.resolution == 720 && opt.anisotropic == 3 && opt.aa == 0) return 2;
+  if (opt.resolution == 1440 && opt.anisotropic == 5 && opt.aa == 1) return 3;
   return 0;
 }
 
 void ApplyPreset(int preset) {
   switch (preset) {
-    case 1: opt.resolution_scale = 1; opt.anisotropic = 0; opt.aa = 0; break;
-    case 2: opt.resolution_scale = 1; opt.anisotropic = 3; opt.aa = 0; break;
-    case 3: opt.resolution_scale = 2; opt.anisotropic = 5; opt.aa = 1; break;
+    case 1: opt.resolution = 720; opt.anisotropic = 0; opt.aa = 0; break;
+    case 2: opt.resolution = 720; opt.anisotropic = 3; opt.aa = 0; break;
+    case 3: opt.resolution = 1440; opt.anisotropic = 5; opt.aa = 1; break;
   }
 }
 
@@ -680,11 +679,11 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
     if (Choice("preset", {o.x + 48, y + 46}, l, v, 3, preset, 170)) { ApplyPreset(preset); SaveOptions(); }
   }
   y += 106;
-  label(o.x + 48, y, tr("RÉSOLUTION DE RENDU"), tr("1x = 720p comme sur Xbox 360. 2x et plus : plus net, bien plus lourd (expérimental)."));
+  label(o.x + 48, y, tr("RÉSOLUTION"), tr("720p comme sur Xbox 360. Au-dessus : plus net, plus lourd pour la carte graphique."));
   {
-    static const char* l[] = {"1x", "2x", "3x", "4x"};
-    static const int v[] = {1, 2, 3, 4};
-    if (Choice("res", {o.x + 48, y + 46}, l, v, 4, opt.resolution_scale, 110)) SaveOptions();
+    static const char* l[] = {"720p", "1080p", "1440p", "4K"};
+    static const int v[] = {720, 1080, 1440, 2160};
+    if (Choice("res", {o.x + 48, y + 46}, l, v, 4, opt.resolution, 110)) SaveOptions();
   }
   y += 106;
   label(o.x + 48, y, tr("FILTRAGE DES TEXTURES"), tr("Rend le sol et le public plus nets de loin."));
@@ -708,13 +707,6 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
     static const int v[] = {1, 0};
     int fs = opt.fullscreen ? 1 : 0;
     if (Choice("mode", {col2, y + 30}, l, v, 2, fs, 200)) { opt.fullscreen = fs != 0; SaveOptions(); }
-  }
-  y += 90;
-  label(col2, y, tr("TAILLE DE LA FENÊTRE"), nullptr);
-  {
-    const char* l[] = {"720p", "900p", "1080p", "1440p", "4K"};
-    static const int v[] = {0, 1, 2, 3, 4};
-    if (Choice("wsize", {col2, y + 30}, l, v, 5, opt.window_size, 96)) SaveOptions();
   }
   y += 90;
   label(col2, y, tr("ÉCRAN"), nullptr);
