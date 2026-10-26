@@ -6,13 +6,19 @@ This repository contains project code and documentation only. It does not contai
 
 ## Status
 
-`port/` contains the ReXGlue prototype. The next major step is a native renderer that hooks the game's XDK Direct3D calls, maps its resources and draw state to a Windows graphics API, and uses shaders extracted and converted from the game. The Xenos GPU plugin can remain as a development fallback while native coverage grows; it should not be the final draw path. See [docs/PORTING_PLAN.md](docs/PORTING_PLAN.md) for the captured baseline and [docs/NATIVE_PORT_PLAN.md](docs/NATIVE_PORT_PLAN.md) for the renderer plan.
+**0.1.0 beta is out**: download it from the [releases page](https://github.com/iMrBurn/wwe2k15-pc/releases). It runs the whole game with Title Update 4 and DLC at 60 fps in matches on the Xenos GPU plugin (Vulkan), with a launcher in five languages, automatic updates, save backups, a mods folder and crash/freeze reports. No game data is included: you need your own copy of the Xbox 360 game and its Title Update 4. See the release notes in [docs/releases](docs/releases) and the work log in [docs/PORTING_PLAN.md](docs/PORTING_PLAN.md).
 
-The prototype has reached an early local beta-test milestone: the maintainer has confirmed a complete 1v1 match at about 60 FPS on an RTX 5070. Flicker, LED/tron texture corruption, slow pre-match videos, and long first-menu loading remain unresolved. This is not a general release; see [docs/BETA_TESTING.md](docs/BETA_TESTING.md) for status and test guidance. Builds must be generated from the tester's own game executable and must not be redistributed with game code or assets.
+Requirements: 64-bit Windows 10/11, a 64-bit CPU from 2009 or newer (4 threads or more recommended), a Vulkan GPU. Tested so far on NVIDIA; AMD and Intel GPU reports are welcome.
 
-For a local build, launch `Lancer WWE 2K15.bat` beside `wwe2k15.exe`. The native Windows launcher has Play, Settings, Controls, Mods, Saves, and About pages, remembers the folder containing your own `default.xex`, and opens the build logs. It starts the Xenos plugin with Vulkan and SDL controller input. Its interface uses Dear ImGui from the ReXGlue SDK; when building against an installed SDK, set `WWE2K15_IMGUI_DIR` to that SDK source tree's `thirdparty/imgui` folder.
+### Linux and Steam Deck
 
-The Xbox executable and extracted assets stay outside Git. This repository will document the game-specific call mappings, shader pipeline, renderer hooks, and fixes needed to adapt the ReXGlue/re:Blue/plume architecture to WWE 2K15. Before reusing any code from another project, preserve its license and notices and verify compatibility with this repository's license.
+There is no native Linux build yet, but the Windows build should run through Proton: add `WWE 2K15 Launcher.exe` to Steam as a non-Steam game, force a Proton version in its properties (Compatibility), and start it. Reports from Linux and Steam Deck players are welcome (open an issue, working or not). A native build may follow if there is demand.
+
+### Building
+
+Launch `Lancer WWE 2K15.bat` or `WWE 2K15 Launcher.exe` beside `wwe2k15.exe`. Build with `port\tools\build.ps1` (`-Sdk` also builds the patched ReXGlue SDK) and package with `port\tools\package.ps1`. The launcher uses Dear ImGui from the ReXGlue SDK; when building against an installed SDK, set `WWE2K15_IMGUI_DIR` to that SDK source tree's `thirdparty/imgui` folder.
+
+The Xbox executable and extracted assets stay outside Git. Before reusing any code from another project, preserve its license and notices and verify compatibility with this repository's license.
 
 ## Asset research
 
