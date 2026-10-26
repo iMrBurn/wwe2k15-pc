@@ -22,6 +22,10 @@ SETUP
 
 The first start takes longer (DLC install, shader preparation).
 
+LINUX / STEAM DECK
+No native Linux build yet. Add "WWE 2K15 Launcher.exe" to Steam as a non-Steam game,
+force Proton in its properties (Compatibility) and start it. Please report how it goes.
+
 UPDATES
 The launcher checks GitHub for new versions at startup (ABOUT page). Installing an
 update keeps your game folder, mods, logs, settings and saves.
