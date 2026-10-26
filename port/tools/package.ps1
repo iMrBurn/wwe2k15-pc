@@ -49,7 +49,18 @@ if ($bad) { throw "Game data found in the package: $($bad.FullName -join ', ')" 
 
 $zip = Join-Path $dist "$name.zip"
 if (Test-Path $zip) { Remove-Item -Force $zip }
-Compress-Archive -Path $stage -DestinationPath $zip
+# Not Compress-Archive: on Windows PowerShell 5.1 it writes "\" in entry names, which the zip format
+# (and the launcher's updater) expects as "/".
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$archive = [IO.Compression.ZipFile]::Open($zip, [IO.Compression.ZipArchiveMode]::Create)
+try {
+  $parent = Split-Path $stage -Parent
+  foreach ($f in Get-ChildItem $stage -Recurse -File) {
+    $entry = $f.FullName.Substring($parent.Length + 1).Replace('\', '/')
+    [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $f.FullName, $entry,
+                                                                  [IO.Compression.CompressionLevel]::Optimal)
+  }
+} finally { $archive.Dispose() }
 $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
 "$hash  $name.zip" | Set-Content (Join-Path $dist "SHA256-v$version.txt") -Encoding ASCII
 

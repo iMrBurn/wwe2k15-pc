@@ -6,7 +6,8 @@ Aucune donnée du jeu n'est fournie : il faut ta propre copie du jeu Xbox 360
 et sa Title Update 4.
 
 CONFIGURATION REQUISE
-- Windows 10/11 64 bits, processeur avec AVX2 (Intel Haswell / AMD Zen ou plus récent).
+- Windows 10/11 64 bits, processeur 64 bits de 2009 ou plus récent (SSE4.2), 4 threads
+  ou plus conseillés.
 - Carte graphique Vulkan. Recommandé : NVIDIA ou Intel récente (rendu « FSI »).
   Les cartes AMD fonctionnent sans FSI, avec des écrans noirs possibles pendant les entrées.
 
@@ -21,15 +22,23 @@ INSTALLATION
 
 Le premier lancement est plus long (installation des DLC, préparation des shaders).
 
+MISES À JOUR
+Le lanceur vérifie sur GitHub s'il y a une nouvelle version au démarrage (page
+À PROPOS). La mise à jour garde ton dossier du jeu, tes mods, tes journaux, tes
+réglages et tes sauvegardes.
+
 DOSSIERS
 - game\                          : tes fichiers du jeu (non fournis).
-- logs\                          : journaux du jeu (bouton JOURNAUX du lanceur).
+- logs\                          : journaux du jeu, rapports crash_*.txt / freeze_*.txt.
+- mods\                          : fichiers qui remplacent ceux du jeu, au même chemin
+                                   (par exemple mods\pac\menu\menu.pac).
 - cache\                         : cache des shaders (peut être supprimé sans risque).
-- %LOCALAPPDATA%\WWE2K15\        : sauvegardes et DLC installés.
+- %LOCALAPPDATA%\WWE2K15\        : sauvegardes, copies de sécurité et DLC installés.
 
 SIGNALER UN BUG
 Indique ta carte graphique, la scène (menu, entrée, match...) et joins le dernier
-fichier logs\wwe2k15_*.log et une capture si possible.
+fichier logs\wwe2k15_*.log (et le rapport crash_ / freeze_ si le lanceur en affiche
+un) et une capture si possible.
 
 Ne partage jamais les fichiers du jeu, la Title Update ou les DLC.
 Sans affiliation avec WWE, 2K ou Yuke's.

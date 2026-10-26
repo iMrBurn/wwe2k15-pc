@@ -193,6 +193,10 @@ class Updater {
       std::vector<size_t> starts;
       for (size_t k = json.find("\"tag_name\""); k != std::string::npos; k = json.find("\"tag_name\"", k + 1))
         starts.push_back(k);
+      if (starts.empty() && json.find_first_not_of(" \t\r\n[]") == std::string::npos) {
+        state_ = State::UpToDate;  // no release published yet
+        return;
+      }
       if (starts.empty()) {
         // Keep what GitHub sent, to see why it was not understood.
         std::ofstream(dir_ / "launcher_update_reply.txt", std::ios::binary)

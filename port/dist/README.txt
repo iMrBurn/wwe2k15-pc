@@ -6,7 +6,8 @@ No game data is included: you need your own copy of the Xbox 360 game and its
 Title Update 4.
 
 REQUIREMENTS
-- 64-bit Windows 10/11, CPU with AVX2 (Intel Haswell / AMD Zen or newer).
+- 64-bit Windows 10/11, a 64-bit CPU from 2009 or newer (SSE4.2), 4 threads or more
+  recommended.
 - Vulkan GPU. Recommended: recent NVIDIA or Intel (accurate "FSI" rendering).
   AMD GPUs run without FSI and may show black screens during entrances.
 
@@ -21,15 +22,22 @@ SETUP
 
 The first start takes longer (DLC install, shader preparation).
 
+UPDATES
+The launcher checks GitHub for new versions at startup (ABOUT page). Installing an
+update keeps your game folder, mods, logs, settings and saves.
+
 FOLDERS
 - game\                    : your game files (not included).
-- logs\                    : game logs (LOGS button in the launcher).
+- logs\                    : game logs, crash_*.txt / freeze_*.txt reports.
+- mods\                    : files that replace the game's own, at the same path
+                             (for example mods\pac\menu\menu.pac).
 - cache\                   : shader cache (safe to delete).
-- %LOCALAPPDATA%\WWE2K15\  : saves and installed DLC.
+- %LOCALAPPDATA%\WWE2K15\  : saves, save backups and installed DLC.
 
 REPORTING BUGS
 Give your GPU, the scene (menu, entrance, match...) and attach the latest
-logs\wwe2k15_*.log and a screenshot if you can.
+logs\wwe2k15_*.log (and the crash_ / freeze_ report if the launcher shows one) and
+a screenshot if you can.
 
 Never share the game files, the Title Update or DLC.
 Not affiliated with WWE, 2K or Yuke's.
