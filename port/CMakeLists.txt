@@ -34,6 +34,9 @@ rexglue_setup_target(wwe2k15 GPU_PLUGINS xenos)
 if(MSVC)
     target_link_options(wwe2k15 PRIVATE /DEBUG /OPT:REF /OPT:ICF)
 endif()
+if(WIN32)
+    target_sources(wwe2k15 PRIVATE res/wwe2k15.rc)
+endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # Native Win32 launcher, styled after the project's WWE '12 launcher.
@@ -52,7 +55,8 @@ if(WIN32)
         "${WWE2K15_IMGUI_DIR}/imgui_tables.cpp"
         "${WWE2K15_IMGUI_DIR}/imgui_widgets.cpp"
         "${WWE2K15_IMGUI_DIR}/backends/imgui_impl_win32.cpp"
-        "${WWE2K15_IMGUI_DIR}/backends/imgui_impl_dx11.cpp")
+        "${WWE2K15_IMGUI_DIR}/backends/imgui_impl_dx11.cpp"
+        res/wwe2k15.rc)
     target_include_directories(wwe2k15_launcher PRIVATE
         "${WWE2K15_IMGUI_DIR}" "${WWE2K15_IMGUI_DIR}/backends")
     find_package(SDL3 CONFIG REQUIRED)

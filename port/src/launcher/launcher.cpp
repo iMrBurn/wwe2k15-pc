@@ -709,8 +709,9 @@ LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   root = ExeDir(); LoadSettings();
-  WNDCLASSEXW wc{sizeof(wc), CS_CLASSDC, WndProc, 0, 0, instance, nullptr, nullptr, nullptr, nullptr,
-                 L"WWE2K15Launcher", nullptr};
+  HICON icon = LoadIconW(instance, MAKEINTRESOURCEW(1));
+  WNDCLASSEXW wc{sizeof(wc), CS_CLASSDC, WndProc, 0, 0, instance, icon, nullptr, nullptr, nullptr,
+                 L"WWE2K15Launcher", icon};
   RegisterClassExW(&wc);
   HWND hwnd = CreateWindowW(wc.lpszClassName, L"WWE 2K15 PC", WS_OVERLAPPEDWINDOW,
       100, 100, 1280, 760, nullptr, nullptr, wc.hInstance, nullptr);
