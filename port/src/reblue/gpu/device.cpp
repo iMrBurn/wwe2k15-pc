@@ -27,6 +27,7 @@
 #include <plume_vulkan.h>
 #endif
 #include <rex/cvar.h>
+#include <rex/filesystem.h>
 #include <rex/runtime.h>
 #include <rex/ui/flags.h>
 #include <rex/ui/window.h>
@@ -336,6 +337,14 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
       BD_ERROR("Plume CreateVulkanInterface failed");
       return false;
     }
+#if defined(SVR_NATIVE_RENDERER)
+    // plume-pipeline-cache.patch: the driver's pipeline cache lives in cache/ beside the exe (a
+    // driver blob, never packaged), so pipelines compiled once are not compiled again next launch.
+    {
+      const auto cache_dir = (rex::filesystem::GetExecutableFolder() / "cache").string();
+      plume::setVulkanPipelineCacheDirectory(cache_dir.c_str());
+    }
+#endif
 #endif
     // svr_gpu_device: the Vulkan name of the GPU to use (as vulkaninfo lists it), e.g. a laptop's
     // integrated one; empty picks the most capable (a discrete GPU first).
