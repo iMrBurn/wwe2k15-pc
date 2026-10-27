@@ -153,3 +153,18 @@ matching DirectXShaderCompiler release). `dxil.dll` is not needed (SPIR-V only).
 adds about 0.3 MB to the exe. `cache/native_shaders.bin` is per player and never packaged.
 The first launch is short enough (seconds, more on 2-4 core PCs) that no separate "prepare"
 step is needed; the launcher can still show a note for the first native launch.
+
+## Native checks of 2026-10-27 (afternoon, RTX 5070 Ti)
+
+- Superstar Threads (CREATIONS > SUPERSTAR THREADS, Adam Rose): the attire renders clean from afar
+  (`work/dev/v_11.png`) and close up in the editor (`v_15.png`), and a colour change (gauntlet to
+  white) is recomposed on the GPU and read back cleanly, no scrambled bands (`v_16.png`). The
+  WWE '12 readback path works unchanged: 2K15's texture objects keep the fetch constant at
+  +0x1C..+0x30 (checked in 2K15's own SetTexture, sub_82BA32A0).
+- Menus, character select, 1v1 match (Cena vs Reigns), crowd, signs, HUD text and the arena
+  graphics match the Xenos path in the screenshots (`nab_*.png`, `nent_e*.png`, `nst_*.png`).
+- Launcher path: the command line the launcher builds for "Rendu natif" (no gpu_plugin/backend,
+  `--svr_render_scale`, `--window_*`, ...) starts `wwe2k15_native.exe` and runs at 60 fps with no
+  unknown option; the checkbox itself was not clicked (code read: `launcher.cpp` OptionArgs).
+- Not checked yet: the victory scene (needs a full match), shadows side by side with Xenos in the
+  same arena and camera, an actual AMD/Intel discrete GPU.
