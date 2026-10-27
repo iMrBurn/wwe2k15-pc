@@ -339,3 +339,10 @@ Demo match from the title screen (`port/tools/dev/gpu_matrix.sh`, `gpu_compare.s
   cœurs : 46,4 % contre 47 % pour « GPU Commands » : dans le bruit, gain d'environ 1-2 %. Après les deux
   correctifs précédents le profil de « GPU Commands » est plat (aucune ligne ne dépasse ~2 % des échantillons) ;
   d'autres gains demanderaient de réduire le nombre de dessins ou de paralléliser, pas de micro-optimiser.
+
+## (Rendu) Issue #3: matches at 2-10 fps on an RX 6750 XT -> "auto" render-target path (2026-10-27)
+
+- Reporter's logs (0.1.3-beta, 2560x1440, FSI): menus 60 fps; in the match 10,500-10,800 draws and ~70 resolves per frame at 2.5-4 fps, "GPU-ring wait 0%". The same per-frame work runs at 60 fps on the RTX 5070 Ti, so the GPU side is ~20x slower, not the CPU.
+- Our own AMD Radeon iGPU (`--vulkan_device=1`) logs from 2026-10-26, same match, 720p: FSI 3-6 fps, host render targets 14-18 fps. AMD drivers serialize overlapping fragments for the interlock, so FSI is 3-4x slower than the host path there; on NVIDIA FSI costs ~1.6x GPU time (section above). The host path's entrances were checked on that iGPU on 2026-10-26 (correct, only load-transition blacks).
+- `rexglue-sdk-render-path-log.patch` now also adds `render_target_path_vulkan = "auto"`: FSI, except on AMD (vendor 0x1002), which gets host render targets; "fsi" still forces FSI, any other value forces the host path. The startup log line names the choice ("auto, AMD GPU" / "auto, non-AMD GPU"). `wwe2k15_runtime.toml` uses "auto", and the launcher's "Rendu précis (FSI)" box now passes "auto" when ticked (still "rtv" when unticked). Checked: RTX 5070 Ti -> FSI, Radeon iGPU -> host.
+- Not done yet: GPU time per frame (timestamp queries) in the 5 s log, so every report says GPU-bound vs CPU-bound. It touches `vulkan/command_processor.cpp`, which (Perf) is changing for the pipeline cache; to do after that lands.
