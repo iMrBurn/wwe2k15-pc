@@ -11,7 +11,7 @@ is included in this repository or in its releases.
 | [re:Blue](https://github.com/zolaware/reblue) | core of the native renderer (`port/src/reblue`) | BSD 3-Clause (`port/src/reblue/LICENSE.reblue`) |
 | [plume](https://github.com/zolaware/plume) | Vulkan layer of the native renderer (built from `native-deps`, not vendored) | MIT |
 | [XenosRecomp](https://github.com/hedge-dev/XenosRecomp) (re:Blue fork) | Xbox 360 shader to HLSL translator, built into `wwe2k15_native.exe` (converts the player's own shaders) | MIT (`port/third_party/licenses/XenosRecomp-LICENSE.md`) |
-| [DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler) | `dxcompiler.dll`, shipped beside `wwe2k15_native.exe`: HLSL to SPIR-V on the player's PC | University of Illinois/NCSA + MIT (its LICENSE-LLVM.txt and LICENSE-MS.txt must ship with it) |
+| [DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler) | `dxcompiler.dll`, shipped beside `wwe2k15_native.exe`: HLSL to SPIR-V on the player's PC | University of Illinois/NCSA license (`port/third_party/licenses/DXC-LICENSE.txt`, third-party notices in `DXC-ThirdPartyNotices.txt`, both from the official repository and shipped with it) |
 | smol-v, xxHash, fmt | SPIR-V packing, shader hashes, text formatting (XenosRecomp's copies) | MIT, BSD 2-Clause, MIT (`port/third_party/licenses`) |
 | zstd (`port/third_party/reblue_thirdparty/zstd`) | shader cache decompression | BSD 3-Clause / GPL-2.0 dual |
 | Licenses in `port/third_party/licenses` | disruptorplus, renderdoc_app (re:Blue dependencies) | see the files |

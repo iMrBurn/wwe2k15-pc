@@ -29,6 +29,7 @@ if ($Native) {
   foreach ($f in "wwe2k15_native.exe", "dxcompiler.dll") { Copy-Item (Join-Path $buildDir $f) $stage }
   Copy-Item (Join-Path $repo "LICENSE") (Join-Path $stage "licenses\GPL-3.0.txt")
   Copy-Item (Join-Path $repo "THIRD_PARTY.md") (Join-Path $stage "licenses\THIRD_PARTY.md")
+  foreach ($f in Get-ChildItem (Join-Path $port "third_party\licenses") -File) { Copy-Item $f.FullName (Join-Path $stage "licenses\$($f.Name)") }
 }
 Copy-Item (Join-Path $port "wwe2k15_runtime.toml") (Join-Path $stage "wwe2k15.toml")
 Copy-Item (Join-Path $port "dist\game\PUT_GAME_FILES_HERE.txt") (Join-Path $stage "game")
