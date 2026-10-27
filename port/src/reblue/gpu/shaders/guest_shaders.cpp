@@ -57,11 +57,15 @@ namespace bd::gpu {
 
 namespace {
 ShaderCacheEntry *FindShaderCacheEntry(u64 hash) {
+#if defined(WWE2K15_RUNTIME_SHADERS)
+  return Wwe2k15FindShaderEntry(hash);
+#else
   auto *end = g_shaderCacheEntries + g_shaderCacheEntryCount;
   auto *result = std::lower_bound(
       g_shaderCacheEntries, end, hash,
       [](const ShaderCacheEntry &lhs, u64 rhs) { return lhs.hash < rhs; });
   return (result != end && result->hash == hash) ? result : nullptr;
+#endif
 }
 
 // Guards GuestShader::shader / linkedShaders lookups+inserts only. DXC link
@@ -226,6 +230,7 @@ void NameShader(std::vector<u8> &bytes, u64 hash) {
   std::memcpy(bytes.data(), w.data(), bytes.size());
 }
 
+#if !defined(WWE2K15_RUNTIME_SHADERS)
 // The SPIR-V half of the same generated cache: ZSTD-compressed, per-entry
 // modules smol-v encoded. Decompressed once on first shader resolve.
 std::once_flag g_spirv_cache_once;
@@ -245,6 +250,7 @@ const u8 *SpirvCache() {
   });
   return g_spirv_cache.get();
 }
+#endif  // !WWE2K15_RUNTIME_SHADERS
 #endif
 
 // X360 exports BD's bloom bright mask into an LDR EDRAM tile, saturating it at
@@ -282,8 +288,12 @@ GuestShader *CreateShader(const be_u32 *function, ResourceType type) {
     }
     shader->shaderCacheEntry = entry;
   } else {
+#if defined(WWE2K15_RUNTIME_SHADERS)
+    Wwe2k15RequestShader(hash, reinterpret_cast<const u8 *>(function), hash_len, shader);
+#else
     BD_WARN("Shader cache miss: hash=0x{:016X} len={} type={}", hash, hash_len,
             static_cast<u32>(type));
+#endif
   }
   // Let boot cache replay enqueue any pending PSO that was waiting on this
   // shader's microcode hash now that its host object exists.
@@ -333,10 +343,16 @@ plume::RenderShader *GetOrLinkShader(GuestShader *gs, u32 specConstants) {
   // XenosRecomp SPIR-V keeps g_SpecConstants as specialization constant id 0,
   // supplied per pipeline by the pipeline cache, and no link step exists.
   (void)specConstants;
+#if defined(WWE2K15_RUNTIME_SHADERS)
+  const u8 *smol = Wwe2k15ShaderSpirv(entry);
+  if (!smol)
+    return nullptr;
+#else
   const u8 *cache = SpirvCache();
   if (!cache)
     return nullptr;
   const u8 *smol = cache + entry->spirvOffset;
+#endif
   std::vector<u8> spirv(smolv::GetDecodedBufferSize(smol, entry->spirvSize));
   if (spirv.empty() ||
       !smolv::Decode(smol, entry->spirvSize, spirv.data(), spirv.size())) {

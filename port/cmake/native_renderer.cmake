@@ -35,6 +35,37 @@ target_include_directories(wwe2k15_native_thirdparty PUBLIC
     "${WWE2K15_XENOS_DIR}/thirdparty/xxHash"
     "${WWE2K15_XENOS_DIR}/thirdparty/smol-v/source")
 
+# Game shaders are converted on the player's PC (option chosen on 2026-10-27: no game-derived data
+# in any package). XenosRecomp's translator (MIT) is built into the executable; DXC's
+# dxcompiler.dll (shipped beside the exe) turns its HLSL into SPIR-V; the result is kept in
+# cache/native_shaders.bin next to the exe (src/native/wwe2k15_shader_cache.cpp).
+add_library(wwe2k15_xenosrecomp STATIC
+    "${WWE2K15_XENOS_DIR}/XenosRecomp/shader_recompiler.cpp"
+    "${WWE2K15_NATIVE_ROOT}/src/native_xr/xenos_translate.cpp")
+# XenosRecomp's own fmt (header-only) stays private: the SDK's spdlog links another fmt build.
+target_include_directories(wwe2k15_xenosrecomp PRIVATE
+    "${WWE2K15_XENOS_DIR}/XenosRecomp"
+    "${WWE2K15_XENOS_DIR}/thirdparty/fmt/include"
+    "${WWE2K15_XENOS_DIR}/thirdparty/zstd/lib"
+    "${WWE2K15_XENOS_DIR}/thirdparty/xxHash")
+target_include_directories(wwe2k15_xenosrecomp PUBLIC
+    "${WWE2K15_NATIVE_ROOT}/src/native_xr"
+    "${WWE2K15_XENOS_DIR}/thirdparty/dxc-bin/inc"
+    "${WWE2K15_XENOS_DIR}/thirdparty/smol-v/source")
+target_compile_definitions(wwe2k15_xenosrecomp PRIVATE REBLUE_RECOMP FMT_HEADER_ONLY _CRT_SECURE_NO_WARNINGS)
+if(MSVC)
+    target_compile_options(wwe2k15_xenosrecomp PRIVATE "/FI${WWE2K15_XENOS_DIR}/XenosRecomp/pch.h"
+        /clang:-Wno-switch /clang:-Wno-unused-variable /clang:-Wno-null-arithmetic)
+else()
+    target_compile_options(wwe2k15_xenosrecomp PRIVATE -include "${WWE2K15_XENOS_DIR}/XenosRecomp/pch.h"
+        -Wno-switch -Wno-unused-variable -Wno-null-arithmetic -fms-extensions)
+endif()
+# The HLSL prelude XenosRecomp prepends to every shader (shader_common.h), embedded as bytes.
+file(READ "${WWE2K15_XENOS_DIR}/XenosRecomp/shader_common.h" _common_hex HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _common_bytes "${_common_hex}")
+file(WRITE "${WWE2K15_NATIVE_GEN}/shader_common_text.inc" "${_common_bytes}")
+set(WWE2K15_DXCOMPILER_DLL "${WWE2K15_XENOS_DIR}/thirdparty/dxc-bin/bin/x64/dxcompiler.dll")
+
 # Host shaders (copy, ImGui overlay, MSAA resolve, gamma) compiled to SPIR-V headers with the
 # DXC shipped in reblue-XenosRecomp (the Windows SDK's dxc has no SPIR-V backend).
 set(WWE2K15_DXC "${WWE2K15_XENOS_DIR}/thirdparty/dxc-bin/bin/x64/dxc.exe")
@@ -71,19 +102,15 @@ file(GLOB_RECURSE WWE2K15_NATIVE_SOURCES CONFIGURE_DEPENDS
     "${WWE2K15_NATIVE_ROOT}/src/native/*.cpp" "${WWE2K15_NATIVE_ROOT}/src/native/*.h")
 
 function(wwe2k15_add_native_renderer target)
-    if(NOT EXISTS "${WWE2K15_NATIVE_ROOT}/generated/native/shader_cache.cpp")
-        message(FATAL_ERROR "generated/native/shader_cache.cpp missing: dump the game's shaders "
-                            "(wwe2k15_dump_shaders) and convert them first (docs/NATIVE_PORT_PLAN.md)")
-    endif()
+    # No generated/native/shader_cache.cpp here: it would put game-derived shaders in the exe.
     target_sources(${target} PRIVATE
         ${WWE2K15_NATIVE_SOURCES}
-        ${WWE2K15_HOST_SHADER_HEADERS}
-        "${WWE2K15_NATIVE_ROOT}/generated/native/shader_cache.cpp")
-    # Secondary shader keys (tools/gen_shader_keys.py): match containers the game altered in memory.
-    if(EXISTS "${WWE2K15_NATIVE_ROOT}/generated/native/shader_keys.cpp")
-        target_sources(${target} PRIVATE "${WWE2K15_NATIVE_ROOT}/generated/native/shader_keys.cpp")
-        target_compile_definitions(${target} PRIVATE WWE12_SHADER_KEYS=1)
-    endif()
+        ${WWE2K15_HOST_SHADER_HEADERS})
+    target_compile_definitions(${target} PRIVATE WWE2K15_RUNTIME_SHADERS=1)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${WWE2K15_DXCOMPILER_DLL}"
+            "$<TARGET_FILE_DIR:${target}>/dxcompiler.dll"
+        VERBATIM)
     target_include_directories(${target} PRIVATE
         "${WWE2K15_NATIVE_ROOT}/src/reblue"
         "${WWE2K15_NATIVE_ROOT}/src/native"
@@ -99,7 +126,7 @@ function(wwe2k15_add_native_renderer target)
         set(_names_include "-include;${WWE2K15_NATIVE_ROOT}/src/native/wwe2k15_d3d_names.h")
     endif()
     set_source_files_properties(${WWE2K15_NATIVE_SOURCES} PROPERTIES COMPILE_OPTIONS "${_names_include}")
-    target_link_libraries(${target} PRIVATE plume wwe2k15_native_thirdparty rex::o1heap)
+    target_link_libraries(${target} PRIVATE plume wwe2k15_native_thirdparty wwe2k15_xenosrecomp rex::o1heap)
     # Linker map: names recompiled functions in crash stacks.
     if(MSVC)
         target_link_options(${target} PRIVATE "/MAP:${CMAKE_BINARY_DIR}/wwe2k15_native.map")

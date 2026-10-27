@@ -121,3 +121,35 @@ Rough total: 2-3 months of focused work before the native path can be the defaul
     GPUs): match 60 presents/s, entrances 30, CPU 80 %. The Xenos path on the same iGPU and match:
     14-18 fps (host render targets) or 3-6 fps (FSI). This is the weak-GPU win the native renderer
     was for. `svr_render_scale = 540` (0.75x, from WWE '12 PC) is also available for weaker GPUs.
+
+## Shaders: converted on the player's PC (2026-10-27)
+
+Decision (user, through (Main)): no game-derived data in any package, so `wwe2k15_native.exe`
+links no generated shader cache. Flow, all in `port/src/native/wwe2k15_shader_cache.cpp`:
+
+1. When the game creates a shader (`D3DDevice_CreateVertexShader` / `CreatePixelShader`, re:Blue's
+   `CreateShader`), the container is hashed (XXH3, as XenosRecomp keys it) and looked up in
+   `cache/native_shaders.bin` beside the exe (loaded once, at the first lookup).
+2. A container the cache doesn't have is queued for conversion on worker threads (all cores but
+   two, cvar `wwe2k15_shader_threads`): XenosRecomp's translator (built into the exe, MIT;
+   `port/src/native_xr`) writes HLSL with its `shader_common.h` prelude (embedded at build time),
+   `dxcompiler.dll` (loaded at run time from beside the exe) compiles it to SPIR-V with the options
+   XenosRecomp uses for Vulkan, smol-v packs it. The result is appended to the cache file and
+   handed to every `GuestShader` waiting for that hash.
+3. Until a shader is ready its `GuestShader` has no cache entry, and re:Blue skips the draws that
+   need it (its existing cache-miss path): nothing crashes, the picture fills in. A shader that
+   fails to convert is logged once and its draws stay skipped. Without `dxcompiler.dll` the game
+   still runs (black picture) and the log says to reinstall.
+4. Measured on the dev PC (16 threads, 14 converting): the 609 shaders the game creates at boot
+   are converted in 2 s on the first native launch (log lines `Native shaders: preparing the
+   game's shaders, N / 609 done`), cache file 3.0 MB; the next launches load all 609 from it and
+   convert nothing. The picture matches the build-time cache it replaces (same pipelines created,
+   demo match at 60 fps). A cut-short record (crash while writing) is ignored and converted again;
+   a cache from another converter version (tag = shader_common.h hash + version) is rebuilt.
+
+Shipping: `dxcompiler.dll` (17.1 MB, from reblue-XenosRecomp's dxc-bin) beside the exe, plus DXC's
+license texts (LICENSE-LLVM.txt, LICENSE-MS.txt: not in that dxc-bin folder, to take from the
+matching DirectXShaderCompiler release). `dxil.dll` is not needed (SPIR-V only). The translator
+adds about 0.3 MB to the exe. `cache/native_shaders.bin` is per player and never packaged.
+The first launch is short enough (seconds, more on 2-4 core PCs) that no separate "prepare"
+step is needed; the launcher can still show a note for the first native launch.

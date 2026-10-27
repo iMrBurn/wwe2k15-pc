@@ -30,6 +30,19 @@ struct ShaderCacheEntry {
   bd::gpu::GuestShader *guestShader;
 };
 
+#if defined(WWE2K15_RUNTIME_SHADERS)
+// WWE 2K15: no shader cache is linked into the executable (it would be game-derived data). The
+// player's own shaders are converted at run time and kept beside the exe
+// (src/native/wwe2k15_shader_cache.cpp); these replace the generated tables below.
+ShaderCacheEntry *Wwe2k15FindShaderEntry(uint64_t hash);
+// The smol-v SPIR-V of an entry (entry->spirvSize bytes).
+const uint8_t *Wwe2k15ShaderSpirv(const ShaderCacheEntry *entry);
+// A container the cache doesn't have yet: converted in the background; when it is ready, `shader`
+// gets its entry (until then the renderer skips the draws that need it).
+void Wwe2k15RequestShader(uint64_t hash, const uint8_t *container, uint32_t size,
+                          bd::gpu::GuestShader *shader);
+#endif
+
 extern ShaderCacheEntry g_shaderCacheEntries[];
 extern const size_t g_shaderCacheEntryCount;
 
