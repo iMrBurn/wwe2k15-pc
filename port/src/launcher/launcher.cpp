@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <chrono>
 #include <cstdlib>
 #include <cmath>
 #include <filesystem>
@@ -57,6 +58,8 @@ std::string page = "JOUER", status;
 HANDLE game_process = nullptr;
 Updater updater;
 fs::file_time_type launch_time{};
+std::chrono::steady_clock::time_point launch_start{};
+std::string start_failure;  // plain-language reason the game stopped right after starting
 bool disable_obs_vulkan_hook = true;
 
 // Game options passed to wwe2k15.exe as cvars (saved in launcher-options.ini).
@@ -168,9 +171,48 @@ bool HasGame() { return ValidGame(game_data); }
 
 // The game is generated from Title Update 4: default.xexp must sit beside default.xex (or in
 // game_update\ for a disc image).
-bool HasTitleUpdate() {
+bool NonEmptyFile(const fs::path& p) {
   std::error_code ec;
-  return HasGame() && fs::exists(Extras() / L"default.xexp", ec);
+  return fs::is_regular_file(p, ec) && fs::file_size(p, ec) > 0;
+}
+
+bool HasTitleUpdate() { return HasGame() && NonEmptyFile(Extras() / L"default.xexp"); }
+
+// A problem with the game files that stops the game from starting, in words ("" = none seen).
+std::string GameFilesProblem() {
+  if (!HasGame()) return {};
+  if (!IsIso(game_data) && !NonEmptyFile(game_data / L"default.xex"))
+    return tr("default.xex est vide ou abîmé : les fichiers du jeu sont incomplets. Copie-les de nouveau.");
+  if (!HasTitleUpdate())
+    return tr("La Title Update 4 (default.xexp) est absente ou vide. Ajoute-la : RÉGLAGES > AJOUTER TU / DLC.");
+  return {};
+}
+
+// Why the game stopped at start, read from its newest log ("" = nothing recognised).
+std::string StartFailureFromLog(fs::file_time_type since) {
+  fs::path best;
+  fs::file_time_type best_time{};
+  std::error_code ec;
+  for (const auto& e : fs::directory_iterator(root / L"logs", ec)) {
+    const std::wstring n = e.path().filename().wstring();
+    if (e.path().extension() != L".log" || n.rfind(L"wwe2k15_", 0) != 0) continue;
+    const auto t = e.last_write_time(ec);
+    if (t >= since && t > best_time) { best = e.path(); best_time = t; }
+  }
+  if (best.empty()) return {};
+  std::ifstream in(best);
+  std::string line, found;
+  while (std::getline(in, line)) {
+    if (line.find("Failed to load XEX") != std::string::npos)
+      found = tr("Le jeu n'a pas pu charger default.xex. Vérifie que la Title Update 4 est bien installée et qu'elle correspond à ton jeu (même région et même édition, default.xex non modifié), et que les fichiers du jeu sont complets. Détails : bouton JOURNAUX.");
+    else if (found.empty() && (line.find("no default.xexp") != std::string::npos ||
+                               line.find("Could not find default.xex") != std::string::npos))
+      found = tr("La Title Update 4 est introuvable. Ajoute-la : RÉGLAGES > AJOUTER TU / DLC.");
+    else if (found.empty() && line.find("XEX patch") != std::string::npos &&
+             (line.find("fail") != std::string::npos || line.find("error") != std::string::npos))
+      found = tr("La Title Update 4 ne correspond pas à ton jeu (autre région ou édition, ou default.xex déjà modifié). Utilise le jeu d'origine et la TU4 de la même région. Détails : bouton JOURNAUX.");
+  }
+  return found;
 }
 
 int DlcCount() {
@@ -426,6 +468,8 @@ void LaunchGame() {
   if (!HasTitleUpdate()) { status = tr("Ajoute la Title Update 4 (RÉGLAGES > AJOUTER TU / DLC)."); page = "RÉGLAGES"; return; }
   SaveSettings();
   launch_time = fs::file_time_type::clock::now();
+  launch_start = std::chrono::steady_clock::now();
+  start_failure.clear();
   if (opt.auto_backup) {
     std::string err;
     if (saves::CreateBackup(user_data, err)) saves::PruneBackups(user_data, 10);
@@ -477,6 +521,9 @@ void UpdateGameProcess() {
   CloseHandle(game_process);
   game_process = nullptr;
   status = tr("Le jeu s'est arrêté (code ") + std::to_string(exit_code) + tr("). Consulte JOURNAUX.");
+  // A failure within the first seconds is the game files, not a crash during play.
+  if (exit_code != 0 && std::chrono::steady_clock::now() - launch_start < std::chrono::seconds(30))
+    start_failure = StartFailureFromLog(launch_time - std::chrono::seconds(2));
 }
 
 // SDL3 gamepad input (DualSense, Xbox, ...) fed into ImGui navigation; ImGui's own backend is XInput-only.
@@ -652,6 +699,17 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (Tile("logs", tr("JOURNAUX"), {190, 52}, false, false, 20)) OpenFolder(root / L"logs");
 
   if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 416}, kWhite, status.c_str());
+  // Red note: the game files look wrong, or the game just failed to start because of them.
+  float extra = 0;
+  {
+    const std::string note = !running && !start_failure.empty() ? start_failure : (running ? std::string() : GameFilesProblem());
+    if (!note.empty()) {
+      const float wrap = area.x - 96;
+      const ImU32 red = IM_COL32(255, 96, 96, 255);
+      d->AddText(ui_font, 17, {o.x + 48, o.y + 446}, red, note.c_str(), nullptr, wrap);
+      extra = ui_font->CalcTextSizeA(17, FLT_MAX, wrap, note.c_str()).y + 8;
+    }
+  }
   if (const std::string latest = updater.AvailableVersion(); !latest.empty()) {
     const std::string notice = tr("Mise à jour disponible : ") + latest;
     d->AddText(ui_font, 17, {o.x + 760, o.y + 318}, kGold, notice.c_str());
@@ -663,9 +721,9 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
     static double checked_at = -100;
     if (ImGui::GetTime() - checked_at > 2.0) { report = NewestReport(); checked_at = ImGui::GetTime(); }
     if (!report.empty()) {
-      d->AddText(ui_font, 17, {o.x + 48, o.y + 452}, kGold,
+      d->AddText(ui_font, 17, {o.x + 48, o.y + 452 + extra}, kGold,
                  tr("Un rapport de plantage ou de gel a été créé. Envoie-le avec ton signalement."));
-      ImGui::SetCursorScreenPos({o.x + 48, o.y + 480});
+      ImGui::SetCursorScreenPos({o.x + 48, o.y + 480 + extra});
       if (Tile("report", tr("OUVRIR LE RAPPORT"), {260, 44}, false, false, 18))
         ShellExecuteW(nullptr, L"open", report.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     }
