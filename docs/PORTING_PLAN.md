@@ -556,3 +556,32 @@ known. Next step if wanted: item (a) above, to confirm that no editor scenes exi
 - TU4 functions: insert `sub_828A2CA8(editor, const char* s, 1, 0)`; button handler `sub_828A6478(editor, code)` (code 7 = letter cell, 14 = BACK); text widget draw `sub_82333D98(screen, widget)` every frame. The editor is `screen - 0x770` (editor A4BD5440, screen A4BD5BB0); its line text pointers are at `editor+0xECC` (8 of them), and a grid line is the widget whose `[widget+0xA4]` equals one of them; `[editor+44]` != 0 and cursor `[editor+3460]` are sanity checks. The first typed letter replaces the default text (the game's own behaviour, the pad does the same).
 - The module (both exes, cvar `wwe2k15_kbd` default true, `wwe2k15_kbd_log` probe) queues `OnKeyChar` text (z-1000 window listener: AZERTY, Shift, AltGr, repeat; accents become the plain letter), keeps the typing keys away from `mnk_mode` while the grid is up, and replays the queue from the draw hook on the game thread through the two functions above. Tested by the user on the Xenos exe in the Roster Application Form name field; the native exe builds the same file but is not tested yet.
 - Test path (nav.ps1): title ENTER, two SPACE (attention screens), `S` x4 = CREATIONS, SPACE x4 (submenu, SUPERSTAR > NEW, template, editor), `1` (LB) = OTHER tab, `S` x7 = ACCEPT, SPACE, `LEFT` = YES (needs `--keybind_dpad_*` keys), SPACE = the Roster Application Form; SPACE on a field opens the grid. The game window must be in front: with the user at the PC, ask them to click it first (Windows refuses a background `SetForegroundWindow`).
+
+### Update 2026-10-27: compressed pacs decoded, Story Designer leftovers found (Mods)
+
+Decoder: WWE '12's `port/src/modmaker/svrfmt/xcompress.cpp` (XMemCompress `0x0FF512ED`: header, chunk-size table,
+32 KB LZX frames, libmspack `lzxd`) built as a tiny command-line tool outside the repo (`C:\Dev\work_2k15_unpacked\_tool`,
+`xdec.exe in out`). All 337 compressed pacs of TU4 + TU decode without error into `C:\Dev\work_2k15_unpacked`
+(3.7 GB, not in Git); the results are `EPK8` containers (the uncompressed ones are `EPAC`). The earlier "cannot read
+compressed data" limit above is lifted for pacs; `default.xex` is still packed (no unpacker yet).
+
+What the full search (ASCII + UTF-16, all pacs) shows:
+- **`pac\menu\sas.pac` (decoded 106 KB) is a table of 159 "Story Designer" commentary cue names**
+  (`SVR11_Cole_StoryDesigner_Rivalry_Match_563`, `..._Made_Cage_Match`, `..._Old_Rivals_Match`, `..._Rematch_Match`,
+  `..._Best_of_Series_*`, `..._Brand_War_Match`, `..._Surprised_Cutscene`, ...; Cole/King lines). That is SmackDown vs.
+  Raw 2011's Story Designer commentary, still shipped.
+- **`sound\Game_Sound_M.pck` holds the audio**: 202 WAV clips with cue labels `SVR11_*_StoryDesigner_*` (Cole/King).
+  `Comm.pck` and `Game_Sound_E_S.pck` have none.
+- `pac\menu\menu.pac` stats counter `BASIC_CREATE_STORY_COUNT` (see above); `MnUIHD/SD.pac` has a widget label
+  "New Story"-ish next to the match-type list (text truncated; not confirmed as a story entry). `com.pac` has an AI
+  parameter `DefRivals`; `evt\Winning01.pac` a camera named "Story Audience Camera" (Universe/Winning event).
+- No story editor scenes, story text, feud/storyline data or story save format found anywhere in the decoded pacs
+  (`createmode.pac` is only the create-mode UI; names `feud`/`rival` elsewhere are Universe-mode rival tron/appear
+  events and random bytes).
+- Engine side: still not checked (needs `default.xex` unpacked: the SDK loader unpacks it in memory; a standalone
+  extractor or a guest-memory dump is the next step, then look for xrefs to the strings `StoryDesigner` / `sas.pac`).
+
+Revised estimate: the 2011/2K14-era Story Designer **commentary audio** and cue list survive, which is the least
+costly part of the mode; the editor UI, story data model, scenes and save format do not appear in the data. Bringing
+the mode back therefore still means rebuilding the editor, but the commentary could be reused. Unknown until the exe
+is searched: whether story-related code is still linked.
