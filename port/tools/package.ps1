@@ -24,9 +24,8 @@ foreach ($f in "wwe2k15.exe", "WWE 2K15 Launcher.exe", "rexruntime.dll", "rexgpu
   Copy-Item (Join-Path $buildDir $f) $stage
 }
 if ($Native) {
-  # The native renderer converts the player's own shaders at run time into cache
-ative_shaders.bin:
-  # that cache is game-derived and must never be packaged.
+  # The native renderer converts the player's own shaders at run time into a cache file beside
+  # the exe: that cache is game-derived and must never be packaged.
   foreach ($f in "wwe2k15_native.exe", "dxcompiler.dll") { Copy-Item (Join-Path $buildDir $f) $stage }
   Copy-Item (Join-Path $repo "LICENSE") (Join-Path $stage "licenses\GPL-3.0.txt")
   Copy-Item (Join-Path $repo "THIRD_PARTY.md") (Join-Path $stage "licenses\THIRD_PARTY.md")
