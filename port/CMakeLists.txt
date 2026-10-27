@@ -21,6 +21,7 @@ set(WWE2K15_SOURCES
     src/framerate_hook.cpp
     src/crash_report.cpp
     src/text_hook.cpp
+    src/shader_dump.cpp
 )
 
 if(WIN32)
