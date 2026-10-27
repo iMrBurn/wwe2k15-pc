@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <d3d11.h>
+#include <dxgi.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <dwmapi.h>
@@ -75,6 +76,8 @@ struct Options {
   bool cpu_yield = true;      // wwe2k15_render_wait_yield
   bool vsync = true;          // no tearing (vulkan_allow_present_mode_immediate = false)
   bool show_fps = false;      // wwe2k15_show_fps
+  bool native = false;        // experimental native renderer: wwe2k15_native.exe
+  std::string gpu;            // native renderer only: Vulkan name of the GPU ("" = automatic)
 } opt;
 
 const char* tr(const char* fr) { return i18n::Translate(fr, opt.language); }
@@ -251,6 +254,7 @@ void SaveOptions() {
   if (!out) return;
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
+      << "\nnative=" << opt.native << "\ngpu=" << opt.gpu
       << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
@@ -262,8 +266,13 @@ void LoadOptions() {
     if (eq == std::string::npos) continue;
     const std::string k = line.substr(0, eq);
     const int v = std::atoi(line.c_str() + eq + 1);
+    if (k == "gpu") {
+      opt.gpu = line.substr(eq + 1);
+      while (!opt.gpu.empty() && (opt.gpu.back() == '\r' || opt.gpu.back() == '\n')) opt.gpu.pop_back();
+      continue;
+    }
     if (k == "fullscreen") opt.fullscreen = v != 0;
-    else if (k == "resolution") opt.resolution = v == 1080 || v == 1440 || v == 2160 ? v : 720;
+    else if (k == "resolution") opt.resolution = v == 540 || v == 1080 || v == 1440 || v == 2160 ? v : 720;
     // Files from before the single resolution choice.
     else if (k == "resolution_scale") opt.resolution = v >= 3 ? 2160 : v == 2 ? 1440 : 720;
     else if (k == "monitor") opt.monitor = std::clamp(v, 0, 3);
@@ -279,6 +288,7 @@ void LoadOptions() {
     else if (k == "gpu_wait_yield") opt.cpu_yield = v != 0;  // (the old cpu_yield key defaulted to off)
     else if (k == "show_fps") opt.show_fps = v != 0;
     else if (k == "vsync") opt.vsync = v != 0;
+    else if (k == "native") opt.native = v != 0;
   }
   if (opt.language != 1 && opt.language != 3 && opt.language != 4 && opt.language != 5 &&
       opt.language != 6) {
@@ -294,10 +304,35 @@ void LoadOptions() {
 
 // The GPU emulation renders whole multiples of the Xbox 360's 720p: 1080p renders at 2x (1440p)
 // and is scaled down to the 1080p window or screen, which is sharper than a native 1080p.
-int RenderScale(int resolution) { return resolution >= 2160 ? 3 : resolution >= 1080 ? 2 : 1; }
+int RenderScale(int resolution) { return resolution <= 720 ? 1 : resolution >= 2160 ? 3 : resolution >= 1080 ? 2 : 1; }
+
+bool NativeAvailable() {
+  std::error_code ec;
+  return fs::exists(root / L"wwe2k15_native.exe", ec);
+}
+bool UseNative() { return opt.native && NativeAvailable(); }
 
 std::wstring OptionArgs() {
   auto b = [](bool v) { return std::wstring(v ? L"true" : L"false"); };
+  if (UseNative()) {
+    // The native renderer has no Xenos GPU emulation: only the options it shares or its own.
+    return L" --fullscreen=" + b(opt.fullscreen) +
+           L" --svr_render_scale=" + std::to_wstring(opt.resolution) +
+           (opt.gpu.empty() ? std::wstring() : L" --svr_gpu_device=\"" + Widen(opt.gpu.c_str()) + L"\"") +
+           L" --mnk_mode=" + b(opt.keyboard) +
+           L" --user_language=" + std::to_wstring(opt.language) +
+           L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
+           L" --wwe2k15_show_fps=" + b(opt.show_fps) +
+           L" --window_width=" + std::to_wstring(std::max(opt.resolution, 720) * 16 / 9) +
+           L" --window_height=" + std::to_wstring(std::max(opt.resolution, 720)) +
+           L" --monitor=" + std::to_wstring(opt.monitor) +
+           L" --wwe2k15_mods=" + b(opt.mods) +
+           (opt.keyboard && opt.azerty
+                ? std::wstring(L" --keybind_lstick_up=Z --keybind_lstick_left=Q --keybind_lstick_down=S"
+                               L" --keybind_lstick_right=D --keybind_left_trigger=A,I"
+                               L" --keybind_back=W,Tab")
+                : std::wstring());
+  }
   return L" --fullscreen=" + b(opt.fullscreen) +
          L" --resolution_scale=" + std::to_wstring(RenderScale(opt.resolution)) +
          L" --anisotropic_override=" + std::to_wstring(opt.anisotropic) +
@@ -307,8 +342,8 @@ std::wstring OptionArgs() {
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
          L" --wwe2k15_show_fps=" + b(opt.show_fps) +
          L" --vulkan_allow_present_mode_immediate=" + b(!opt.vsync) +
-         L" --window_width=" + std::to_wstring(opt.resolution * 16 / 9) +
-         L" --window_height=" + std::to_wstring(opt.resolution) +
+         L" --window_width=" + std::to_wstring(std::max(opt.resolution, 720) * 16 / 9) +
+         L" --window_height=" + std::to_wstring(std::max(opt.resolution, 720)) +
          L" --monitor=" + std::to_wstring(opt.monitor) +
          L" --swap_post_effect=" + (opt.aa == 2 ? L"fxaa_extreme" : opt.aa == 1 ? L"fxaa" : L"none") +
          L" --present_letterbox=" + b(opt.letterbox) +
@@ -381,7 +416,8 @@ void LaunchGame() {
   }
   if (game_process) { CloseHandle(game_process); game_process = nullptr; }
   if (updater.Busy()) { status = tr("Attends la fin de la mise à jour."); return; }
-  const fs::path exe = root / L"wwe2k15.exe";
+  const bool native = UseNative();
+  const fs::path exe = root / (native ? L"wwe2k15_native.exe" : L"wwe2k15.exe");
   if (!fs::exists(exe)) { status = tr("wwe2k15.exe est introuvable : reconstruis le projet."); return; }
   if (!HasGame()) { status = tr("Sélectionne le dossier qui contient default.xex."); page = "RÉGLAGES"; return; }
   if (!HasTitleUpdate()) { status = tr("Ajoute la Title Update 4 (RÉGLAGES > AJOUTER TU / DLC)."); page = "RÉGLAGES"; return; }
@@ -393,7 +429,8 @@ void LaunchGame() {
   }
   const std::wstring args = L"--game_data_root=\"" + game_data.wstring() +
       L"\" --user_data_root=\"" + user_data.wstring() +
-      L"\" --gpu_plugin=xenos --gpu_backend=vulkan --input_backend=sdl --hid_mappings_file=\"" +
+      L"\"" + (native ? L"" : L" --gpu_plugin=xenos --gpu_backend=vulkan") +
+      L" --input_backend=sdl --hid_mappings_file=\"" +
       (root / L"gamecontrollerdb.txt").wstring() + L"\"" + OptionArgs();
   SHELLEXECUTEINFOW info{sizeof(info)};
   info.fMask = SEE_MASK_NOCLOSEPROCESS;
@@ -687,6 +724,27 @@ bool Choice(const char* id, ImVec2 pos, const char* const* labels, const int* va
   return changed;
 }
 
+// Graphics cards for the native renderer, named as DXGI reports them (the same names Vulkan uses).
+const std::vector<std::string>& GpuNames() {
+  static std::vector<std::string> names;
+  static bool done = false;
+  if (done) return names;
+  done = true;
+  ComPtr<IDXGIFactory1> factory;
+  if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) return names;
+  ComPtr<IDXGIAdapter1> adapter;
+  for (UINT i = 0; factory->EnumAdapters1(i, &adapter) == S_OK; ++i, adapter.Reset()) {
+    DXGI_ADAPTER_DESC1 desc{};
+    adapter->GetDesc1(&desc);
+    if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
+    const int n = WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, nullptr, 0, nullptr, nullptr);
+    std::string name(n > 0 ? n - 1 : 0, '\0');
+    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, name.data(), n, nullptr, nullptr);
+    if (!name.empty() && std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
+  }
+  return names;
+}
+
 // Graphics presets: 1 performance, 2 balanced, 3 quality; 0 = custom. Performance leaves FSI off
 // (host render targets, about 35 % less GPU load); the others turn it on.
 int CurrentPreset() {
@@ -724,9 +782,13 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   y += 106;
   label(o.x + 48, y, tr("RÉSOLUTION"), tr("720p : l'image d'origine du jeu. Au-dessus : plus net, plus lourd pour la carte graphique."));
   {
-    static const char* l[] = {"720p", "1080p", "1440p", "4K"};
-    static const int v[] = {720, 1080, 1440, 2160};
-    if (Choice("res", {o.x + 48, y + 46}, l, v, 4, opt.resolution, 110)) SaveOptions();
+    // 540p (below the Xbox's own image) only exists in the native renderer.
+    static const char* l[] = {"540p", "720p", "1080p", "1440p", "4K"};
+    static const int v[] = {540, 720, 1080, 1440, 2160};
+    const bool native = UseNative();
+    if (Choice("res", {o.x + 48, y + 46}, l + (native ? 0 : 1), v + (native ? 0 : 1), native ? 5 : 4,
+               opt.resolution, native ? 98 : 110))
+      SaveOptions();
   }
   y += 106;
   label(o.x + 48, y, tr("FILTRAGE DES TEXTURES"), tr("Rend le sol et le public plus nets de loin."));
@@ -776,6 +838,32 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   y += 34 + ui_font->CalcTextSizeA(14, FLT_MAX, fsi_wrap, fsi_help).y;
   ImGui::SetCursorScreenPos({col2, y});
   if (ImGui::Checkbox(tr("Réduire l'utilisation du processeur"), &opt.cpu_yield)) SaveOptions();
+  y += 36;
+  ImGui::SetCursorScreenPos({col2, y});
+  const bool native_present = NativeAvailable();
+  ImGui::BeginDisabled(!native_present);
+  if (ImGui::Checkbox(tr("Rendu natif (expérimental)"), &opt.native)) {
+    if (!opt.native && opt.resolution == 540) opt.resolution = 720;
+    SaveOptions();
+  }
+  ImGui::EndDisabled();
+  d->AddText(ui_font, 14, {col2 + 28, y + 27}, kMuted,
+             native_present ? tr("Moteur plus léger pour les petites cartes. Peut encore avoir des défauts.")
+                            : tr("wwe2k15_native.exe est absent du dossier du lanceur."));
+  if (UseNative()) {
+    // A tile cycling through AUTO and the graphics cards found.
+    const auto& names = GpuNames();
+    ImGui::SetCursorScreenPos({col2 + 330, y - 4});
+    const std::string label = std::string("GPU : ") + (opt.gpu.empty() ? tr("AUTO") : opt.gpu.c_str());
+    if (Tile("gpu", label.c_str(), {area.x - (col2 - o.x) - 330 - 40, 34}, false, false, 14)) {
+      size_t next = 0;  // 0 = AUTO, i + 1 = names[i]
+      for (size_t i = 0; i < names.size(); ++i)
+        if (names[i] == opt.gpu) next = i + 1;
+      next = next > names.size() ? 0 : (next + 1) % (names.size() + 1);
+      opt.gpu = next == 0 ? std::string() : names[next - 1];
+      SaveOptions();
+    }
+  }
 }
 
 void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
