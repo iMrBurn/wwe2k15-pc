@@ -10,10 +10,17 @@
 
 #define WWE2K15_NATIVE 1
 
+// Not identified in 2K15 yet: re:Blue compiles these hooks out.
+#define SVR_NO_DRAW_VERTICES 1   // D3DDevice_DrawVertices
+#define WWE12_NO_DESC_HOOKS 1    // the resource description getters
+
 #define D3DDevice_Present                           sub_82BAE688  // 0.83 match; never called in the census
 #define D3DDevice_Swap                              sub_82BADF20  // the only VdSwap caller (base sub_82BA5FA8); also hooked by framerate_hook.cpp
 #define D3DDevice_SynchronizeToPresentationInterval sub_82BADA60  // 0.97
-#define D3DDevice_Resolve                           sub_82BA9190  // 0.83 (2K15's is longer); ~1 call per frame
+#define D3DDevice_Resolve                           sub_82BAA2E8  // the public Resolve (SvR's arguments): its only callee
+                                                                   // sub_82BA9190 (0.83 match with SvR's) takes two more
+                                                                   // arguments in r6/r7 (0 here), so hooking it read the
+                                                                   // destination from the wrong register
 #define D3DDevice_Clear                             sub_82BAFA18  // 1.00
 #define D3DDevice_SetRenderTarget                   sub_82BA6458  // 0.96
 #define D3DDevice_SetDepthStencilSurface            sub_82BA67E8  // 1.00
@@ -37,7 +44,7 @@
 #define __imp__D3DDevice_Present                           __imp__sub_82BAE688
 #define __imp__D3DDevice_Swap                              __imp__sub_82BADF20
 #define __imp__D3DDevice_SynchronizeToPresentationInterval __imp__sub_82BADA60
-#define __imp__D3DDevice_Resolve                           __imp__sub_82BA9190
+#define __imp__D3DDevice_Resolve                           __imp__sub_82BAA2E8
 #define __imp__D3DDevice_Clear                             __imp__sub_82BAFA18
 #define __imp__D3DDevice_SetRenderTarget                   __imp__sub_82BA6458
 #define __imp__D3DDevice_SetDepthStencilSurface            __imp__sub_82BA67E8

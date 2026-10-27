@@ -90,3 +90,26 @@ Rough total: 2-3 months of focused work before the native path can be the defaul
   e0c8871 and reblue-XenosRecomp 339af41 pinned by its `setup.ps1`; GPL-3.0. Decision: the native
   renderer is built as a second executable (`wwe2k15_native.exe`, `SVR_NATIVE_RENDERER`), chosen
   in the launcher, so the Xenos/Vulkan exe stays the default and untouched.
+- 2026-10-27, stage 2 done: the shaders are compressed in 2K15's archives (no raw 0x102A11xx
+  container in the files), so they are dumped when the game creates them (`port/src/shader_dump.cpp`,
+  cvar `wwe2k15_dump_shaders`, off): 609 containers (228 vs, 381 ps), all created at boot, converted
+  by reblue-XenosRecomp with 0 errors into the ignored `port/generated/native/shader_cache.cpp`.
+- 2026-10-27, stage 3 (shell) done, and the first 3D scene draws: `wwe2k15_native.exe`
+  (`-DWWE2K15_NATIVE_RENDERER=ON`, `port/cmake/native_renderer.cmake`) shows the title screen and the
+  attract-mode demo match (WrestleMania arena, crowd, wrestlers) at a steady 60 fps on the RTX 5070 Ti
+  (work 11.7 ms/frame, no hitch over 25 ms in 600 frames). What it took:
+  - SDK: `rexglue-sdk-null-gpu.patch` (the null guest GPU from WWE '12 PC: the game's command stream
+    keeps moving, nothing is drawn by the Xenos emulation).
+  - Code from WWE '12 PC: `port/src/reblue` (re:Blue + its changes), `port/src/native` svr_* glue,
+    `port/third_party`; WWE '12-only features stubbed in `native/wwe2k15_native_stubs.cpp`.
+  - `D3DDevice_Resolve` is the public `sub_82BAA2E8`: its only callee `sub_82BA9190` (the 0.83
+    instruction match) takes two extra arguments, and hooking it read guest address 0x1C.
+  - The D3D device's private block (vertex declaration, index buffer, render targets, streams,
+    viewport, scissor, shaders) is +0x18 further than in WWE '12 (`reblue/gpu/d3d.h`); the register
+    shadows did not move.
+  - Bring-up switch: cvar `svr_hooks_off` (comma list of hook names, or `all`) skips the renderer's
+    side of those hooks while the game's D3D functions still run.
+  - Not yet: the frame pacing log (framerate_hook's Swap hook is left out of the native exe), the
+    launcher option, menus/entrances/match checks, Superstar Threads readback with 2K15's texture
+    layout, the viewport offset (+0x32E0, inferred), texture packs and the other WWE '12 extras.
+  - Licensing: the repository now carries `LICENSE` (GPL-3.0) and `THIRD_PARTY.md`, as WWE '12 PC does.

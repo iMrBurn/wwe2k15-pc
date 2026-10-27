@@ -77,6 +77,9 @@ struct Counter {
 } g_counter;
 }  // namespace
 
+// wwe2k15_native.exe: re:Blue overrides D3DDevice_Swap (sub_82BADF20) itself, so this pacing hook
+// is left out there (the cvars and counters above stay, the app and launcher read them).
+#if !defined(SVR_NATIVE_RENDERER)
 extern "C" REX_FUNC(sub_82BADF20) {
   g_wwe2k15_present_count.fetch_add(1, std::memory_order_relaxed);
   const uint64_t now = NowUs();
@@ -115,3 +118,4 @@ extern "C" REX_FUNC(sub_82BADF20) {
   }
   __imp__sub_82BADF20(ctx, base);
 }
+#endif  // !SVR_NATIVE_RENDERER
