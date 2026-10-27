@@ -443,3 +443,30 @@ candidate to measure, not a measured gain.
   in a `[perf]` line) is unvalidated: check the first log. Warm both shader caches first.
 - Loading time: the same script prints the seconds to the first "Guest pacing" line (title screen); a load-to-match
   comparison still needs `loadsample.sh` adapted to the native exe.
+
+### Native vs Xenos on small CPUs and the AMD iGPU (measured 2026-10-27, Perf)
+Demo match, 30 s of per-thread CPU, `port/tools/dev/native_matrix.sh` (+ rerun of 4 rows). NVIDIA = RTX 5070 Ti,
+iGPU = AMD Radeon on `--vulkan_device=1` / `--svr_gpu_device`. Cores simulated by process affinity (all = 16 threads,
+F = 4, 3 = 2). "gap" = worst frame gap in the last 6 pacing lines. CPU is % of one core, whole process.
+
+| GPU | cores | Xenos (host RT) | Native |
+|---|---|---|---|
+| NVIDIA | all | 60 fps, gap 18-19 ms, CPU 91 % | 60 fps, gap 20-23 ms, CPU 71 % |
+| NVIDIA | 4 | 60 fps, gap 19-34 ms, CPU 107 % | 60 fps, gap 22-24 ms, CPU 97 % |
+| NVIDIA | 2 | 58-59 fps, gap 34-36 ms, CPU 113 % | 60 fps, gap 19-22 ms, CPU 102 % |
+| iGPU | all | 21-35 fps, gap 83 ms, CPU 37 % | 60 fps, gap 26-31 ms, CPU 74 % |
+| iGPU | 4 | 30-39 fps, gap 66-84 ms, CPU 49 % | 60 fps, gap 29-33 ms, CPU 99 % |
+| iGPU | 2 | 29-38 fps (last 2 samples were menus), CPU 33 % | 60 fps, gap 28-32 ms, CPU 108 % |
+
+- Native holds 60 fps everywhere, including 2 cores (about one core busy), where Xenos drops to 58 on the dGPU
+  (its `GPU Commands` thread alone takes 49 % of a core) and to ~30 on the iGPU. On the iGPU the native exe is
+  CPU-bound, not GPU-bound, at 2-4 cores (render thread 30-38 % of a core).
+- `svr_reuse_constant_blocks=true` (NVIDIA, 4 cores): 94 % vs 97 % CPU, same 60 fps: within noise, left off on PC.
+- Native is not lighter in total CPU on 2-4 cores (97-108 % vs 107-113 % Xenos on the dGPU); it is the fps and the
+  frame pacing that are better.
+- Time to the demo match from launch: native 55-94 s, Xenos dGPU 78 s (the demo starts after the title idle time, so
+  this is not a loading measure). Title screen at 4-6 s of log time for both.
+- Caveats: the first native demo trigger (render work >= 6 ms) fired on the title screen; replaced by "geometry hashed
+  per frame >= 1 MB" (title 0, match 2+ MB). The Xenos iGPU rows use a 130 s fallback because `draws/frame` never
+  reached 3000 there. The Vulkan driver pipeline cache (`plume-pipeline-cache.patch`) wrote `cache\<uuid>.vk.pcache`
+  files (3-4 MB per GPU) but plume's messages go to stderr, so no load/stall gain was measured: not yet verified.

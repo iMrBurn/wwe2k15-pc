@@ -21,15 +21,19 @@ until [ "$(ls -t $B/logs/*.log 2>/dev/null | head -1)" != "$OLD" ]; do sleep 1; 
 L=$(ls -t $B/logs/*.log | head -1)
 # title screen reached: the first "Guest pacing" line (both renderers print it every 5 s once frames flow)
 t_title=0; until grep -q "Guest pacing" $L || [ $t_title -ge 300 ]; do sleep 2; t_title=$((t_title+2)); done
-# demo match: Xenos logs "draws/frame min 3000+"; native has no such line, so wait for a [perf] interval whose
-# render-thread work is >= 6 ms (menus are ~1-2 ms, a match 8-12 ms on the dev PC). UNVALIDATED trigger:
-# check the first run's log and adjust the awk threshold if it fires early/late.
+# demo match: Xenos logs "draws/frame min 3000+". Native has no such line: the title screen hashes no geometry
+# ("hashed per frame: geometry 0.00 MB") while the match hashes 2+ MB, so wait for a [perf] line with >= 1 MB.
+# A wait that hits the 400 s limit is flagged TRIGGER TIMEOUT below (the run then measured something else).
 t=0
 if [ "$R" = native ]; then
-  until awk '/\[perf\] [0-9]+ frames/ { for(i=1;i<=NF;i++) if($i=="work"){ if($(i+1)+0>=6) f=1 } } END{exit !f}' $L || [ $t -ge 400 ]; do sleep 5; t=$((t+5)); done
+  until awk '/hashed per frame: geometry/ { for(i=1;i<=NF;i++) if($i=="geometry"){ if($(i+1)+0>=1) f=1 } } END{exit !f}' $L || [ $t -ge 400 ]; do sleep 5; t=$((t+5)); done
 else
-  until grep -q "draws/frame min [3-9][0-9][0-9][0-9]" $L || [ $t -ge 400 ]; do sleep 5; t=$((t+5)); done
+  # on the iGPU the draws/frame line never reaches 3000 (the match runs at 20-35 fps): fall back to 130 s
+  LIM=400; case "$*" in *vulkan_device=1*) LIM=130;; esac
+  until grep -q "draws/frame min [3-9][0-9][0-9][0-9]" $L || [ $t -ge $LIM ]; do sleep 5; t=$((t+5)); done
+  [ $t -ge $LIM ] && [ $LIM -lt 400 ] && t=0
 fi
+[ $t -ge 400 ] && echo "TRIGGER TIMEOUT: the demo match was not detected"
 T1=$(date +%s)
 sleep 25
 powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w $D/thread_cpu.ps1)" -seconds 30 > $S/${T}_cpu.txt
