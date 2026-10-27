@@ -346,3 +346,25 @@ Demo match from the title screen (`port/tools/dev/gpu_matrix.sh`, `gpu_compare.s
 - Our own AMD Radeon iGPU (`--vulkan_device=1`) logs from 2026-10-26, same match, 720p: FSI 3-6 fps, host render targets 14-18 fps. AMD drivers serialize overlapping fragments for the interlock, so FSI is 3-4x slower than the host path there; on NVIDIA FSI costs ~1.6x GPU time (section above). The host path's entrances were checked on that iGPU on 2026-10-26 (correct, only load-transition blacks).
 - `rexglue-sdk-render-path-log.patch` now also adds `render_target_path_vulkan = "auto"`: FSI, except on AMD (vendor 0x1002), which gets host render targets; "fsi" still forces FSI, any other value forces the host path. The startup log line names the choice ("auto, AMD GPU" / "auto, non-AMD GPU"). `wwe2k15_runtime.toml` uses "auto", and the launcher's "Rendu précis (FSI)" box now passes "auto" when ticked (still "rtv" when unticked). Checked: RTX 5070 Ti -> FSI, Radeon iGPU -> host.
 - Not done yet: GPU time per frame (timestamp queries) in the 5 s log, so every report says GPU-bound vs CPU-bound. It touches `vulkan/command_processor.cpp`, which (Perf) is changing for the pipeline cache; to do after that lands.
+
+## Issue #4 : Ryzen 5 PRO 4650G, Vega 7, pilote AMD 22.20 (2026-10-27, Perf)
+
+- Journaux du testeur (`work_issue_logs\i4`) : 720p, chemin hôte (pas de FSI sur Vega). Menus 60 fps ; match
+  30-37 fps avec 2 000-6 000 dessins par image et ~9 000 copies (resolves) par 5 s ; au chargement du match des
+  écarts de 1,1 s, 1,5 s et 4,7 s (11,7 fps sur 5 s) pendant que 60-130 pipelines graphiques sont créés par
+  seconde. 359 puis 498 créations de pipelines par lancement.
+- Le SDK n'avait **aucun VkPipelineCache** : le pilote recompilait chaque pipeline à chaque lancement (le fichier
+  .xpso ne garde que les descriptions). `rexglue-sdk-pipeline-cache.patch` ajoute un cache pilote persistant
+  (`<cache>\shaders\<vendeur>-<appareil>-<pilote>.vk.pcache`, ~10 Mo, rechargé au lancement, sauvé au plus toutes
+  les 30 s et à l'arrêt) et journalise le temps total passé dans `vkCreateGraphicsPipelines`.
+- Mesure sur ce PC (iGPU AMD `--vulkan_device=1`, chemin hôte forcé `--render_target_path_vulkan=rtv`) : le pilote
+  récent crée un pipeline en ~0,4 ms (439 pipelines = 162-204 ms), donc ici le cache ne change rien (écart max au
+  chargement 296 ms → 131 ms, dans le bruit). Le gain n'est donc PAS prouvé ; il dépend du pilote 22.20 du
+  testeur, dont la compilation semble 100 fois plus lente. À faire confirmer par le testeur (ligne « Saved the Vulkan
+  driver pipeline cache ... ms in total » à la fin de la partie, puis 2e lancement).
+- iGPU de ce PC (Raphael, 2 CU, bien plus faible qu'un Vega 7) : match à 15-20 fps avec le processeur à 38 % d'un
+  cœur (« GPU Commands » 16 %) : c'est le GPU qui limite, pas le processeur. Anisotropie 0 au lieu de 4x : +2 à
+  3 fps (~+12 %). Le goulot probable sur Vega 7 est le même : GPU/bande passante (résolutions + 2 000-6 000 dessins).
+- Pistes : (1) anisotropie 0 par défaut pour les iGPU (préréglage « faible » du launcher) ; (2) mesurer le coût
+  GPU par passe (timestamps GPU, prévu par (Rendu)) avant de toucher aux resolves ; (3) 540p impossible (voir
+  plus haut).
