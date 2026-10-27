@@ -16,6 +16,7 @@
 #include <vector>
 
 #include <plume_render_interface_builders.h>
+#include <rex/cvar.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
 
@@ -297,10 +298,14 @@ void PinScreenUVScaleReg(u8 *block) {
 // 4 KiB into write-combined GPU memory: 44 % of the render thread on the Android emulator in a
 // match. Reused only within the frame it was written for (its chunk is rewound after that), and
 // only for the same raw guest bytes and the same edits (key), so the GPU reads the same values.
+// PC: off by default until measured there; svr_reuse_constant_blocks=true turns it on for an A/B run
+// (the [perf] line counts blocks uploaded and reused).
 #if defined(__ANDROID__)
-constexpr bool kReuseConstantBlocks = true;
+REXCVAR_DEFINE_BOOL(svr_reuse_constant_blocks, true, "SvR",
+                    "Reuse the previous constant block when the game's bytes are unchanged");
 #else
-constexpr bool kReuseConstantBlocks = false;  // PC: unchanged until measured there
+REXCVAR_DEFINE_BOOL(svr_reuse_constant_blocks, false, "SvR",
+                    "Reuse the previous constant block when the game's bytes are unchanged");
 #endif
 struct StageBlockCache {
   u8 raw[kConstantBlockBytes];
@@ -313,7 +318,7 @@ std::atomic<u64> g_constant_blocks_uploaded{0}, g_constant_blocks_reused{0};
 // Returns the cached block if `raw` and `key` match the last upload of this frame.
 bool ReuseBlock(StageBlockCache &cache, const UploadState &s, const u8 *raw, u64 key,
                 ConstantAllocation &out) {
-  if (!kReuseConstantBlocks || !raw || cache.epoch != s.epoch || cache.key != key ||
+  if (!REXCVAR_GET(svr_reuse_constant_blocks) || !raw || cache.epoch != s.epoch || cache.key != key ||
       std::memcmp(cache.raw, raw, kConstantBlockBytes) != 0)
     return false;
   out = cache.alloc;
@@ -324,7 +329,7 @@ bool ReuseBlock(StageBlockCache &cache, const UploadState &s, const u8 *raw, u64
 void RememberBlock(StageBlockCache &cache, const UploadState &s, const u8 *raw, u64 key,
                    const ConstantAllocation &alloc) {
   g_constant_blocks_uploaded.fetch_add(1, std::memory_order_relaxed);
-  if (!kReuseConstantBlocks || !raw)
+  if (!REXCVAR_GET(svr_reuse_constant_blocks) || !raw)
     return;
   std::memcpy(cache.raw, raw, kConstantBlockBytes);
   cache.alloc = alloc;

@@ -401,3 +401,45 @@ Demo match from the title screen (`port/tools/dev/gpu_matrix.sh`, `gpu_compare.s
   réduire le nombre de dessins de scène côté jeu (foule, ring), ce qui n'est pas faisable proprement.
 - Piège corrigé : `MarkGpuPass` doit ouvrir la soumission avant d'enregistrer (le tampon de commandes différé est
   remis à zéro à l'ouverture, ce qui effaçait la première marque).
+
+## 2026-10-27 (Perf) — Native renderer: CPU hot paths read from source (no game run)
+
+Read on request of (Main) while the PC was taken by (Rendu): `port/src/reblue/gpu/{hooks/draw,draw,constant_buffers,
+pipeline/pipeline_cache}.cpp`, `port/src/native/svr_geometry.cpp`. Nothing was run or built; every point below is a
+candidate to measure, not a measured gain.
+
+- **Per draw**, on the render thread, under the single `state().mutex`: `SvrBindDrawGeometry` (one `std::map` lookup
+  per used stream and for the index buffer, plus a hash of each buffer's guest bytes once per frame: dynamic
+  buffers in full, big static ones by 32 x 64-byte samples), `FlushRenderStateLocked` (pipeline-state hash
+  `XXH3` of the whole `PipelineState`, then an `unordered_map` lookup only when a dirty bit is set), then the
+  constants.
+- **Constants are the most expensive item on a small CPU.** In the native build `vertexShaderConstants` and
+  `pixelShaderConstants` are forced dirty at every draw (inline XDK setters are not hooked), so each draw copies and
+  byte-swaps two 4 KiB blocks into write-combined memory, plus rebuilds the shared block (32 texture slots, sampler
+  `memcmp`s). `ReuseBlock` (skip the copy when the guest bytes are identical to the previous draw's) exists and is on
+  for Android, where it was 44 % of the render thread; on PC it was a `constexpr false` ("until measured").
+  **Change made (default unchanged):** it is now the cvar `svr_reuse_constant_blocks` (false on PC, true on Android)
+  so it can be A/B-tested without a rebuild; the `[perf] cpu per frame` line already prints "constant blocks N
+  uploaded, M reused". Cost of the check is a 4 KiB `memcmp` per stage per draw; expected to win when consecutive
+  draws share a material, to be measured on 2-4 cores before turning it on.
+- **Pipelines are built synchronously on the render thread** the first time a state is seen
+  (`GetOrCreatePipeline` -> plume `vkCreateGraphicsPipelines`), and plume passes `VK_NULL_HANDLE` as the pipeline
+  cache (`plume_vulkan.cpp:1674`): nothing persists between runs, so every launch re-pays all driver compiles as
+  hitches, worst on weak CPUs/iGPUs. A persistent `VkPipelineCache` (same idea as `rexglue-sdk-pipeline-cache.patch` for
+  the Xenos path) would fix that. It needs a change in plume, which lives outside the repo
+  (`C:\Dev\native-deps\plume`, pinned by `setup.ps1`), so it needs a patch file or a decision from (Main) on how plume
+  patches are stored. Not done.
+- Smaller: the shader-cache lookups are one `unordered_map` find under a mutex at shader creation only (not per
+  draw), and shader conversion uses all cores but two (cvar `wwe2k15_shader_threads`): on a 2-core CPU that is zero
+  workers, check `ResolveThreads` behaviour on a 2-core affinity before the first-launch test (the log line "Native
+  shaders: preparing ... N / 609 done" will show it).
+- `wwe2k15_native` threads: `thread_cpu.ps1` already accepts both process names.
+
+### Measurement plan (scripts written, not yet run)
+- `port/tools/dev/native_vs_xenos.sh <tag> <xenos|native> <exe dir> <mask|-> [args]`: one demo-match run with
+  optional core affinity, prints time to title, fps / worst gap, per-thread CPU and the `[perf]` lines.
+- `port/tools/dev/native_matrix.sh [exe dir]`: Xenos vs native x all / 4 / 2 cores x NVIDIA / AMD iGPU, plus a native
+  4-core run with `svr_reuse_constant_blocks=true`. About 45 min of the PC; the native demo trigger (render work >= 6 ms
+  in a `[perf]` line) is unvalidated: check the first log. Warm both shader caches first.
+- Loading time: the same script prints the seconds to the first "Guest pacing" line (title screen); a load-to-match
+  comparison still needs `loadsample.sh` adapted to the native exe.
