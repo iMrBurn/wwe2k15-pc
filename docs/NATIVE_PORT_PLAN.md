@@ -113,3 +113,11 @@ Rough total: 2-3 months of focused work before the native path can be the defaul
     launcher option, menus/entrances/match checks, Superstar Threads readback with 2K15's texture
     layout, the viewport offset (+0x32E0, inferred), texture packs and the other WWE '12 extras.
   - Licensing: the repository now carries `LICENSE` (GPL-3.0) and `THIRD_PARTY.md`, as WWE '12 PC does.
+- 2026-10-27, stage 4 first pass: menus, character select and a real 1v1 match (Cena vs Reigns,
+  `ab3.sh` with `EXE=wwe2k15_native.exe`) render correctly in `wwe2k15_native.exe`, no guest fault.
+  - RTX 5070 Ti, automatic 2x (2560x1440): menus and match 60 presents/s, entrances 30 (the game's
+    own entrance rate, as on the Xenos path), CPU 80 % of one core in the match (Xenos path ~100 %).
+  - AMD Radeon iGPU (`--svr_gpu_device="AMD Radeon(TM) Graphics"`, automatic 720p on integrated
+    GPUs): match 60 presents/s, entrances 30, CPU 80 %. The Xenos path on the same iGPU and match:
+    14-18 fps (host render targets) or 3-6 fps (FSI). This is the weak-GPU win the native renderer
+    was for. `svr_render_scale = 540` (0.75x, from WWE '12 PC) is also available for weaker GPUs.
