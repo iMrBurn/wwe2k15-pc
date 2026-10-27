@@ -372,3 +372,15 @@ Demo match from the title screen (`port/tools/dev/gpu_matrix.sh`, `gpu_compare.s
 - Confirmation avec les timestamps GPU de (Rendu) (`GPU time: busy ...`), iGPU AMD de ce PC, chemin hôte, match :
   GPU occupé 81-91 % du temps, 54-63 ms de GPU par image présentée (~15 fps). Le jeu est donc bien limité par le GPU
   sur iGPU ; il reste à savoir quelles passes coûtent (resolves, post-traitement, dessins).
+
+## (Rendu) D3D12 backend test (2026-10-27)
+
+- The installed SDK already contains the D3D12 backend (`REXGLUE_USE_D3D12=ON` in the SDK cache, D3D12 objects in `rexgpu-xenos.dll`); `--gpu_backend=d3d12` does select it (log: `DXGI adapter: ...`). No separate build was needed. `--d3d12_adapter=1` picks the AMD iGPU.
+- Runs of ~2 min from the title to the attract-mode demo match, one instance at a time:
+  - RTX 5070 Ti, D3D12, current config (`readback_resolve = "full"`): `DEVICE_HUNG` (TDR) about 70 s after launch, when the demo match loads. Same as the October 2026 note on Intel.
+  - AMD iGPU, D3D12: same TDR, with or without `readback_resolve`.
+  - RTX, D3D12, `render_target_path_d3d12=rov`: multi-second stalls, then the same TDR.
+  - RTX, D3D12, `--readback_resolve=none`: no TDR, 60 fps, but `nvidia-smi` showed ~1 % GPU load at 1440p (Vulkan, same scene: 68 %, 12 ms GPU time per frame). D3D12 was very likely not drawing the 3D scene, so this is no performance result.
+  - Reference on the AMD iGPU, Vulkan (auto = host path), demo match 720p: 42-43 fps, GPU busy 98 %, 23 ms per frame (GPU-bound).
+- Vulkan-only parts of our port with no D3D12 equivalent: `readback-resolve` (format filter, repeat limit, shape skip; D3D12 only has the plain `d3d12_readback_resolve` switch, so Superstar Threads would need it ported), `render-path-log` / "auto" (D3D12 has its own default: host RTV, ROV on Intel), `vulkan-gpu-time`, `vulkan-pacing-stats` and the local frame counters, `pipeline-cache`, `descriptor-reuse`, the mailbox present option, and the launcher's vertical sync / "rendu précis" options. Shared code that does apply to both: fuzzy alpha (DXBC has it), `resolution_scale`, `empty-resolve`, texture fetch checks, register-write work.
+- Conclusion: D3D12 does not help weak or old-driver GPUs today: it hangs on both vendors in the first 3D scene, and the one configuration that survives does not render it. Making it usable means debugging the TDR in the Xenos D3D12 backend, then porting the readback and our Vulkan fixes: work on a renderer we would replace anyway if the native renderer goes ahead (see `NATIVE_PORT_PLAN.md`, feasibility section of 2026-10-27). Not recommended.
