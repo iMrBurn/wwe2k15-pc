@@ -77,6 +77,7 @@ struct Options {
   bool vsync = true;          // no tearing (vulkan_allow_present_mode_immediate = false)
   bool show_fps = false;      // wwe2k15_show_fps
   bool native = false;        // experimental native renderer: wwe2k15_native.exe
+  int native_resolution = 0;  // native renderer: svr_render_scale, 0 = automatic (GPU and screen)
   std::string gpu;            // native renderer only: Vulkan name of the GPU ("" = automatic)
 } opt;
 
@@ -254,7 +255,7 @@ void SaveOptions() {
   if (!out) return;
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
-      << "\nnative=" << opt.native << "\ngpu=" << opt.gpu
+      << "\nnative=" << opt.native << "\nnative_resolution=" << opt.native_resolution << "\ngpu=" << opt.gpu
       << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
@@ -289,6 +290,8 @@ void LoadOptions() {
     else if (k == "show_fps") opt.show_fps = v != 0;
     else if (k == "vsync") opt.vsync = v != 0;
     else if (k == "native") opt.native = v != 0;
+    else if (k == "native_resolution")
+      opt.native_resolution = v == 540 || v == 720 || v == 1080 || v == 1440 || v == 2160 ? v : 0;
   }
   if (opt.language != 1 && opt.language != 3 && opt.language != 4 && opt.language != 5 &&
       opt.language != 6) {
@@ -317,14 +320,14 @@ std::wstring OptionArgs() {
   if (UseNative()) {
     // The native renderer has no Xenos GPU emulation: only the options it shares or its own.
     return L" --fullscreen=" + b(opt.fullscreen) +
-           L" --svr_render_scale=" + std::to_wstring(opt.resolution) +
+           L" --svr_render_scale=" + std::to_wstring(opt.native_resolution) +
            (opt.gpu.empty() ? std::wstring() : L" --svr_gpu_device=\"" + Widen(opt.gpu.c_str()) + L"\"") +
            L" --mnk_mode=" + b(opt.keyboard) +
            L" --user_language=" + std::to_wstring(opt.language) +
            L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
            L" --wwe2k15_show_fps=" + b(opt.show_fps) +
-           L" --window_width=" + std::to_wstring(std::max(opt.resolution, 720) * 16 / 9) +
-           L" --window_height=" + std::to_wstring(std::max(opt.resolution, 720)) +
+           L" --window_width=" + std::to_wstring((opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) * 16 / 9) +
+           L" --window_height=" + std::to_wstring(opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) +
            L" --monitor=" + std::to_wstring(opt.monitor) +
            L" --wwe2k15_mods=" + b(opt.mods) +
            (opt.keyboard && opt.azerty
@@ -780,15 +783,21 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
     if (Choice("preset", {o.x + 48, y + 46}, l, v, 3, preset, 170)) { ApplyPreset(preset); SaveOptions(); }
   }
   y += 106;
-  label(o.x + 48, y, tr("RÉSOLUTION"), tr("720p : l'image d'origine du jeu. Au-dessus : plus net, plus lourd pour la carte graphique."));
+  label(o.x + 48, y, tr("RÉSOLUTION"), UseNative()
+        ? tr("AUTO : le rendu natif choisit selon la carte graphique et l'écran.")
+        : tr("720p : l'image d'origine du jeu. Au-dessus : plus net, plus lourd pour la carte graphique."));
   {
-    // 540p (below the Xbox's own image) only exists in the native renderer.
-    static const char* l[] = {"540p", "720p", "1080p", "1440p", "4K"};
-    static const int v[] = {540, 720, 1080, 1440, 2160};
-    const bool native = UseNative();
-    if (Choice("res", {o.x + 48, y + 46}, l + (native ? 0 : 1), v + (native ? 0 : 1), native ? 5 : 4,
-               opt.resolution, native ? 98 : 110))
-      SaveOptions();
+    // The native renderer has its own choice: AUTO (it picks from the GPU and the screen) and 540p
+    // (below the Xbox's own image); the Xenos choice is left alone.
+    if (UseNative()) {
+      const char* l[] = {tr("AUTO"), "540p", "720p", "1080p", "1440p", "4K"};
+      static const int v[] = {0, 540, 720, 1080, 1440, 2160};
+      if (Choice("nres", {o.x + 48, y + 46}, l, v, 6, opt.native_resolution, 78)) SaveOptions();
+    } else {
+      static const char* l[] = {"720p", "1080p", "1440p", "4K"};
+      static const int v[] = {720, 1080, 1440, 2160};
+      if (Choice("res", {o.x + 48, y + 46}, l, v, 4, opt.resolution, 110)) SaveOptions();
+    }
   }
   y += 106;
   label(o.x + 48, y, tr("FILTRAGE DES TEXTURES"), tr("Rend le sol et le public plus nets de loin."));
@@ -843,12 +852,11 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   const bool native_present = NativeAvailable();
   ImGui::BeginDisabled(!native_present);
   if (ImGui::Checkbox(tr("Rendu natif (expérimental)"), &opt.native)) {
-    if (!opt.native && opt.resolution == 540) opt.resolution = 720;
     SaveOptions();
   }
   ImGui::EndDisabled();
   d->AddText(ui_font, 14, {col2 + 28, y + 27}, kMuted,
-             native_present ? tr("Moteur plus léger pour les petites cartes. Le premier lancement prépare les shaders (quelques secondes).")
+             native_present ? tr("Plus léger pour les petites cartes. 1er lancement : shaders (quelques secondes).")
                             : tr("Rendu natif absent de cette version (wwe2k15_native.exe ou dxcompiler.dll manquant)."));
   if (UseNative()) {
     // A tile cycling through AUTO and the graphics cards found.
