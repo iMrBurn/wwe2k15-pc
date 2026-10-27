@@ -520,3 +520,32 @@ RIP of every write on the buffers' pages).
 7. **Implement** the TODOs in the skeleton, add `src/text_entry_kbd.cpp` to both executables in `CMakeLists.txt`, call
    `Wwe2k15KbdInit`, build, test in a name field and in Create a Story; keep `wwe2k15_kbd = true` default only if
    case A/B works; with a pad connected nothing changes (keys only go to the text while a text screen is seen).
+
+## (Mods) Create a Story leftovers in 2K15 TU4? (2026-10-27)
+
+Read-only look at `C:\Dev\games\WWE2K15-TU4`; nothing copied into the repo, no game launched.
+
+**Found (readable, uncompressed data only):**
+- `pac\menu\menu.pac` (EPAC, 38 MB, not compressed) holds a table of statistics counters. One of them is
+  `BASIC_CREATE_STORY_COUNT`, next to `BASIC_CREATE_SUPERSTAR_CAS_COUNT`, `..._DIVA_CAS_COUNT`, `..._ENTRANCE_COUNT`,
+  `..._FINISHER_COUNT`, `..._ARENA_COUNT`, `..._CHAMPIONSHIP_COUNT`. That is a usage counter name inherited from 2K14,
+  not a feature. `pac\_startup.pac` contains the word `STORY` twice (context not read, file is EPAC).
+- No file, folder or `plist360.def` entry (list of every pac) has "story", "scenario", "storyline", "rival" or "feud"
+  in its name. The only create-related pacs are `createmode.pac` (55 KB), `menu\CAE.pac` (create an entrance, 3.3 MB),
+  `menu\sas.pac` (11 KB), `edit\ed*.pac`, `edit\casThumb*.pac` (CAS = create a superstar). UTF-16 text search in all
+  uncompressed pacs (`string.pac`, `string_pf.pac`, `menu.pac`, ...) found nothing about stories/scenarios.
+
+**Not checked (cannot be, yet):** 337 of the 404 pacs (including `createmode.pac`, `sas.pac`, `CAE.pac`, `evt\*`) and
+`default.xex`/`default.xexp` are compressed (XCTD `0x0FF512ED` for pacs, XEX2 LZX for the exe), so a strings search
+over them says nothing. The generated C++ has no string data (only `sub_8xxxxxxx` code), so engine functions cannot be
+matched to strings from it. Missing tools: an XCTD decoder (framing after the 8-byte `0FF512ED 01000000` header is not
+documented; first attempt to read it by eye failed) and an XEX unpacker (the SDK only does it in the loader).
+Ways to get there: (a) dump the decompressed image and the pacs from guest memory while the game runs (needs the PC;
+`memtrap.cpp` in `port/tools/dev` is a starting point); (b) reverse the game's own XCTD routine and write a Python/C
+decoder.
+
+**Estimate (honest, from the little we know):** the strongest evidence is negative. 2K15's own menus have no story
+entry and the only trace is a stats counter name, so the scenes, texts and save format of 2K14's Create a Story are
+most likely absent, not just hidden. Re-enabling it would mean rebuilding the mode (menu scenes, editor logic, save
+format, localisation) from scratch against recompiled code: months of work, not a toggle. Cheaper alternatives: none
+known. Next step if wanted: item (a) above, to confirm that no editor scenes exist in `createmode.pac` / `menu*.pac`.
