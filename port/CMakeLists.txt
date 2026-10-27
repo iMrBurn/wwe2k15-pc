@@ -21,6 +21,7 @@ set(WWE2K15_SOURCES
     src/framerate_hook.cpp
     src/crash_report.cpp
     src/text_hook.cpp
+    src/text_entry_kbd.cpp
     src/shader_dump.cpp
 )
 
@@ -46,6 +47,7 @@ if(WWE2K15_NATIVE_RENDERER)
         src/framerate_hook.cpp
         src/crash_report.cpp
         src/text_hook.cpp
+        src/text_entry_kbd.cpp
         res/wwe2k15.rc)
     wwe2k15_add_native_renderer(wwe2k15_native)
 endif()

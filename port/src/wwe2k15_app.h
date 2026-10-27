@@ -43,6 +43,7 @@
 REXCVAR_DECLARE(bool, wwe2k15_show_fps);
 REXCVAR_DECLARE(bool, wwe2k15_mods);
 void InstallWwe2k15CrashReporter();
+void Wwe2k15KbdInit(rex::ui::Window* window);  // text_entry_kbd.cpp: keyboard typing in letter grids
 extern std::atomic<uint32_t> g_wwe2k15_fps_x10;
 extern std::atomic<uint32_t> g_wwe2k15_worst_frame_us;
 
@@ -252,6 +253,7 @@ class Wwe2k15App : public rex::ReXApp {
   // ReXGlue does not mount cache: by default, so give it a writable local folder.
   void OnPostSetup() override {
     InstallWwe2k15CrashReporter();
+    Wwe2k15KbdInit(window());  // physical keyboard in the game's letter grids
     MountTitleUpdate();
     MountMods();
     InstallDlcPackages();

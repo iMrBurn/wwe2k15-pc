@@ -1,24 +1,31 @@
-// WWE 2K15 PC: type with the physical keyboard in the game's text screens (CAW names, Create a
-// Story text, titles...). SKELETON, not built yet (not in CMakeLists.txt): the hook points marked
-// TODO are found with the test plan in docs/PORTING_PLAN.md ("Keyboard text entry: test plan").
+// WWE 2K15 PC: type with the physical keyboard in the game's own letter grid (CAW names, Create a
+// Story text, titles...), no controller needed.
 //
-// Shape, taken from WWE '12 PC (wwe12-pc/port/src/native/wwe12_kbd.cpp, same GPL-3.0 family):
-//   - a window input listener at z 1000 (before mnk_mode) turns OnKeyChar text into a queue of
-//     characters while a text screen is open, and marks the typing keys handled so they do not
-//     also drive the pad (Z, Backspace...);
-//   - the game's own thread replays the queue through the game's insert / back functions inside
-//     a hook of the widget draw function, exactly as if the on-screen buttons were pressed.
-// Two cases are possible in 2K15 and the first test decides which one applies:
-//   A) the screen calls XamShowKeyboardUI (sub_83389A78): then the SDK's ImGui dialog already
-//      takes the physical keyboard and nothing is needed here except making sure it has focus;
-//   B) the game has its own letter grid like WWE '12: the TODO hooks below are needed.
+// How it works (found 2026-10-27 with tools/dev/memtrap.cpp, see docs/PORTING_PLAN.md):
+//   - 2K15 does not use XamShowKeyboardUI for these screens: it has its own on-screen letter grid,
+//     as WWE '12 does. The grid's "editor" object holds the text; sub_828A2CA8(editor, const char* s,
+//     1, 0) inserts s at the cursor (the same call the grid's letter cells make, from the button
+//     handler sub_828A6478(editor, code)), and BACK is code 14 of that handler (sub_828A4910).
+//   - Keys come from the game window (OnKeyChar = the text Windows produces, so AZERTY, Shift,
+//     AltGr and key repeat all work). They are queued and replayed through those functions by the
+//     game's own thread, inside a hook, exactly as if the grid's buttons were pressed.
+//   - While the grid is up, the typing keys are not passed to mnk_mode (the keyboard-as-controller),
+//     so Z or Backspace type instead of moving or going back. Enter, Escape and the arrows still
+//     reach the game.
 // Disable with wwe2k15_kbd = false in wwe2k15.toml. Works in both exes (no renderer code).
+//
+// Dev probe (wwe2k15_kbd_log = true): logs the editor and every insert / button of the game.
+
+#include "generated/default/wwe2k15_init.h"
 
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <mutex>
+#include <string>
 
 #include <rex/cvar.h>
 #include <rex/logging/macros.h>
@@ -28,16 +35,21 @@
 REXCVAR_DEFINE_BOOL(wwe2k15_kbd, true, "WWE2K15",
                     "Type with the physical keyboard in the game's text screens.");
 REXCVAR_DEFINE_BOOL(wwe2k15_kbd_log, false, "WWE2K15",
-                    "Log the text screen's editor and every key typed (probe).");
+                    "Log the text screen's editor and the game's inserts / buttons (probe).");
+
+REX_EXTERN(__imp__sub_828A2CA8);  // grid insert: (editor, const char* s, 1, 0)
+REX_EXTERN(__imp__sub_828A6478);  // grid button handler: (editor, code)
+REX_EXTERN(__imp__sub_82333D98);  // text widget draw: (screen, widget), every frame
 
 namespace {
 
 constexpr char kBackspace = '\b';
-constexpr long long kScreenTimeoutMs = 400;  // seen less than this long ago = still open
+constexpr uint32_t kButtonBack = 14;           // code of the BACK button in sub_828A6478
+constexpr long long kScreenTimeoutMs = 600;    // seen less than this long ago = still open
 
 rex::ui::Window* g_window = nullptr;
-std::atomic<uint32_t> g_editor{0};          // guest address of the text editor object (TODO: find)
-std::atomic<long long> g_last_seen{0};      // ms, steady clock
+std::atomic<uint32_t> g_editor{0};      // guest address of the grid's editor object
+std::atomic<long long> g_last_seen{0};  // ms, steady clock
 
 std::mutex g_queue_mutex;
 std::deque<char> g_queue;  // typed characters (or kBackspace) waiting for the game thread
@@ -48,7 +60,7 @@ std::deque<char> g_queue;  // typed characters (or kBackspace) waiting for the g
       .count();
 }
 
-[[nodiscard]] bool TextScreenOpen() {
+[[nodiscard]] bool GridOpen() {
   return REXCVAR_GET(wwe2k15_kbd) && g_editor.load() != 0 &&
          NowMs() - g_last_seen.load() < kScreenTimeoutMs;
 }
@@ -75,7 +87,7 @@ std::deque<char> g_queue;  // typed characters (or kBackspace) waiting for the g
   }
 }
 
-// Keys that type while a text screen is open (kept away from mnk_mode). Win32 virtual-key codes.
+// Keys that type while the grid is open (kept away from mnk_mode). Win32 virtual-key codes.
 [[nodiscard]] bool IsTypingKey(uint16_t vk) {
   return vk == 0x08 /*Backspace*/ || vk == 0x20 /*Space*/ || (vk >= '0' && vk <= '9') ||
          (vk >= 'A' && vk <= 'Z') || (vk >= 0x60 && vk <= 0x6F) /*numpad*/ ||
@@ -85,7 +97,7 @@ std::deque<char> g_queue;  // typed characters (or kBackspace) waiting for the g
 class KbdListener final : public rex::ui::WindowInputListener {
  public:
   void OnKeyDown(rex::ui::KeyEvent& e) override {
-    if (!TextScreenOpen() || e.is_ctrl_pressed()) return;
+    if (!GridOpen() || e.is_ctrl_pressed()) return;
     const auto vk = static_cast<uint16_t>(e.virtual_key());
     if (!IsTypingKey(vk)) return;
     if (vk == 0x08) Push(kBackspace);
@@ -93,7 +105,7 @@ class KbdListener final : public rex::ui::WindowInputListener {
   }
 
   void OnKeyChar(rex::ui::KeyEvent& e) override {
-    if (!TextScreenOpen()) return;
+    if (!GridOpen()) return;
     if (const char ch = ToGameChar(static_cast<uint32_t>(e.virtual_key()))) Push(ch);
     e.set_handled(true);
   }
@@ -108,29 +120,110 @@ class KbdListener final : public rex::ui::WindowInputListener {
 KbdListener g_listener;
 
 // SDL only sends typed text while text input is on; the SDK's ImGui turns it off when its own
-// text boxes close, so it is asked again whenever a text screen is seen with it off.
+// text boxes close, so it is asked again whenever the grid is seen with it off.
 void KeepTextInputOn() {
   rex::ui::Window* window = g_window;
   if (!window || window->IsTextInputActive()) return;
   window->app_context().CallInUIThread([window] { window->SetTextInputActive(true); });
 }
 
+uint32_t Ld32(const uint8_t* base, uint32_t addr) {
+  uint32_t v;
+  std::memcpy(&v, base + addr, 4);
+  return __builtin_bswap32(v);
+}
+
+// Game thread: replay the queued keys through the grid's own functions, as its buttons would.
+void ApplyQueued(PPCContext& ctx, uint8_t* base, uint32_t editor) {
+  std::deque<char> keys;
+  {
+    std::lock_guard lock(g_queue_mutex);
+    keys.swap(g_queue);
+  }
+  for (const char ch : keys) {
+    PPCContext c = ctx;
+    // A scratch area below the caller's frame: the string at +256, the callee's frames below.
+    c.r1.u64 = (ctx.r1.u32 - 512) & ~15u;
+    c.r3.u64 = editor;
+    if (ch == kBackspace) {
+      c.r4.u64 = kButtonBack;
+      __imp__sub_828A6478(c, base);
+    } else {
+      const uint32_t str = c.r1.u32 + 256;
+      base[str] = uint8_t(ch);
+      base[str + 1] = 0;
+      c.r4.u64 = str;
+      c.r5.u64 = 1;
+      c.r6.u64 = 0;
+      __imp__sub_828A2CA8(c, base);
+    }
+  }
+  if (!keys.empty() && REXCVAR_GET(wwe2k15_kbd_log)) {
+    REXLOG_INFO("[kbd] {} key(s) replayed in editor {:08X}", keys.size(), editor);
+  }
+}
+
 }  // namespace
 
-// Call once the window exists (Wwe2k15App::OnPreLaunchModule, next to the renderer's setup).
+// Call once the window exists (Wwe2k15App::OnPostSetup).
 void Wwe2k15KbdInit(rex::ui::Window* window) {
   g_window = window;
   if (window) window->AddInputListener(&g_listener, 1000);  // before mnk_mode's listener
 }
 
-// TODO(hook 1, widget draw): REX_FUNC override of the game's text-widget draw function (the
-// WWE '12 equivalent is sub_824C9228(screen r3, widget r4)). After the original runs, when the
-// widget is a text-screen line (name starts with "_write" in WWE '12), derive the editor from the
-// screen, set g_editor / g_last_seen, call KeepTextInputOn(), then ApplyQueued().
-//
-// TODO(ApplyQueued): swap g_queue, then for each char call the game's insert function
-// (WWE '12: sub_828A47D0(editor, const char* s, 1, 0), s in guest memory on a scratch stack
-// area) or, for kBackspace, the game's BACK function (WWE '12: sub_828A6158(editor)).
-//
-// TODO(hook 2, optional probes): REX_FUNC overrides of insert / back that log when
-// wwe2k15_kbd_log is on (caller LR, editor, text) to confirm the editor is the same object.
+// Probes (wwe2k15_kbd_log): the game's own button presses and inserts.
+extern "C" REX_FUNC(sub_828A6478) {
+  const uint32_t editor = ctx.r3.u32;
+  if (REXCVAR_GET(wwe2k15_kbd_log)) {
+    REXLOG_INFO("[kbd] button {} editor {:08X} lr {:08X} state[+3452]={} cursor[+3460]={}", ctx.r4.u32,
+                editor, uint32_t(ctx.lr), Ld32(base, editor + 3452), Ld32(base, editor + 3460));
+  }
+  __imp__sub_828A6478(ctx, base);
+}
+
+extern "C" REX_FUNC(sub_828A2CA8) {
+  if (REXCVAR_GET(wwe2k15_kbd_log)) {
+    const char* s = reinterpret_cast<const char*>(base + ctx.r4.u32);
+    REXLOG_INFO("[kbd] insert editor {:08X} text '{}' r5={} r6={} lr {:08X}", ctx.r3.u32,
+                std::string(s, strnlen(s, 4)), ctx.r5.u32, ctx.r6.u32, uint32_t(ctx.lr));
+  }
+  __imp__sub_828A2CA8(ctx, base);
+}
+
+// Every text widget is drawn each frame by sub_82333D98(screen r3, widget r4) (found with a read
+// trap on the text of a name field). The grid's text lines are widgets whose text pointer
+// ([widget+0xA4]) is one of the line pointers the grid's editor keeps at editor+0xECC, and the
+// screen they are drawn with is a member of the editor, 0x770 bytes in (editor A4BD5440, screen
+// A4BD5BB0, 2026-10-27). That identifies the editor without any button press.
+constexpr uint32_t kScreenInEditor = 0x770;
+constexpr uint32_t kLinePointers = 0xECC;  // editor+: up to 8 line text pointers (line 0 first)
+constexpr uint32_t kWidgetText = 0xA4;     // widget+: pointer to its text
+
+// 0 when `screen` does not belong to a grid editor that owns this widget's text.
+[[nodiscard]] uint32_t EditorOfLine(const uint8_t* base, uint32_t screen, uint32_t widget) {
+  if (screen < kScreenInEditor || !widget) return 0;
+  const uint32_t editor = screen - kScreenInEditor;
+  const uint32_t text = Ld32(base, widget + kWidgetText);
+  if (!text || !Ld32(base, editor + 44)) return 0;           // insert reads [editor+44]
+  if (Ld32(base, editor + 3460) > 0x400) return 0;           // cursor
+  for (uint32_t k = 0; k < 8; ++k)
+    if (Ld32(base, editor + kLinePointers + 4 * k) == text) return editor;
+  return 0;
+}
+
+extern "C" REX_FUNC(sub_82333D98) {
+  const uint32_t screen = ctx.r3.u32, widget = ctx.r4.u32;
+  __imp__sub_82333D98(ctx, base);
+  if (!REXCVAR_GET(wwe2k15_kbd) || widget < 0x1000 || screen < 0x1000) return;
+  const uint32_t editor = EditorOfLine(base, screen, widget);
+  if (!editor) return;
+  if (!GridOpen() || g_editor.load() != editor) {
+    REXLOG_INFO("[kbd] letter grid open (editor {:08X})", editor);
+    std::lock_guard lock(g_queue_mutex);
+    g_queue.clear();  // keys typed before the grid opened are not for it
+  }
+  g_editor = editor;
+  g_last_seen = NowMs();
+  KeepTextInputOn();
+  ApplyQueued(ctx, base, editor);
+}
