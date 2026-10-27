@@ -470,3 +470,15 @@ F = 4, 3 = 2). "gap" = worst frame gap in the last 6 pacing lines. CPU is % of o
   per frame >= 1 MB" (title 0, match 2+ MB). The Xenos iGPU rows use a 130 s fallback because `draws/frame` never
   reached 3000 there. The Vulkan driver pipeline cache (`plume-pipeline-cache.patch`) wrote `cache\<uuid>.vk.pcache`
   files (3-4 MB per GPU) but plume's messages go to stderr, so no load/stall gain was measured: not yet verified.
+
+## 2026-10-27 (Perf) — Keyboard text entry: first findings (work paused, the user came back to the PC)
+- 2K15 imports `XamShowKeyboardUI` and calls it from one place: the XDK wrapper `sub_83389A78` (TU4 address), itself
+  called twice from `sub_833715C8`, a big system-dialog dispatcher (3200-byte frame, switch of 52 cases), called from
+  one site in `wwe2k15_recomp.126.cpp`. Which screens reach it is not known yet.
+- Test run (Xenos exe, `[log.levels] krnl = "debug"` so the SDK's `XamShowKeyboardUI(...)` line shows): CREATIONS >
+  SUPERSTAR > NEW > template > OTHER tab (LB = key `1`, RB = key `3`) > ACCEPT asks "No changes ... Entrance Attire,
+  finish editing?" (YES/NO, default NO; the left stick key `A` held 130 ms did not move the choice, try a longer hold
+  or `--keybind_dpad_left`). The name screen was not reached before the test stopped, and no keyboard line was logged
+  up to there. WWE '12's generated code is not on this PC, so its grid functions cannot be matched by instruction
+  similarity; they have to be found in 2K15 itself (PAGE_GUARD trap on a text widget, as in WWE '12's notes).
+- `port/tools/dev/nav.ps1` now also knows the keys `1`, `3`, `I`, `K`, `J`.
