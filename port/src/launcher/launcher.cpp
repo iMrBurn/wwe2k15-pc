@@ -308,7 +308,7 @@ int RenderScale(int resolution) { return resolution <= 720 ? 1 : resolution >= 2
 
 bool NativeAvailable() {
   std::error_code ec;
-  return fs::exists(root / L"wwe2k15_native.exe", ec);
+  return fs::exists(root / L"wwe2k15_native.exe", ec) && fs::exists(root / L"dxcompiler.dll", ec);
 }
 bool UseNative() { return opt.native && NativeAvailable(); }
 
@@ -848,8 +848,8 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   }
   ImGui::EndDisabled();
   d->AddText(ui_font, 14, {col2 + 28, y + 27}, kMuted,
-             native_present ? tr("Moteur plus léger pour les petites cartes. Peut encore avoir des défauts.")
-                            : tr("wwe2k15_native.exe est absent du dossier du lanceur."));
+             native_present ? tr("Moteur plus léger pour les petites cartes. Le premier lancement prépare les shaders (quelques secondes).")
+                            : tr("Rendu natif absent de cette version (wwe2k15_native.exe ou dxcompiler.dll manquant)."));
   if (UseNative()) {
     // A tile cycling through AUTO and the graphics cards found.
     const auto& names = GpuNames();

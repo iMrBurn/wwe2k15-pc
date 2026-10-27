@@ -471,7 +471,8 @@ class Updater {
         continue;
       const std::string rel = name.substr(top + 1);
       // The player's own files stay as they are.
-      if (rel.rfind("game/", 0) == 0 || rel.rfind("mods/", 0) == 0 || rel.rfind("logs/", 0) == 0)
+      if (rel.rfind("game/", 0) == 0 || rel.rfind("mods/", 0) == 0 || rel.rfind("logs/", 0) == 0 ||
+          rel.rfind("cache/", 0) == 0 || rel.rfind("game_update/", 0) == 0)
         continue;
       // Only plain relative paths: no "..", no drive letters, no absolute paths.
       if (rel.empty() || rel[0] == '/' || rel.find("..") != std::string::npos || rel.find(':') != std::string::npos) {
@@ -607,7 +608,8 @@ class Updater {
     for (auto it = std::filesystem::recursive_directory_iterator(dir_, ec);
          it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
       if (it->is_directory(ec) && (it->path().filename() == "game" || it->path().filename() == "mods" ||
-                                   it->path().filename() == "logs")) {
+                                   it->path().filename() == "logs" || it->path().filename() == "cache" ||
+                                   it->path().filename() == "game_update")) {
         it.disable_recursion_pending();
         continue;
       }
