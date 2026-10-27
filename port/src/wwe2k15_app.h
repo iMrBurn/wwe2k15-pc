@@ -30,11 +30,20 @@
 #include <atomic>
 #include <imgui.h>
 
+#if defined(SVR_NATIVE_RENDERER)
+// Native renderer (wwe2k15_native.exe only, cmake/native_renderer.cmake): re:Blue draws through
+// plume (Vulkan) from the game's own D3D calls instead of emulating the Xenos GPU.
+#include <rex/system/gpu_plugin.h>
+#include "gpu/device.h"
+#include "gpu/imgui_overlay_drawer.h"
+#endif
+
 #include <rex/cvar.h>
 
 REXCVAR_DECLARE(bool, wwe2k15_show_fps);
 REXCVAR_DECLARE(bool, wwe2k15_mods);
 void InstallWwe2k15CrashReporter();
+void Wwe2k15KbdInit(rex::ui::Window* window);  // text_entry_kbd.cpp: keyboard typing in letter grids
 extern std::atomic<uint32_t> g_wwe2k15_fps_x10;
 extern std::atomic<uint32_t> g_wwe2k15_worst_frame_us;
 
@@ -82,7 +91,59 @@ class Wwe2k15App : public rex::ReXApp {
     if (config.gpu_plugin.empty()) {
       config.gpu_plugin = "xenos";
     }
+#if defined(SVR_NATIVE_RENDERER)
+    // The Xenos plugin's "null" backend keeps the game's D3D command stream moving (fences,
+    // interrupts, vblank) without drawing; the re:Blue hooks draw instead.
+    if (!config.graphics) {
+      config.graphics = rex::system::LoadGpuPlugin(config.gpu_plugin, "null");
+      REXLOG_INFO("Native renderer: guest GPU {}", config.graphics ? "null (sync only)" : "MISSING");
+    }
+#endif
   }
+
+#if defined(SVR_NATIVE_RENDERER)
+  // The plume device draws the ImGui overlays at Present time.
+  std::unique_ptr<rex::ui::ImmediateDrawer> OnCreateImmediateDrawer() override {
+    return std::make_unique<bd::gpu::ImGuiOverlayDrawer>();
+  }
+
+  void OnPreLaunchModule() override {
+    if (!bd::gpu::Video::CreateHostDevice(window())) {
+      // GPU or driver without the Vulkan 1.2 features re:Blue needs (bufferDeviceAddress,
+      // descriptor indexing...): device.cpp has logged which. Say so, point to the normal
+      // renderer, and quit instead of running behind a black window.
+      REXLOG_ERROR("Native renderer: could not create the host device (Vulkan unavailable or "
+                   "too old); use the normal renderer (untick \"Rendu natif\" in the launcher)");
+      rex::FlushLogging();
+#if defined(_WIN32)
+      MessageBoxW(nullptr,
+                  L"The native renderer could not start: this graphics card or its driver lacks "
+                  L"the Vulkan 1.2 features it needs.\n\nUpdate the graphics driver, or untick "
+                  L"\"Rendu natif (exp\u00e9rimental)\" in the launcher to play with the normal "
+                  L"renderer.\n\nLe rendu natif n\u2019a pas pu d\u00e9marrer : cette carte graphique ou "
+                  L"son pilote n\u2019a pas les fonctions Vulkan 1.2 n\u00e9cessaires.\n\nMets \u00e0 jour le "
+                  L"pilote graphique, ou d\u00e9coche \"Rendu natif (exp\u00e9rimental)\" dans le "
+                  L"launcher pour jouer avec le rendu normal.",
+                  L"WWE 2K15 PC", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+#endif
+      std::_Exit(1);
+    }
+    // Present runs on the game thread and ImGui on the UI thread: draw the overlay
+    // synchronously on the UI thread into the presented image.
+    bd::gpu::Video::SetOverlayDrawHook([this](plume::RenderCommandList* cmd,
+                                              plume::RenderFramebuffer* fb, uint32_t w,
+                                              uint32_t h) {
+      if (!imgui_drawer() || !imgui_drawer()->HasDialogs())
+        return;
+      app_context().CallInUIThreadSynchronous([this, cmd, fb, w, h] {
+        bd::gpu::ReblueUIDrawContext ctx(w, h, cmd, fb);
+        imgui_drawer()->Draw(ctx);
+      });
+    });
+  }
+
+  void OnWindowPixelSizeChanged(uint32_t, uint32_t) override { bd::gpu::Video::RequestResize(); }
+#endif
 
   void OnConfigurePaths(rex::PathConfig& paths) override {
     const auto exe_dir = rex::filesystem::GetExecutableFolder();
@@ -192,6 +253,7 @@ class Wwe2k15App : public rex::ReXApp {
   // ReXGlue does not mount cache: by default, so give it a writable local folder.
   void OnPostSetup() override {
     InstallWwe2k15CrashReporter();
+    Wwe2k15KbdInit(window());  // physical keyboard in the game's letter grids
     MountTitleUpdate();
     MountMods();
     InstallDlcPackages();

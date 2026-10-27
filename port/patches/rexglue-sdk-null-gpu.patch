@@ -1,0 +1,150 @@
+diff --git a/include/rex/graphics/null/graphics_system.h b/include/rex/graphics/null/graphics_system.h
+new file mode 100644
+index 0000000..21f3cf8
+--- /dev/null
++++ b/include/rex/graphics/null/graphics_system.h
+@@ -0,0 +1,37 @@
++/**
++ * @file        graphics/null/graphics_system.h
++ * @brief       Guest GPU that keeps the command stream moving but draws nothing.
++ *
++ * Added for the WWE SmackDown vs. Raw 2008 native renderer. The game's own D3D library keeps
++ * running unmodified (device creation, ring buffer, fences, interrupts, vblank pacing); this
++ * backend consumes what it writes through the shared CommandProcessor (MMIO, fences, events,
++ * interrupts, waits) and skips every draw, resolve and swap. The app renders natively by hooking
++ * the game's D3D draw calls, and owns the window: there is no provider or presenter here, so
++ * ReXApp runs in its detached mode (OnCreateImmediateDrawer).
++ */
++
++#pragma once
++
++#include <memory>
++#include <string>
++
++#include <rex/graphics/command_processor.h>
++#include <rex/graphics/graphics_system.h>
++
++namespace rex::graphics::null_gpu {
++
++class NullGraphicsSystem : public GraphicsSystem {
++ public:
++  std::string name() const override { return "Null"; }
++
++  // No host GPU and no presenter: the app brings its own renderer.
++  X_STATUS SetupPresentation(::rex::ui::WindowedAppContext* app_context) override;
++
++ protected:
++  void CreateProvider(bool with_presentation) override;
++
++ private:
++  std::unique_ptr<CommandProcessor> CreateCommandProcessor() override;
++};
++
++}  // namespace rex::graphics::null_gpu
+diff --git a/src/graphics/CMakeLists.txt b/src/graphics/CMakeLists.txt
+index 0d8f8af..54d5f30 100644
+--- a/src/graphics/CMakeLists.txt
++++ b/src/graphics/CMakeLists.txt
+@@ -17,6 +17,7 @@ set(REXGPU_XENOS_SOURCES
+ 
+     # GPU system
+     graphics_system.cpp
++    null/graphics_system.cpp
+     command_processor.cpp
+     util/draw_extent_estimator.cpp
+     util/draw.cpp
+diff --git a/src/graphics/null/graphics_system.cpp b/src/graphics/null/graphics_system.cpp
+new file mode 100644
+index 0000000..6e535f7
+--- /dev/null
++++ b/src/graphics/null/graphics_system.cpp
+@@ -0,0 +1,49 @@
++/**
++ * @file        graphics/null/graphics_system.cpp
++ * @brief       Null guest GPU: synchronization only, no rendering (see the header).
++ */
++
++#include <rex/graphics/null/graphics_system.h>
++
++#include <rex/logging.h>
++#include <rex/system/kernel_state.h>
++
++namespace rex::graphics::null_gpu {
++
++namespace {
++
++// Runs the shared packet processing (register writes, fences, events, interrupts, waits); every
++// operation that would need a host GPU is accepted and dropped.
++class NullCommandProcessor final : public CommandProcessor {
++ public:
++  using CommandProcessor::CommandProcessor;
++
++  void IssueSwap(uint32_t, uint32_t, uint32_t) override {}
++
++ protected:
++  bool SetupContext() override { return true; }
++  void ShutdownContext() override {}
++  Shader* LoadShader(xenos::ShaderType, uint32_t, const uint32_t*, uint32_t) override {
++    return nullptr;
++  }
++  bool IssueDraw(xenos::PrimitiveType, uint32_t, IndexBufferInfo*, bool) override { return true; }
++  bool IssueCopy() override { return true; }
++};
++
++}  // namespace
++
++X_STATUS NullGraphicsSystem::SetupPresentation(::rex::ui::WindowedAppContext* app_context) {
++  app_context_ = app_context;
++  REXGPU_INFO("Null GPU: guest command stream for synchronization only; the app renders");
++  return X_STATUS_SUCCESS;
++}
++
++void NullGraphicsSystem::CreateProvider(bool) {
++  // No host graphics provider.
++}
++
++std::unique_ptr<CommandProcessor> NullGraphicsSystem::CreateCommandProcessor() {
++  return std::make_unique<NullCommandProcessor>(this, kernel_state_);
++}
++
++}  // namespace rex::graphics::null_gpu
+diff --git a/src/graphics/plugin_main.cpp b/src/graphics/plugin_main.cpp
+index ec756d3..86ce585 100644
+--- a/src/graphics/plugin_main.cpp
++++ b/src/graphics/plugin_main.cpp
+@@ -14,6 +14,7 @@
+ #include <rex/logging.h>
+ #include <rex/system/gpu_plugin.h>
+ 
++#include <rex/graphics/null/graphics_system.h>
+ #if REX_HAS_D3D12
+ #include <rex/graphics/d3d12/graphics_system.h>
+ #endif
+@@ -38,6 +39,10 @@ extern "C" REX_GPU_PLUGIN_EXPORT rex::system::IGraphicsSystem* rex_gpu_create(
+   }
+ 
+   std::string_view backend = info->backend ? info->backend : "any";
++  // Synchronization-only guest GPU for apps with their own renderer (never picked by "any").
++  if (backend == "null") {
++    return new rex::graphics::null_gpu::NullGraphicsSystem();
++  }
+ #if REX_HAS_D3D12
+   if (backend == "any" || backend == "d3d12") {
+     return new rex::graphics::d3d12::D3D12GraphicsSystem();
+diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
+index f1c36cb..8f69a72 100644
+--- a/src/ui/rex_app.cpp
++++ b/src/ui/rex_app.cpp
+@@ -378,9 +378,10 @@ bool ReXApp::SetupPresentation() {
+       }
+     }
+     window_->SetPresenter(presenter);
+-  } else if (!graphics_system) {
++  } else {
+     // Detached mode: the app brings its own renderer and drives its own paint
+-    // loop. ReXApp owns the returned drawer via immediate_drawer_.
++    // loop (no graphics system, or a presenter-less one such as the null GPU).
++    // ReXApp owns the returned drawer via immediate_drawer_.
+     immediate_drawer_ = OnCreateImmediateDrawer();
+     if (immediate_drawer_) {
+       SetupOverlays(/*presenter=*/nullptr, immediate_drawer_.get());

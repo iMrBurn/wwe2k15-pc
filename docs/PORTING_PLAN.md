@@ -372,3 +372,218 @@ Demo match from the title screen (`port/tools/dev/gpu_matrix.sh`, `gpu_compare.s
 - Confirmation avec les timestamps GPU de (Rendu) (`GPU time: busy ...`), iGPU AMD de ce PC, chemin hôte, match :
   GPU occupé 81-91 % du temps, 54-63 ms de GPU par image présentée (~15 fps). Le jeu est donc bien limité par le GPU
   sur iGPU ; il reste à savoir quelles passes coûtent (resolves, post-traitement, dessins).
+
+## (Rendu) D3D12 backend test (2026-10-27)
+
+- The installed SDK already contains the D3D12 backend (`REXGLUE_USE_D3D12=ON` in the SDK cache, D3D12 objects in `rexgpu-xenos.dll`); `--gpu_backend=d3d12` does select it (log: `DXGI adapter: ...`). No separate build was needed. `--d3d12_adapter=1` picks the AMD iGPU.
+- Runs of ~2 min from the title to the attract-mode demo match, one instance at a time:
+  - RTX 5070 Ti, D3D12, current config (`readback_resolve = "full"`): `DEVICE_HUNG` (TDR) about 70 s after launch, when the demo match loads. Same as the October 2026 note on Intel.
+  - AMD iGPU, D3D12: same TDR, with or without `readback_resolve`.
+  - RTX, D3D12, `render_target_path_d3d12=rov`: multi-second stalls, then the same TDR.
+  - RTX, D3D12, `--readback_resolve=none`: no TDR, 60 fps, but `nvidia-smi` showed ~1 % GPU load at 1440p (Vulkan, same scene: 68 %, 12 ms GPU time per frame). D3D12 was very likely not drawing the 3D scene, so this is no performance result.
+  - Reference on the AMD iGPU, Vulkan (auto = host path), demo match 720p: 42-43 fps, GPU busy 98 %, 23 ms per frame (GPU-bound).
+- Vulkan-only parts of our port with no D3D12 equivalent: `readback-resolve` (format filter, repeat limit, shape skip; D3D12 only has the plain `d3d12_readback_resolve` switch, so Superstar Threads would need it ported), `render-path-log` / "auto" (D3D12 has its own default: host RTV, ROV on Intel), `vulkan-gpu-time`, `vulkan-pacing-stats` and the local frame counters, `pipeline-cache`, `descriptor-reuse`, the mailbox present option, and the launcher's vertical sync / "rendu précis" options. Shared code that does apply to both: fuzzy alpha (DXBC has it), `resolution_scale`, `empty-resolve`, texture fetch checks, register-write work.
+- Conclusion: D3D12 does not help weak or old-driver GPUs today: it hangs on both vendors in the first 3D scene, and the one configuration that survives does not render it. Making it usable means debugging the TDR in the Xenos D3D12 backend, then porting the readback and our Vulkan fixes: work on a renderer we would replace anyway if the native renderer goes ahead (see `NATIVE_PORT_PLAN.md`, feasibility section of 2026-10-27). Not recommended.
+
+## Coût GPU par passe sur l'iGPU AMD (2026-10-27, Perf)
+
+- `rexglue-sdk-vulkan-gpu-time2-passes.patch` (après `vulkan-gpu-time`) : option `vulkan_gpu_pass_profile=true` (désactivée
+  par défaut, ralentit le GPU) ; un timestamp est écrit à chaque changement de type de travail enregistré (scène,
+  profondeur seule, rectangles = passes plein écran, resolves) et la ligne « GPU passes per presented frame » est
+  journalisée toutes les 5 s. Les timestamps vident le pipeline : les temps sont gonflés, seules les proportions comptent.
+- Mesure : iGPU AMD de ce PC, chemin hôte (`--vulkan_device=1 --render_target_path_vulkan=rtv`), match 1v1, ~15 fps :
+  par image présentée, scène 28 ms (~1 900-2 700 dessins), rectangles 8,3 ms (23 passes plein écran, ~0,36 ms
+  chacune : post-traitement), resolves 7,0 ms (60-78 copies de cibles, ~0,1 ms chacune), profondeur seule ~0,1 ms
+  (2 112 dessins sans écriture couleur, quasi gratuits). Total ~44 ms contre ~54 ms sans le profil.
+- Lecture : ~65 % scène, ~19 % post-traitement, ~16 % resolves. Rien n'est « gaspillé » de façon évidente :
+  supprimer des resolves ou des passes plein écran changerait l'image. Leviers sans changer l'image : anisotropie 0
+  (+~12 % d'images, déjà dans le préréglage Performance du launcher, avec chemin hôte et sans AA) ; le reste demande de
+  réduire le nombre de dessins de scène côté jeu (foule, ring), ce qui n'est pas faisable proprement.
+- Piège corrigé : `MarkGpuPass` doit ouvrir la soumission avant d'enregistrer (le tampon de commandes différé est
+  remis à zéro à l'ouverture, ce qui effaçait la première marque).
+
+## 2026-10-27 (Perf) — Native renderer: CPU hot paths read from source (no game run)
+
+Read on request of (Main) while the PC was taken by (Rendu): `port/src/reblue/gpu/{hooks/draw,draw,constant_buffers,
+pipeline/pipeline_cache}.cpp`, `port/src/native/svr_geometry.cpp`. Nothing was run or built; every point below is a
+candidate to measure, not a measured gain.
+
+- **Per draw**, on the render thread, under the single `state().mutex`: `SvrBindDrawGeometry` (one `std::map` lookup
+  per used stream and for the index buffer, plus a hash of each buffer's guest bytes once per frame: dynamic
+  buffers in full, big static ones by 32 x 64-byte samples), `FlushRenderStateLocked` (pipeline-state hash
+  `XXH3` of the whole `PipelineState`, then an `unordered_map` lookup only when a dirty bit is set), then the
+  constants.
+- **Constants are the most expensive item on a small CPU.** In the native build `vertexShaderConstants` and
+  `pixelShaderConstants` are forced dirty at every draw (inline XDK setters are not hooked), so each draw copies and
+  byte-swaps two 4 KiB blocks into write-combined memory, plus rebuilds the shared block (32 texture slots, sampler
+  `memcmp`s). `ReuseBlock` (skip the copy when the guest bytes are identical to the previous draw's) exists and is on
+  for Android, where it was 44 % of the render thread; on PC it was a `constexpr false` ("until measured").
+  **Change made (default unchanged):** it is now the cvar `svr_reuse_constant_blocks` (false on PC, true on Android)
+  so it can be A/B-tested without a rebuild; the `[perf] cpu per frame` line already prints "constant blocks N
+  uploaded, M reused". Cost of the check is a 4 KiB `memcmp` per stage per draw; expected to win when consecutive
+  draws share a material, to be measured on 2-4 cores before turning it on.
+- **Pipelines are built synchronously on the render thread** the first time a state is seen
+  (`GetOrCreatePipeline` -> plume `vkCreateGraphicsPipelines`), and plume passes `VK_NULL_HANDLE` as the pipeline
+  cache (`plume_vulkan.cpp:1674`): nothing persists between runs, so every launch re-pays all driver compiles as
+  hitches, worst on weak CPUs/iGPUs. A persistent `VkPipelineCache` (same idea as `rexglue-sdk-pipeline-cache.patch` for
+  the Xenos path) would fix that. It needs a change in plume, which lives outside the repo
+  (`C:\Dev\native-deps\plume`, pinned by `setup.ps1`), so it needs a patch file or a decision from (Main) on how plume
+  patches are stored. Not done.
+- Smaller: the shader-cache lookups are one `unordered_map` find under a mutex at shader creation only (not per
+  draw), and shader conversion uses all cores but two (cvar `wwe2k15_shader_threads`): on a 2-core CPU that is zero
+  workers, check `ResolveThreads` behaviour on a 2-core affinity before the first-launch test (the log line "Native
+  shaders: preparing ... N / 609 done" will show it).
+- `wwe2k15_native` threads: `thread_cpu.ps1` already accepts both process names.
+
+### Measurement plan (scripts written, not yet run)
+- `port/tools/dev/native_vs_xenos.sh <tag> <xenos|native> <exe dir> <mask|-> [args]`: one demo-match run with
+  optional core affinity, prints time to title, fps / worst gap, per-thread CPU and the `[perf]` lines.
+- `port/tools/dev/native_matrix.sh [exe dir]`: Xenos vs native x all / 4 / 2 cores x NVIDIA / AMD iGPU, plus a native
+  4-core run with `svr_reuse_constant_blocks=true`. About 45 min of the PC; the native demo trigger (render work >= 6 ms
+  in a `[perf]` line) is unvalidated: check the first log. Warm both shader caches first.
+- Loading time: the same script prints the seconds to the first "Guest pacing" line (title screen); a load-to-match
+  comparison still needs `loadsample.sh` adapted to the native exe.
+
+### Native vs Xenos on small CPUs and the AMD iGPU (measured 2026-10-27, Perf)
+Demo match, 30 s of per-thread CPU, `port/tools/dev/native_matrix.sh` (+ rerun of 4 rows). NVIDIA = RTX 5070 Ti,
+iGPU = AMD Radeon on `--vulkan_device=1` / `--svr_gpu_device`. Cores simulated by process affinity (all = 16 threads,
+F = 4, 3 = 2). "gap" = worst frame gap in the last 6 pacing lines. CPU is % of one core, whole process.
+
+| GPU | cores | Xenos (host RT) | Native |
+|---|---|---|---|
+| NVIDIA | all | 60 fps, gap 18-19 ms, CPU 91 % | 60 fps, gap 20-23 ms, CPU 71 % |
+| NVIDIA | 4 | 60 fps, gap 19-34 ms, CPU 107 % | 60 fps, gap 22-24 ms, CPU 97 % |
+| NVIDIA | 2 | 58-59 fps, gap 34-36 ms, CPU 113 % | 60 fps, gap 19-22 ms, CPU 102 % |
+| iGPU | all | 21-35 fps, gap 83 ms, CPU 37 % | 60 fps, gap 26-31 ms, CPU 74 % |
+| iGPU | 4 | 30-39 fps, gap 66-84 ms, CPU 49 % | 60 fps, gap 29-33 ms, CPU 99 % |
+| iGPU | 2 | 29-38 fps (last 2 samples were menus), CPU 33 % | 60 fps, gap 28-32 ms, CPU 108 % |
+
+- Native holds 60 fps everywhere, including 2 cores (about one core busy), where Xenos drops to 58 on the dGPU
+  (its `GPU Commands` thread alone takes 49 % of a core) and to ~30 on the iGPU. On the iGPU the native exe is
+  CPU-bound, not GPU-bound, at 2-4 cores (render thread 30-38 % of a core).
+- `svr_reuse_constant_blocks=true` (NVIDIA, 4 cores): 94 % vs 97 % CPU, same 60 fps: within noise, left off on PC.
+- Native is not lighter in total CPU on 2-4 cores (97-108 % vs 107-113 % Xenos on the dGPU); it is the fps and the
+  frame pacing that are better.
+- Time to the demo match from launch: native 55-94 s, Xenos dGPU 78 s (the demo starts after the title idle time, so
+  this is not a loading measure). Title screen at 4-6 s of log time for both.
+- Caveats: the first native demo trigger (render work >= 6 ms) fired on the title screen; replaced by "geometry hashed
+  per frame >= 1 MB" (title 0, match 2+ MB). The Xenos iGPU rows use a 130 s fallback because `draws/frame` never
+  reached 3000 there. The Vulkan driver pipeline cache (`plume-pipeline-cache.patch`) wrote `cache\<uuid>.vk.pcache`
+  files (3-4 MB per GPU) but plume's messages go to stderr, so no load/stall gain was measured: not yet verified.
+
+## 2026-10-27 (Perf) — Keyboard text entry: first findings (work paused, the user came back to the PC)
+- 2K15 imports `XamShowKeyboardUI` and calls it from one place: the XDK wrapper `sub_83389A78` (TU4 address), itself
+  called twice from `sub_833715C8`, a big system-dialog dispatcher (3200-byte frame, switch of 52 cases), called from
+  one site in `wwe2k15_recomp.126.cpp`. Which screens reach it is not known yet.
+- Test run (Xenos exe, `[log.levels] krnl = "debug"` so the SDK's `XamShowKeyboardUI(...)` line shows): CREATIONS >
+  SUPERSTAR > NEW > template > OTHER tab (LB = key `1`, RB = key `3`) > ACCEPT asks "No changes ... Entrance Attire,
+  finish editing?" (YES/NO, default NO; the left stick key `A` held 130 ms did not move the choice, try a longer hold
+  or `--keybind_dpad_left`). The name screen was not reached before the test stopped, and no keyboard line was logged
+  up to there. WWE '12's generated code is not on this PC, so its grid functions cannot be matched by instruction
+  similarity; they have to be found in 2K15 itself (PAGE_GUARD trap on a text widget, as in WWE '12's notes).
+- `port/tools/dev/nav.ps1` now also knows the keys `1`, `3`, `I`, `K`, `J`.
+
+### Keyboard text entry: test plan (drafted offline, 2026-10-27, Perf)
+Skeleton: `port/src/text_entry_kbd.cpp` (not in CMake yet; `Wwe2k15KbdInit(window())` to be called from
+`Wwe2k15App::OnPreLaunchModule`; hooks are TODO). Reference: WWE '12 PC `port/src/native/wwe12_kbd.cpp` (module) and
+`wwe12_kbdscan.cpp` (dev probe: F6 = scan guest memory for the typed marker text, F5 = PAGE_GUARD radar that logs the
+RIP of every write on the buffers' pages).
+
+1. **Slot** (about 30 min, nothing else running, user not on the PC). Close other games; `tasklist`.
+2. **Launch** the Xenos exe with the pad-like keybinds so dialogs can be answered:
+   `wwe2k15.exe --game_data_root=C:/Dev/games/WWE2K15-TU4 --mnk_mode=true --keybind_dpad_up=Up --keybind_dpad_down=Down
+   --keybind_dpad_left=Left --keybind_dpad_right=Right` and in the exe-side `wwe2k15.toml` add
+   `[log.levels]` / `krnl = "debug"` (restore the file afterwards: the build copies it back anyway). The stick key `A`
+   held 130 ms did not move the YES/NO choice of the "finish editing?" dialog: use `LEFT`/`RIGHT` (D-pad) there.
+3. **Key sequence** (`nav.ps1 -keys`, each line then a `-shot`): title `ENTER:500,WAIT8` (twice more `SPACE:300,WAIT10`
+   for the two ATTENTION screens) > main menu `S:150` x4 to CREATIONS > `SPACE:300,WAIT2` (submenu) > `SPACE:300,WAIT8`
+   (SUPERSTAR > NEW) > `SPACE:300,WAIT8` (template list) > `SPACE:300,WAIT15` (editor, HEAD tab) > `1:150` (LB, wraps
+   to the OTHER tab) > `S:130` x7 (ACCEPT) > `SPACE:300,WAIT3` (dialog, default NO) > `LEFT:200` (YES) > `SPACE:300,WAIT10`.
+   Expected: the name entry. If the game goes back to the editor, check the shot taken at 1-2 s (a "name"/"info"
+   screen may flash) and try `EDIT ENTRANCE ATTIRE` first, or Create a Title (CREATIONS > CHAMPIONSHIP > NEW), or
+   Create a Story text, which are the screens the user wants.
+4. **Decide case A or B** from the log: any `XamShowKeyboardUI(` line (SDK, krnl debug) while the name screen shows =
+   case A (the SDK's ImGui dialog; check that the physical keyboard types in it, `SetTextInputActive`). No line and an
+   on-screen letter grid = case B.
+5. **Case B, find the functions** (same method as WWE '12): (a) on the grid, type a known marker with the pad (e.g.
+   "ABC"); (b) scan guest memory for the marker as ASCII and UTF-16 (port `wwe12_kbdscan.cpp` F6 into a dev-only
+   `wwe2k15_kbdscan.cpp` guarded by an env var at configure time; the guest base is `REX_KERNEL_MEMORY()`); (c) set
+   PAGE_GUARD on the pages holding the hits and log the RIP of each write while typing one more letter (F5); (d)
+   symbolize the RIPs: `llvm-symbolizer --obj wwe2k15.exe` at 0x140000000 + offset with `wwe2k15.pdb` (build dir) ->
+   function names `sub_8xxxxxxx` (TU4 addresses); the writer called from the "insert" path is the memset/memcpy pair,
+   its caller is the insert function; (e) the widget draw function is the one that reads the line text every frame:
+   hook candidates by instruction similarity against WWE '12's `sub_824C9228` are not possible (no WWE '12 generated
+   code here), so take the function that draws a text widget and reads the same string, found with a read trap on the
+   line page (PAGE_GUARD also fires on reads) and its caller chain with `stackscan.ps1`.
+6. **Probes to log** (`wwe2k15_kbd_log`): editor address, insert text and caller LR, BACK caller, screen/widget names
+   (widget name offset +0x60 in WWE '12; check in 2K15), the grid's line count limits.
+7. **Implement** the TODOs in the skeleton, add `src/text_entry_kbd.cpp` to both executables in `CMakeLists.txt`, call
+   `Wwe2k15KbdInit`, build, test in a name field and in Create a Story; keep `wwe2k15_kbd = true` default only if
+   case A/B works; with a pad connected nothing changes (keys only go to the text while a text screen is seen).
+
+## (Mods) Create a Story leftovers in 2K15 TU4? (2026-10-27)
+
+Read-only look at `C:\Dev\games\WWE2K15-TU4`; nothing copied into the repo, no game launched.
+
+**Found (readable, uncompressed data only):**
+- `pac\menu\menu.pac` (EPAC, 38 MB, not compressed) holds a table of statistics counters. One of them is
+  `BASIC_CREATE_STORY_COUNT`, next to `BASIC_CREATE_SUPERSTAR_CAS_COUNT`, `..._DIVA_CAS_COUNT`, `..._ENTRANCE_COUNT`,
+  `..._FINISHER_COUNT`, `..._ARENA_COUNT`, `..._CHAMPIONSHIP_COUNT`. That is a usage counter name inherited from 2K14,
+  not a feature. `pac\_startup.pac` contains the word `STORY` twice (context not read, file is EPAC).
+- No file, folder or `plist360.def` entry (list of every pac) has "story", "scenario", "storyline", "rival" or "feud"
+  in its name. The only create-related pacs are `createmode.pac` (55 KB), `menu\CAE.pac` (create an entrance, 3.3 MB),
+  `menu\sas.pac` (11 KB), `edit\ed*.pac`, `edit\casThumb*.pac` (CAS = create a superstar). UTF-16 text search in all
+  uncompressed pacs (`string.pac`, `string_pf.pac`, `menu.pac`, ...) found nothing about stories/scenarios.
+
+**Not checked (cannot be, yet):** 337 of the 404 pacs (including `createmode.pac`, `sas.pac`, `CAE.pac`, `evt\*`) and
+`default.xex`/`default.xexp` are compressed (XCTD `0x0FF512ED` for pacs, XEX2 LZX for the exe), so a strings search
+over them says nothing. The generated C++ has no string data (only `sub_8xxxxxxx` code), so engine functions cannot be
+matched to strings from it. Missing tools: an XCTD decoder (framing after the 8-byte `0FF512ED 01000000` header is not
+documented; first attempt to read it by eye failed) and an XEX unpacker (the SDK only does it in the loader).
+Ways to get there: (a) dump the decompressed image and the pacs from guest memory while the game runs (needs the PC;
+`memtrap.cpp` in `port/tools/dev` is a starting point); (b) reverse the game's own XCTD routine and write a Python/C
+decoder.
+
+**Estimate (honest, from the little we know):** the strongest evidence is negative. 2K15's own menus have no story
+entry and the only trace is a stats counter name, so the scenes, texts and save format of 2K14's Create a Story are
+most likely absent, not just hidden. Re-enabling it would mean rebuilding the mode (menu scenes, editor logic, save
+format, localisation) from scratch against recompiled code: months of work, not a toggle. Cheaper alternatives: none
+known. Next step if wanted: item (a) above, to confirm that no editor scenes exist in `createmode.pac` / `menu*.pac`.
+
+### Keyboard text entry: done on the Xenos exe (2026-10-27, Perf, `port/src/text_entry_kbd.cpp`)
+- 2K15 does not call `XamShowKeyboardUI` for its text fields (CAW name, Roster Application Form: entrance, abbreviated, ring announcer, commentary, hometown names...): it has its own on-screen letter grid, like WWE '12. (There is no Create a Story in 2K15; earlier notes saying so are wrong.)
+- Found without WWE '12's code, with `port/tools/dev/memtrap.cpp` (new dev tool, compile with clang-cl: `scan <pid> <text>` finds a typed marker in the game's memory, `trap <pid> <s> <hex host addr>` attaches as a debugger, sets PAGE_GUARD on the page and logs RIP + return addresses of every read/write; symbolize RIPs with `llvm-symbolizer --obj wwe2k15.exe` at `rip - image base + 0x140000000`; the guest memory is mapped at host 0x100000000 + guest address, plus aliases). Game memory is also readable from Python with ReadProcessMemory (guest = host - 0x100000000, big-endian).
+- TU4 functions: insert `sub_828A2CA8(editor, const char* s, 1, 0)`; button handler `sub_828A6478(editor, code)` (code 7 = letter cell, 14 = BACK); text widget draw `sub_82333D98(screen, widget)` every frame. The editor is `screen - 0x770` (editor A4BD5440, screen A4BD5BB0); its line text pointers are at `editor+0xECC` (8 of them), and a grid line is the widget whose `[widget+0xA4]` equals one of them; `[editor+44]` != 0 and cursor `[editor+3460]` are sanity checks. The first typed letter replaces the default text (the game's own behaviour, the pad does the same).
+- The module (both exes, cvar `wwe2k15_kbd` default true, `wwe2k15_kbd_log` probe) queues `OnKeyChar` text (z-1000 window listener: AZERTY, Shift, AltGr, repeat; accents become the plain letter), keeps the typing keys away from `mnk_mode` while the grid is up, and replays the queue from the draw hook on the game thread through the two functions above. Tested by the user on the Xenos exe in the Roster Application Form name field; the native exe builds the same file but is not tested yet.
+- Test path (nav.ps1): title ENTER, two SPACE (attention screens), `S` x4 = CREATIONS, SPACE x4 (submenu, SUPERSTAR > NEW, template, editor), `1` (LB) = OTHER tab, `S` x7 = ACCEPT, SPACE, `LEFT` = YES (needs `--keybind_dpad_*` keys), SPACE = the Roster Application Form; SPACE on a field opens the grid. The game window must be in front: with the user at the PC, ask them to click it first (Windows refuses a background `SetForegroundWindow`).
+
+### Update 2026-10-27: compressed pacs decoded, Story Designer leftovers found (Mods)
+
+Decoder: WWE '12's `port/src/modmaker/svrfmt/xcompress.cpp` (XMemCompress `0x0FF512ED`: header, chunk-size table,
+32 KB LZX frames, libmspack `lzxd`) built as a tiny command-line tool outside the repo (`C:\Dev\work_2k15_unpacked\_tool`,
+`xdec.exe in out`). All 337 compressed pacs of TU4 + TU decode without error into `C:\Dev\work_2k15_unpacked`
+(3.7 GB, not in Git); the results are `EPK8` containers (the uncompressed ones are `EPAC`). The earlier "cannot read
+compressed data" limit above is lifted for pacs; `default.xex` is still packed (no unpacker yet).
+
+What the full search (ASCII + UTF-16, all pacs) shows:
+- **`pac\menu\sas.pac` (decoded 106 KB) is a table of 159 "Story Designer" commentary cue names**
+  (`SVR11_Cole_StoryDesigner_Rivalry_Match_563`, `..._Made_Cage_Match`, `..._Old_Rivals_Match`, `..._Rematch_Match`,
+  `..._Best_of_Series_*`, `..._Brand_War_Match`, `..._Surprised_Cutscene`, ...; Cole/King lines). That is SmackDown vs.
+  Raw 2011's Story Designer commentary, still shipped.
+- **`sound\Game_Sound_M.pck` holds the audio**: 202 WAV clips with cue labels `SVR11_*_StoryDesigner_*` (Cole/King).
+  `Comm.pck` and `Game_Sound_E_S.pck` have none.
+- `pac\menu\menu.pac` stats counter `BASIC_CREATE_STORY_COUNT` (see above); `MnUIHD/SD.pac` has a widget label
+  "New Story"-ish next to the match-type list (text truncated; not confirmed as a story entry). `com.pac` has an AI
+  parameter `DefRivals`; `evt\Winning01.pac` a camera named "Story Audience Camera" (Universe/Winning event).
+- No story editor scenes, story text, feud/storyline data or story save format found anywhere in the decoded pacs
+  (`createmode.pac` is only the create-mode UI; names `feud`/`rival` elsewhere are Universe-mode rival tron/appear
+  events and random bytes).
+- Engine side: still not checked (needs `default.xex` unpacked: the SDK loader unpacks it in memory; a standalone
+  extractor or a guest-memory dump is the next step, then look for xrefs to the strings `StoryDesigner` / `sas.pac`).
+
+Revised estimate: the 2011/2K14-era Story Designer **commentary audio** and cue list survive, which is the least
+costly part of the mode; the editor UI, story data model, scenes and save format do not appear in the data. Bringing
+the mode back therefore still means rebuilding the editor, but the commentary could be reused. Unknown until the exe
+is searched: whether story-related code is still linked.
+
+- 2026-10-27, native exe tested (same module): typing, Shift/uppercase, accents (e-acute becomes E, c-cedilla becomes C: the game font is upper case ASCII), long names (stops at the limit), backspace and a second field (abbreviated name) all work; AltGr and the Xenos exe with the final backspace path were not re-tested. BACK now calls the grid's delete `sub_828A3670(editor, 1)` directly: the button path (`sub_828A6478` code 14 -> `sub_828A4910`) runs a short state machine and can drop presses that arrive while it runs. `nav.ps1` gained `TYPE:text` (SendKeys; `~e ~a ~c` = accented letters) and the key names `1 3 I K J`.

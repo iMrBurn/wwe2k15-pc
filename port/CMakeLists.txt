@@ -21,6 +21,8 @@ set(WWE2K15_SOURCES
     src/framerate_hook.cpp
     src/crash_report.cpp
     src/text_hook.cpp
+    src/text_entry_kbd.cpp
+    src/shader_dump.cpp
 )
 
 if(WIN32)
@@ -29,7 +31,47 @@ else()
     add_executable(wwe2k15 ${WWE2K15_SOURCES})
 endif()
 
+# Native renderer (opt-in, docs/NATIVE_PORT_PLAN.md): a second executable, wwe2k15_native.exe,
+# that draws the game's D3D calls through re:Blue + plume (Vulkan), taken from WWE '12 PC. It
+# links the same recompiled objects; wwe2k15.exe (Xenos GPU emulation) is unchanged. Needs
+# plume and reblue-XenosRecomp (WWE2K15_NATIVE_DEPS) and generated/native/shader_cache.cpp.
+# Added before the SDK libraries so plume's VMA wins over rexruntime's (see WWE '12 PC).
+option(WWE2K15_NATIVE_RENDERER "Also build wwe2k15_native.exe (native Vulkan renderer)" OFF)
+if(WWE2K15_NATIVE_RENDERER)
+    include(cmake/native_renderer.cmake)
+    # shader_dump.cpp hooks CreateVertex/PixelShader, which re:Blue overrides too, so it stays
+    # out; framerate_hook.cpp leaves its Swap hook out under SVR_NATIVE_RENDERER.
+    add_executable(wwe2k15_native WIN32
+        src/main.cpp
+        src/render_wait_hook.cpp
+        src/framerate_hook.cpp
+        src/crash_report.cpp
+        src/text_hook.cpp
+        src/text_entry_kbd.cpp
+        res/wwe2k15.rc)
+    wwe2k15_add_native_renderer(wwe2k15_native)
+endif()
+
 rexglue_setup_target(wwe2k15 GPU_PLUGINS xenos)
+
+if(WWE2K15_NATIVE_RENDERER)
+    # wwe2k15_recomp only exists once codegen has written generated/ (a fresh checkout's first
+    # configure doesn't have it; the build runs codegen and CMake configures again).
+    if(TARGET wwe2k15_recomp)
+        target_sources(wwe2k15_native PRIVATE $<TARGET_OBJECTS:wwe2k15_recomp>)
+    endif()
+    target_include_directories(wwe2k15_native PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${REXGLUE_ENTRYPOINT_INCLUDE_DIR})
+    target_link_libraries(wwe2k15_native PRIVATE rex::runtime)
+    add_dependencies(wwe2k15_native wwe2k15_codegen)
+    rexglue_apply_target_settings(wwe2k15_native)
+    rexglue_configure_target(wwe2k15_native GPU_PLUGINS xenos)
+    if(MSVC)
+        target_link_options(wwe2k15_native PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+    endif()
+endif()
 
 # Keep a PDB beside the release exe (not shipped) so crash/hang addresses and CPU profiles
 # can be symbolized; /OPT:REF,ICF keep the exe the same as a plain release link.
@@ -73,7 +115,9 @@ if(WIN32)
 endif()
 
 # Optional D3D call census for identifying WWE 2K15's title-specific XDK entry points.
-# The first candidate window is anchored by sub_82BA5FA8, which calls VdSwap.
+# The window is anchored by the only VdSwap caller: sub_82BADF20 in the TU4 code (sub_82BA5FA8 in
+# the base game). TU4 moves this library by about +0x8000; WWE '12's D3D functions span about
+# -0x9600..+0x1B00 around its Swap, hence the default 0x82B9C000-0x82BB8000 (564 functions).
 option(WWE2K15_D3D_CENSUS "Instrument the initial WWE 2K15 D3D address window" OFF)
 if(WWE2K15_D3D_CENSUS)
     set(WWE2K15_D3D_CENSUS_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/wwe2k15_d3d_census.cpp")

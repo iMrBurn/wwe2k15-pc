@@ -5,7 +5,7 @@
 #
 # Output: dist\WWE2K15-PC-v<VERSION>.zip, dist\SHA256-v<VERSION>.txt and
 # dist\symbols-v<VERSION>\ (exe + pdb/map kept locally to read crash reports).
-param([switch]$Build, [string]$SdkDir = "C:\Dev\rexglue-sdk")
+param([switch]$Build, [switch]$Native, [string]$SdkDir = "C:\Dev\rexglue-sdk")
 $ErrorActionPreference = "Stop"
 $port = Split-Path -Parent $PSScriptRoot
 $repo = Split-Path -Parent $port
@@ -22,6 +22,14 @@ New-Item -ItemType Directory -Force $stage, (Join-Path $stage "game"), (Join-Pat
 # Program files.
 foreach ($f in "wwe2k15.exe", "WWE 2K15 Launcher.exe", "rexruntime.dll", "rexgpu-xenos.dll", "gamecontrollerdb.txt") {
   Copy-Item (Join-Path $buildDir $f) $stage
+}
+if ($Native) {
+  # The native renderer converts the player's own shaders at run time into a cache file beside
+  # the exe: that cache is game-derived and must never be packaged.
+  foreach ($f in "wwe2k15_native.exe", "dxcompiler.dll") { Copy-Item (Join-Path $buildDir $f) $stage }
+  Copy-Item (Join-Path $repo "LICENSE") (Join-Path $stage "licenses\GPL-3.0.txt")
+  Copy-Item (Join-Path $repo "THIRD_PARTY.md") (Join-Path $stage "licenses\THIRD_PARTY.md")
+  foreach ($f in Get-ChildItem (Join-Path $port "third_party\licenses") -File) { Copy-Item $f.FullName (Join-Path $stage "licenses\$($f.Name)") }
 }
 Copy-Item (Join-Path $port "wwe2k15_runtime.toml") (Join-Path $stage "wwe2k15.toml")
 Copy-Item (Join-Path $port "dist\game\PUT_GAME_FILES_HERE.txt") (Join-Path $stage "game")

@@ -77,7 +77,10 @@ struct Counter {
 } g_counter;
 }  // namespace
 
-extern "C" REX_FUNC(sub_82BADF20) {
+// Called once per guest present: by the Swap hook below, or in wwe2k15_native.exe (where re:Blue
+// overrides D3DDevice_Swap itself) from the renderer's per-frame tick (Wwe12DisplayOnFrame). `base`
+// is null there: the title fps read from guest memory is then left out of the log line.
+void Wwe2k15OnGuestPresent(uint8_t* base) {
   g_wwe2k15_present_count.fetch_add(1, std::memory_order_relaxed);
   const uint64_t now = NowUs();
   Counter& c = g_counter;
@@ -107,11 +110,17 @@ extern "C" REX_FUNC(sub_82BADF20) {
       REXLOG_INFO("Guest pacing: {} frames in {:.1f} s ({:.1f} fps), max gap {:.1f} ms, "
                   "GPU-ring wait {:.0f}%, title fps {}",
                   p.frames, span / 1e6, p.frames * 1e6 / span, p.max_gap / 1000.0,
-                  100.0 * wait / span, REX_LOAD_U32(0x838DC7B0));
+                  100.0 * wait / span, base ? REX_LOAD_U32(0x838DC7B0) : 0u);
       p = PaceStats{};
       p.window_start = p.last = now;
       p.wait_at_start = g_wwe2k15_gpu_wait_us.load();
     }
   }
+}
+
+#if !defined(SVR_NATIVE_RENDERER)
+extern "C" REX_FUNC(sub_82BADF20) {
+  Wwe2k15OnGuestPresent(base);
   __imp__sub_82BADF20(ctx, base);
 }
+#endif  // !SVR_NATIVE_RENDERER

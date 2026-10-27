@@ -102,8 +102,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--register", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
-    parser.add_argument("--lo", type=lambda value: int(value, 0), default=0x82BA0000)
-    parser.add_argument("--hi", type=lambda value: int(value, 0), default=0x82BB0000)
+    parser.add_argument("--lo", type=lambda value: int(value, 0), default=0x82B9C000)
+    parser.add_argument("--hi", type=lambda value: int(value, 0), default=0x82BB8000)
     args = parser.parse_args()
     if args.lo >= args.hi:
         parser.error("--lo must be lower than --hi")
@@ -114,6 +114,19 @@ def main() -> None:
         for address in re.findall(r"SetFunction\(0x([0-9A-Fa-f]+),\s*sub_", register_text)
         if args.lo <= int(address, 16) < args.hi
     )
+    # Skip functions the port already overrides (a second REX_FUNC would be a duplicate symbol).
+    src = Path(__file__).resolve().parent.parent / "src"
+    hooked = {
+        int(address, 16)
+        for path in src.rglob("*.cpp")
+        for address in re.findall(r"REX_FUNC\(sub_([0-9A-Fa-f]{8})\)",
+                                  path.read_text(encoding="utf-8", errors="replace"))
+    }
+    skipped = [address for address in addresses if address in hooked]
+    addresses = [address for address in addresses if address not in hooked]
+    if skipped:
+        print("Skipping functions already hooked by the port: " +
+              ", ".join(f"sub_{address:08X}" for address in skipped))
     if not addresses:
         parser.error("no registered game functions found in the selected address window")
     if len(addresses) > 2048:
