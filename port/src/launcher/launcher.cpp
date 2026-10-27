@@ -520,7 +520,10 @@ void UpdateGameProcess() {
   GetExitCodeProcess(game_process, &exit_code);
   CloseHandle(game_process);
   game_process = nullptr;
-  status = tr("Le jeu s'est arrêté (code ") + std::to_string(exit_code) + tr("). Consulte JOURNAUX.");
+  char code_hex[16];
+  snprintf(code_hex, sizeof(code_hex), "0x%08lX", static_cast<unsigned long>(exit_code));
+  status = tr("Le jeu s'est arrêté (code ") + (exit_code < 256 ? std::to_string(exit_code) : std::string(code_hex)) +
+           tr("). Consulte JOURNAUX.");
   // A failure within the first seconds is the game files, not a crash during play.
   if (exit_code != 0 && std::chrono::steady_clock::now() - launch_start < std::chrono::seconds(30))
     start_failure = StartFailureFromLog(launch_time - std::chrono::seconds(2));
@@ -919,9 +922,9 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (UseNative()) {
     // A tile cycling through AUTO and the graphics cards found.
     const auto& names = GpuNames();
-    ImGui::SetCursorScreenPos({col2 + 330, y - 4});
+    ImGui::SetCursorScreenPos({col2 + 330, y - 2});
     const std::string label = std::string("GPU : ") + (opt.gpu.empty() ? tr("AUTO") : opt.gpu.c_str());
-    if (Tile("gpu", label.c_str(), {area.x - (col2 - o.x) - 330 - 40, 34}, false, false, 14)) {
+    if (Tile("gpu", label.c_str(), {area.x - (col2 - o.x) - 330 - 40, 26}, false, false, 14)) {
       size_t next = 0;  // 0 = AUTO, i + 1 = names[i]
       for (size_t i = 0; i < names.size(); ++i)
         if (names[i] == opt.gpu) next = i + 1;
