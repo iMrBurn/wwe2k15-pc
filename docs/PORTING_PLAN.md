@@ -384,3 +384,20 @@ Demo match from the title screen (`port/tools/dev/gpu_matrix.sh`, `gpu_compare.s
   - Reference on the AMD iGPU, Vulkan (auto = host path), demo match 720p: 42-43 fps, GPU busy 98 %, 23 ms per frame (GPU-bound).
 - Vulkan-only parts of our port with no D3D12 equivalent: `readback-resolve` (format filter, repeat limit, shape skip; D3D12 only has the plain `d3d12_readback_resolve` switch, so Superstar Threads would need it ported), `render-path-log` / "auto" (D3D12 has its own default: host RTV, ROV on Intel), `vulkan-gpu-time`, `vulkan-pacing-stats` and the local frame counters, `pipeline-cache`, `descriptor-reuse`, the mailbox present option, and the launcher's vertical sync / "rendu précis" options. Shared code that does apply to both: fuzzy alpha (DXBC has it), `resolution_scale`, `empty-resolve`, texture fetch checks, register-write work.
 - Conclusion: D3D12 does not help weak or old-driver GPUs today: it hangs on both vendors in the first 3D scene, and the one configuration that survives does not render it. Making it usable means debugging the TDR in the Xenos D3D12 backend, then porting the readback and our Vulkan fixes: work on a renderer we would replace anyway if the native renderer goes ahead (see `NATIVE_PORT_PLAN.md`, feasibility section of 2026-10-27). Not recommended.
+
+## Coût GPU par passe sur l'iGPU AMD (2026-10-27, Perf)
+
+- `rexglue-sdk-vulkan-gpu-time2-passes.patch` (après `vulkan-gpu-time`) : option `vulkan_gpu_pass_profile=true` (désactivée
+  par défaut, ralentit le GPU) ; un timestamp est écrit à chaque changement de type de travail enregistré (scène,
+  profondeur seule, rectangles = passes plein écran, resolves) et la ligne « GPU passes per presented frame » est
+  journalisée toutes les 5 s. Les timestamps vident le pipeline : les temps sont gonflés, seules les proportions comptent.
+- Mesure : iGPU AMD de ce PC, chemin hôte (`--vulkan_device=1 --render_target_path_vulkan=rtv`), match 1v1, ~15 fps :
+  par image présentée, scène 28 ms (~1 900-2 700 dessins), rectangles 8,3 ms (23 passes plein écran, ~0,36 ms
+  chacune : post-traitement), resolves 7,0 ms (60-78 copies de cibles, ~0,1 ms chacune), profondeur seule ~0,1 ms
+  (2 112 dessins sans écriture couleur, quasi gratuits). Total ~44 ms contre ~54 ms sans le profil.
+- Lecture : ~65 % scène, ~19 % post-traitement, ~16 % resolves. Rien n'est « gaspillé » de façon évidente :
+  supprimer des resolves ou des passes plein écran changerait l'image. Leviers sans changer l'image : anisotropie 0
+  (+~12 % d'images, déjà dans le préréglage Performance du launcher, avec chemin hôte et sans AA) ; le reste demande de
+  réduire le nombre de dessins de scène côté jeu (foule, ring), ce qui n'est pas faisable proprement.
+- Piège corrigé : `MarkGpuPass` doit ouvrir la soumission avant d'enregistrer (le tampon de commandes différé est
+  remis à zéro à l'ouverture, ce qui effaçait la première marque).
