@@ -26,7 +26,10 @@ std::shared_ptr<const Replacement> Find(uint64_t) { return nullptr; }
 
 void Wwe12DisplayInit(rex::ui::ImGuiDrawer*) {}
 
-void Wwe12DisplayOnFrame() {}
+void Wwe2k15OnGuestPresent(uint8_t* base);  // framerate_hook.cpp: pacing log, FPS counter
+
+// Called by the renderer once per presented guest frame (svr_resources.cpp).
+void Wwe12DisplayOnFrame() { Wwe2k15OnGuestPresent(nullptr); }
 
 namespace bd::gpu {
 void Wwe12QuitEntryTick(uint64_t) {}
