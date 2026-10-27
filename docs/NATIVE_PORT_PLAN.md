@@ -166,8 +166,17 @@ step is needed; the launcher can still show a note for the first native launch.
 - Launcher path: the command line the launcher builds for "Rendu natif" (no gpu_plugin/backend,
   `--svr_render_scale`, `--window_*`, ...) starts `wwe2k15_native.exe` and runs at 60 fps with no
   unknown option; the checkbox itself was not clicked (code read: `launcher.cpp` OptionArgs).
-- Not checked yet: the victory scene (needs a full match), shadows side by side with Xenos in the
-  same arena and camera, an actual AMD/Intel discrete GPU.
+- Full match (user-played, Bo Dallas vs Sami Zayn, Night of Champions), native then Xenos, same
+  match settings (`work/dev/natm_*.png`, `xen_*.png`): entrances 30 fps, match 60, victory scene
+  and replay 30 then the Rematch/Exit screen, on both paths; no crash, no error in the native log.
+- Difference found: the crowd is too bright in native, about 1.8x the Xenos average in the
+  WrestleMania attract demo (`dn_04.png` vs `dx_04.png`, top half R/G/B 37/34/46 vs 20/17/30) and
+  strongly red in Night of Champions (67/39/36 vs 23/14/15, its red stage light). Ring, wrestlers,
+  referee and HUD match. Wrestler shadows on the mat look weaker in native, not yet compared on
+  the same camera. Ruled out with a one-off SetTexture log in the demo: no bound texture has a
+  fetch-constant exp_adjust or a gamma sign. Next: find the crowd draw (its shaders and
+  constants) and compare what it samples on both paths.
+- Not checked yet: an actual AMD/Intel discrete GPU.
 - Robustness (2026-10-27): a GPU/driver without the Vulkan 1.2 features re:Blue needs
   (bufferDeviceAddress, descriptor indexing; device.cpp logs which) now gets a bilingual message
   box telling the player to update the driver or untick "Rendu natif" in the launcher, then the
