@@ -585,3 +585,5 @@ Revised estimate: the 2011/2K14-era Story Designer **commentary audio** and cue 
 costly part of the mode; the editor UI, story data model, scenes and save format do not appear in the data. Bringing
 the mode back therefore still means rebuilding the editor, but the commentary could be reused. Unknown until the exe
 is searched: whether story-related code is still linked.
+
+- 2026-10-27, native exe tested (same module): typing, Shift/uppercase, accents (e-acute becomes E, c-cedilla becomes C: the game font is upper case ASCII), long names (stops at the limit), backspace and a second field (abbreviated name) all work; AltGr and the Xenos exe with the final backspace path were not re-tested. BACK now calls the grid's delete `sub_828A3670(editor, 1)` directly: the button path (`sub_828A6478` code 14 -> `sub_828A4910`) runs a short state machine and can drop presses that arrive while it runs. `nav.ps1` gained `TYPE:text` (SendKeys; `~e ~a ~c` = accented letters) and the key names `1 3 I K J`.

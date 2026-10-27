@@ -39,12 +39,12 @@ REXCVAR_DEFINE_BOOL(wwe2k15_kbd_log, false, "WWE2K15",
 
 REX_EXTERN(__imp__sub_828A2CA8);  // grid insert: (editor, const char* s, 1, 0)
 REX_EXTERN(__imp__sub_828A6478);  // grid button handler: (editor, code)
+REX_EXTERN(__imp__sub_828A3670);  // grid delete: (editor, 1) removes the character before the cursor
 REX_EXTERN(__imp__sub_82333D98);  // text widget draw: (screen, widget), every frame
 
 namespace {
 
 constexpr char kBackspace = '\b';
-constexpr uint32_t kButtonBack = 14;           // code of the BACK button in sub_828A6478
 constexpr long long kScreenTimeoutMs = 600;    // seen less than this long ago = still open
 
 rex::ui::Window* g_window = nullptr;
@@ -146,8 +146,10 @@ void ApplyQueued(PPCContext& ctx, uint8_t* base, uint32_t editor) {
     c.r1.u64 = (ctx.r1.u32 - 512) & ~15u;
     c.r3.u64 = editor;
     if (ch == kBackspace) {
-      c.r4.u64 = kButtonBack;
-      __imp__sub_828A6478(c, base);
+      // The button path (sub_828A6478 code 14 -> sub_828A4910) runs a short animation state and
+      // drops presses that arrive while it runs; the delete it ends in does the work directly.
+      c.r4.u64 = 1;
+      __imp__sub_828A3670(c, base);
     } else {
       const uint32_t str = c.r1.u32 + 256;
       base[str] = uint8_t(ch);
