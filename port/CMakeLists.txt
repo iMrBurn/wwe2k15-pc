@@ -55,7 +55,11 @@ endif()
 rexglue_setup_target(wwe2k15 GPU_PLUGINS xenos)
 
 if(WWE2K15_NATIVE_RENDERER)
-    target_sources(wwe2k15_native PRIVATE $<TARGET_OBJECTS:wwe2k15_recomp>)
+    # wwe2k15_recomp only exists once codegen has written generated/ (a fresh checkout's first
+    # configure doesn't have it; the build runs codegen and CMake configures again).
+    if(TARGET wwe2k15_recomp)
+        target_sources(wwe2k15_native PRIVATE $<TARGET_OBJECTS:wwe2k15_recomp>)
+    endif()
     target_include_directories(wwe2k15_native PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/src

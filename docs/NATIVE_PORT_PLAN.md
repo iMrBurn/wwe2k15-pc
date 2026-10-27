@@ -174,14 +174,46 @@ step is needed; the launcher can still show a note for the first native launch.
   strongly red in Night of Champions (67/39/36 vs 23/14/15, its red stage light). Ring, wrestlers,
   referee and HUD match. Wrestler shadows on the mat look weaker in native, not yet compared on
   the same camera. Ruled out with a one-off SetTexture log in the demo: no bound texture has a
-  fetch-constant exp_adjust or a gamma sign. Next: find the crowd draw (its shaders and
-  constants) and compare what it samples on both paths.
+  fetch-constant exp_adjust or a gamma sign. Also tried (60-min time box, release day): applying
+  the vertex-fetch exponent bias in XenosRecomp (`vfetch` expAdjust, which Xenia applies and the
+  translator ignores): crowd unchanged (top band 28/30/51 native vs 13/14/31 Xenos,
+  `dn4_04.png`), so it was not kept. **Known issue for 0.2.** Next: find the crowd draw (its
+  shaders and constants) and compare what it samples on both paths.
+- Clean build (2026-10-27): a fresh clone of the repo builds `wwe2k15_native.exe` with
+  `port/tools/setup_native_deps.ps1` (plume e0c8871 + `plume-reblue.patch` +
+  `plume-pipeline-cache.patch`; reblue-XenosRecomp 339af41 + `xenosrecomp-reblue-wwe12.patch`,
+  both base patches copied from WWE '12 PC). A fresh checkout's first configure has no
+  `wwe2k15_recomp` target yet: the native exe now skips it until codegen has run, so the order
+  is configure, build `wwe2k15_codegen`, configure again, build (checked from a clone).
 - FPS counter (`--wwe2k15_show_fps=true`, the launcher option) was missing in native: ReXApp only
   set up the ImGui overlays with a presenter or with no graphics system, and the null GPU is a
   graphics system without a presenter. `rexglue-sdk-null-gpu.patch` now takes the detached path
   in that case too (as WWE '12 PC's SDK patch does); the counter shows at the title screen
   (`work/dev/fps_native.png`). The Xenos exe is unchanged (it has a presenter).
 - Not checked yet: an actual AMD/Intel discrete GPU.
+
+### Release-notes paragraph (for 0.2)
+
+**Native renderer (experimental).** Tick "Rendu natif (expérimental)" in the launcher to start
+`wwe2k15_native.exe` instead of the normal renderer. It draws the game's graphics directly with
+Vulkan instead of emulating the Xbox 360 GPU, which makes weak and integrated GPUs much faster
+(on our AMD Radeon iGPU a match goes from 15-40 fps to 60 fps). On the first launch it prepares
+the game's shaders on your PC for a few seconds; later launches reuse them. Limits: it needs a
+Vulkan 1.2 GPU and driver (if not, a message tells you to update the driver or untick the
+option); the crowd looks brighter than with the normal renderer; it has been tested on NVIDIA and
+an AMD integrated GPU only. If something looks wrong, untick the option to go back to the normal
+renderer, and send us the log.
+
+**Rendu natif (expérimental).** Cochez « Rendu natif (expérimental) » dans le launcher pour lancer
+`wwe2k15_native.exe` à la place du rendu habituel. Il dessine les graphismes du jeu directement
+avec Vulkan au lieu d'émuler le processeur graphique de la Xbox 360, ce qui rend les cartes
+graphiques faibles et intégrées beaucoup plus rapides (sur notre iGPU AMD Radeon, un match passe
+de 15-40 à 60 images/s). Au premier lancement, il prépare les shaders du jeu sur votre PC pendant
+quelques secondes ; les lancements suivants les réutilisent. Limites : il faut une carte et un
+pilote compatibles Vulkan 1.2 (sinon un message demande de mettre à jour le pilote ou de décocher
+l'option) ; le public paraît plus clair qu'avec le rendu habituel ; il n'a été testé que sur
+NVIDIA et sur un GPU intégré AMD. Si quelque chose s'affiche mal, décochez l'option pour revenir
+au rendu habituel et envoyez-nous le journal.
 - Robustness (2026-10-27): a GPU/driver without the Vulkan 1.2 features re:Blue needs
   (bufferDeviceAddress, descriptor indexing; device.cpp logs which) now gets a bilingual message
   box telling the player to update the driver or untick "Rendu natif" in the launcher, then the
