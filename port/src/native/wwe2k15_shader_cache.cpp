@@ -145,8 +145,18 @@ void Append(uint64_t hash, uint32_t spec_mask, const std::vector<uint8_t> &smol)
   std::filesystem::create_directories(g_cache_path.parent_path(), ec);
   const bool fresh = !std::filesystem::exists(g_cache_path, ec);
   FILE *f = _wfopen(g_cache_path.c_str(), L"ab");
-  if (!f)
+  if (!f) {
+    // Read-only folder (Program Files, a locked copy): the converted shaders still work for this
+    // session, they are just converted again at the next launch.
+    static bool logged = false;
+    if (!logged) {
+      logged = true;
+      BD_WARN("Native shaders: can't write {} ({}); shaders are converted at every launch. Move "
+              "the game folder somewhere writable (not Program Files) to keep them",
+              g_cache_path.string(), ec ? ec.message() : "access denied");
+    }
     return;
+  }
   if (fresh) {
     const uint32_t tag = CommonTag();
     std::fwrite(kMagic, 1, 4, f);

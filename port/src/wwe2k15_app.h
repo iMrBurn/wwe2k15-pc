@@ -108,7 +108,23 @@ class Wwe2k15App : public rex::ReXApp {
 
   void OnPreLaunchModule() override {
     if (!bd::gpu::Video::CreateHostDevice(window())) {
-      REXLOG_ERROR("Native renderer: could not create the host device (Vulkan unavailable?)");
+      // GPU or driver without the Vulkan 1.2 features re:Blue needs (bufferDeviceAddress,
+      // descriptor indexing...): device.cpp has logged which. Say so, point to the normal
+      // renderer, and quit instead of running behind a black window.
+      REXLOG_ERROR("Native renderer: could not create the host device (Vulkan unavailable or "
+                   "too old); use the normal renderer (untick \"Rendu natif\" in the launcher)");
+      rex::FlushLogging();
+#if defined(_WIN32)
+      MessageBoxW(nullptr,
+                  L"The native renderer could not start: this graphics card or its driver lacks "
+                  L"the Vulkan 1.2 features it needs.\n\nUpdate the graphics driver, or untick "
+                  L"\"Rendu natif (exp\u00e9rimental)\" in the launcher to play with the normal "
+                  L"renderer.\n\nLe rendu natif n\u2019a pas pu d\u00e9marrer : cette carte graphique ou "
+                  L"son pilote n\u2019a pas les fonctions Vulkan 1.2 n\u00e9cessaires.\n\nMets \u00e0 jour le "
+                  L"pilote graphique, ou d\u00e9coche \"Rendu natif (exp\u00e9rimental)\" dans le "
+                  L"launcher pour jouer avec le rendu normal.",
+                  L"WWE 2K15 PC", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+#endif
       std::_Exit(1);
     }
     // Present runs on the game thread and ImGui on the UI thread: draw the overlay
