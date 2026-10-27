@@ -176,6 +176,11 @@ step is needed; the launcher can still show a note for the first native launch.
   the same camera. Ruled out with a one-off SetTexture log in the demo: no bound texture has a
   fetch-constant exp_adjust or a gamma sign. Next: find the crowd draw (its shaders and
   constants) and compare what it samples on both paths.
+- FPS counter (`--wwe2k15_show_fps=true`, the launcher option) was missing in native: ReXApp only
+  set up the ImGui overlays with a presenter or with no graphics system, and the null GPU is a
+  graphics system without a presenter. `rexglue-sdk-null-gpu.patch` now takes the detached path
+  in that case too (as WWE '12 PC's SDK patch does); the counter shows at the title screen
+  (`work/dev/fps_native.png`). The Xenos exe is unchanged (it has a presenter).
 - Not checked yet: an actual AMD/Intel discrete GPU.
 - Robustness (2026-10-27): a GPU/driver without the Vulkan 1.2 features re:Blue needs
   (bufferDeviceAddress, descriptor indexing; device.cpp logs which) now gets a bilingual message

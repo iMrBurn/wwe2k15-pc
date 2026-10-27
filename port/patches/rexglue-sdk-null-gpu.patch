@@ -131,3 +131,20 @@ index ec756d3..86ce585 100644
  #if REX_HAS_D3D12
    if (backend == "any" || backend == "d3d12") {
      return new rex::graphics::d3d12::D3D12GraphicsSystem();
+diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
+index f1c36cb..8f69a72 100644
+--- a/src/ui/rex_app.cpp
++++ b/src/ui/rex_app.cpp
+@@ -378,9 +378,10 @@ bool ReXApp::SetupPresentation() {
+       }
+     }
+     window_->SetPresenter(presenter);
+-  } else if (!graphics_system) {
++  } else {
+     // Detached mode: the app brings its own renderer and drives its own paint
+-    // loop. ReXApp owns the returned drawer via immediate_drawer_.
++    // loop (no graphics system, or a presenter-less one such as the null GPU).
++    // ReXApp owns the returned drawer via immediate_drawer_.
+     immediate_drawer_ = OnCreateImmediateDrawer();
+     if (immediate_drawer_) {
+       SetupOverlays(/*presenter=*/nullptr, immediate_drawer_.get());
