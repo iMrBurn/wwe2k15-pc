@@ -18,7 +18,7 @@ public class FG { [DllImport("user32.dll")] public static extern IntPtr GetForeg
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c); }
 "@ }
-$gp = Get-Process wwe2k15 -ErrorAction SilentlyContinue | Select-Object -First 1
+$gp = Get-Process wwe2k15,wwe2k15_native -ErrorAction SilentlyContinue | Select-Object -First 1
 function GameFocused { $fp = 0; [void][FG]::GetWindowThreadProcessId([FG]::GetForegroundWindow(), [ref]$fp); return ($gp -and $fp -eq $gp.Id) }
 $sendKeys = $true
 if ($keys -and $keys -notmatch '^(WAIT\d+,?)*$') {
