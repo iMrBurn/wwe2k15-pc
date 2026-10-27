@@ -368,3 +368,4 @@ Demo match from the title screen (`port/tools/dev/gpu_matrix.sh`, `gpu_compare.s
 - Pistes : (1) anisotropie 0 par défaut pour les iGPU (préréglage « faible » du launcher) ; (2) mesurer le coût
   GPU par passe (timestamps GPU, prévu par (Rendu)) avant de toucher aux resolves ; (3) 540p impossible (voir
   plus haut).
+- (later the same day) GPU time per frame is now logged: `rexglue-sdk-vulkan-gpu-time.patch` writes a timestamp at the start and end of every Vulkan submission and logs every 5 s `GPU time: busy N% of 5.0 s, X ms per presented frame (frames, submissions)` (cvar `vulkan_log_gpu_time`, default on; a warning if the device has no graphics-queue timestamps). Read it next to "Guest pacing": a frame rate below 60 with GPU busy near 100 % is GPU-bound, with GPU busy low it is CPU- or sync-bound. Title screen, 720p: RTX 5070 Ti 5-13 % (0.8-2.2 ms/frame), Radeon iGPU 54 % (9 ms/frame).
