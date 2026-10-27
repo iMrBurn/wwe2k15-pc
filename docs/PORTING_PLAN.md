@@ -482,3 +482,41 @@ F = 4, 3 = 2). "gap" = worst frame gap in the last 6 pacing lines. CPU is % of o
   up to there. WWE '12's generated code is not on this PC, so its grid functions cannot be matched by instruction
   similarity; they have to be found in 2K15 itself (PAGE_GUARD trap on a text widget, as in WWE '12's notes).
 - `port/tools/dev/nav.ps1` now also knows the keys `1`, `3`, `I`, `K`, `J`.
+
+### Keyboard text entry: test plan (drafted offline, 2026-10-27, Perf)
+Skeleton: `port/src/text_entry_kbd.cpp` (not in CMake yet; `Wwe2k15KbdInit(window())` to be called from
+`Wwe2k15App::OnPreLaunchModule`; hooks are TODO). Reference: WWE '12 PC `port/src/native/wwe12_kbd.cpp` (module) and
+`wwe12_kbdscan.cpp` (dev probe: F6 = scan guest memory for the typed marker text, F5 = PAGE_GUARD radar that logs the
+RIP of every write on the buffers' pages).
+
+1. **Slot** (about 30 min, nothing else running, user not on the PC). Close other games; `tasklist`.
+2. **Launch** the Xenos exe with the pad-like keybinds so dialogs can be answered:
+   `wwe2k15.exe --game_data_root=C:/Dev/games/WWE2K15-TU4 --mnk_mode=true --keybind_dpad_up=Up --keybind_dpad_down=Down
+   --keybind_dpad_left=Left --keybind_dpad_right=Right` and in the exe-side `wwe2k15.toml` add
+   `[log.levels]` / `krnl = "debug"` (restore the file afterwards: the build copies it back anyway). The stick key `A`
+   held 130 ms did not move the YES/NO choice of the "finish editing?" dialog: use `LEFT`/`RIGHT` (D-pad) there.
+3. **Key sequence** (`nav.ps1 -keys`, each line then a `-shot`): title `ENTER:500,WAIT8` (twice more `SPACE:300,WAIT10`
+   for the two ATTENTION screens) > main menu `S:150` x4 to CREATIONS > `SPACE:300,WAIT2` (submenu) > `SPACE:300,WAIT8`
+   (SUPERSTAR > NEW) > `SPACE:300,WAIT8` (template list) > `SPACE:300,WAIT15` (editor, HEAD tab) > `1:150` (LB, wraps
+   to the OTHER tab) > `S:130` x7 (ACCEPT) > `SPACE:300,WAIT3` (dialog, default NO) > `LEFT:200` (YES) > `SPACE:300,WAIT10`.
+   Expected: the name entry. If the game goes back to the editor, check the shot taken at 1-2 s (a "name"/"info"
+   screen may flash) and try `EDIT ENTRANCE ATTIRE` first, or Create a Title (CREATIONS > CHAMPIONSHIP > NEW), or
+   Create a Story text, which are the screens the user wants.
+4. **Decide case A or B** from the log: any `XamShowKeyboardUI(` line (SDK, krnl debug) while the name screen shows =
+   case A (the SDK's ImGui dialog; check that the physical keyboard types in it, `SetTextInputActive`). No line and an
+   on-screen letter grid = case B.
+5. **Case B, find the functions** (same method as WWE '12): (a) on the grid, type a known marker with the pad (e.g.
+   "ABC"); (b) scan guest memory for the marker as ASCII and UTF-16 (port `wwe12_kbdscan.cpp` F6 into a dev-only
+   `wwe2k15_kbdscan.cpp` guarded by an env var at configure time; the guest base is `REX_KERNEL_MEMORY()`); (c) set
+   PAGE_GUARD on the pages holding the hits and log the RIP of each write while typing one more letter (F5); (d)
+   symbolize the RIPs: `llvm-symbolizer --obj wwe2k15.exe` at 0x140000000 + offset with `wwe2k15.pdb` (build dir) ->
+   function names `sub_8xxxxxxx` (TU4 addresses); the writer called from the "insert" path is the memset/memcpy pair,
+   its caller is the insert function; (e) the widget draw function is the one that reads the line text every frame:
+   hook candidates by instruction similarity against WWE '12's `sub_824C9228` are not possible (no WWE '12 generated
+   code here), so take the function that draws a text widget and reads the same string, found with a read trap on the
+   line page (PAGE_GUARD also fires on reads) and its caller chain with `stackscan.ps1`.
+6. **Probes to log** (`wwe2k15_kbd_log`): editor address, insert text and caller LR, BACK caller, screen/widget names
+   (widget name offset +0x60 in WWE '12; check in 2K15), the grid's line count limits.
+7. **Implement** the TODOs in the skeleton, add `src/text_entry_kbd.cpp` to both executables in `CMakeLists.txt`, call
+   `Wwe2k15KbdInit`, build, test in a name field and in Create a Story; keep `wwe2k15_kbd = true` default only if
+   case A/B works; with a pad connected nothing changes (keys only go to the text while a text screen is seen).
