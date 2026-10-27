@@ -168,3 +168,9 @@ step is needed; the launcher can still show a note for the first native launch.
   unknown option; the checkbox itself was not clicked (code read: `launcher.cpp` OptionArgs).
 - Not checked yet: the victory scene (needs a full match), shadows side by side with Xenos in the
   same arena and camera, an actual AMD/Intel discrete GPU.
+- Robustness (2026-10-27): a GPU/driver without the Vulkan 1.2 features re:Blue needs
+  (bufferDeviceAddress, descriptor indexing; device.cpp logs which) now gets a bilingual message
+  box telling the player to update the driver or untick "Rendu natif" in the launcher, then the
+  exe quits (no black window). A shader cache that can't be written (read-only folder; tested by
+  turning `cache` into a file) logs one warning and the game runs normally, converting the
+  shaders again at each launch (2 s here).
