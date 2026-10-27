@@ -81,3 +81,12 @@ Each stage is testable against the Xenos baseline; the Xenos path stays as a swi
 6. **Compatibility (ongoing).** NVIDIA / AMD / Intel, weak GPUs, pipeline cache, crash logs; then make it the default.
 
 Rough total: 2-3 months of focused work before the native path can be the default, on the assumption that the WWE '12 code imports cleanly. The biggest risks are 2K15-specific shaders that XenosRecomp mistranslates and engine features WWE '12 does not use. Nothing has been implemented; this needs the user's go.
+
+## Progress
+
+- 2026-10-27, stage 1 done: the 22 D3D entry points re:Blue hooks are identified (see
+  `d3d_functions.md`, `port/src/native/wwe2k15_d3d_names.h`). WWE '12 PC is cloned in
+  `C:\Dev\wwe12-pc` (user's go): same SDK commit c94f5eb plus `rexglue-sdk-reblue.patch`, plume
+  e0c8871 and reblue-XenosRecomp 339af41 pinned by its `setup.ps1`; GPL-3.0. Decision: the native
+  renderer is built as a second executable (`wwe2k15_native.exe`, `SVR_NATIVE_RENDERER`), chosen
+  in the launcher, so the Xenos/Vulkan exe stays the default and untouched.

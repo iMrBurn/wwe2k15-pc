@@ -73,7 +73,9 @@ if(WIN32)
 endif()
 
 # Optional D3D call census for identifying WWE 2K15's title-specific XDK entry points.
-# The first candidate window is anchored by sub_82BA5FA8, which calls VdSwap.
+# The window is anchored by the only VdSwap caller: sub_82BADF20 in the TU4 code (sub_82BA5FA8 in
+# the base game). TU4 moves this library by about +0x8000; WWE '12's D3D functions span about
+# -0x9600..+0x1B00 around its Swap, hence the default 0x82B9C000-0x82BB8000 (564 functions).
 option(WWE2K15_D3D_CENSUS "Instrument the initial WWE 2K15 D3D address window" OFF)
 if(WWE2K15_D3D_CENSUS)
     set(WWE2K15_D3D_CENSUS_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/wwe2k15_d3d_census.cpp")
