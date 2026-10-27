@@ -1,0 +1,236 @@
+diff --git a/include/rex/graphics/vulkan/pipeline_cache.h b/include/rex/graphics/vulkan/pipeline_cache.h
+index 7b938b9..f0076d1 100644
+--- a/include/rex/graphics/vulkan/pipeline_cache.h
++++ b/include/rex/graphics/vulkan/pipeline_cache.h
+@@ -423,6 +423,18 @@ class VulkanPipelineCache {
+ 
+   std::unordered_map<PipelineDescription, Pipeline, PipelineDescription::Hasher> pipelines_;
+ 
++  // Driver-side pipeline cache, persisted next to the shader storage so that the driver does not
++  // recompile the same pipelines on every launch.
++  void CreateDriverPipelineCache();
++  void SaveDriverPipelineCache(bool force);
++  VkPipelineCache driver_pipeline_cache_ = VK_NULL_HANDLE;
++  std::filesystem::path driver_pipeline_cache_path_;
++  std::mutex driver_pipeline_cache_save_lock_;
++  std::atomic<uint32_t> driver_pipeline_cache_unsaved_{0};
++  std::atomic<int64_t> driver_pipeline_cache_last_save_ms_{0};
++  std::atomic<uint32_t> driver_pipeline_create_count_{0};
++  std::atomic<uint64_t> driver_pipeline_create_time_us_{0};
++
+   // Previously used pipeline, to avoid lookups if the state wasn't changed.
+   const std::pair<const PipelineDescription, Pipeline>* last_pipeline_ = nullptr;
+   // <Submission index, pipeline>.
+diff --git a/include/rex/ui/vulkan/functions/device_1_0.inc b/include/rex/ui/vulkan/functions/device_1_0.inc
+index aa55a4a..a6ba88b 100644
+--- a/include/rex/ui/vulkan/functions/device_1_0.inc
++++ b/include/rex/ui/vulkan/functions/device_1_0.inc
+@@ -43,6 +43,7 @@ XE_UI_VULKAN_FUNCTION(vkCreateFramebuffer)
+ XE_UI_VULKAN_FUNCTION(vkCreateGraphicsPipelines)
+ XE_UI_VULKAN_FUNCTION(vkCreateImage)
+ XE_UI_VULKAN_FUNCTION(vkCreateImageView)
++XE_UI_VULKAN_FUNCTION(vkCreatePipelineCache)
+ XE_UI_VULKAN_FUNCTION(vkCreatePipelineLayout)
+ XE_UI_VULKAN_FUNCTION(vkCreateQueryPool)
+ XE_UI_VULKAN_FUNCTION(vkCreateRenderPass)
+@@ -59,6 +60,7 @@ XE_UI_VULKAN_FUNCTION(vkDestroyFramebuffer)
+ XE_UI_VULKAN_FUNCTION(vkDestroyImage)
+ XE_UI_VULKAN_FUNCTION(vkDestroyImageView)
+ XE_UI_VULKAN_FUNCTION(vkDestroyPipeline)
++XE_UI_VULKAN_FUNCTION(vkDestroyPipelineCache)
+ XE_UI_VULKAN_FUNCTION(vkDestroyPipelineLayout)
+ XE_UI_VULKAN_FUNCTION(vkDestroyQueryPool)
+ XE_UI_VULKAN_FUNCTION(vkDestroyRenderPass)
+@@ -72,7 +74,9 @@ XE_UI_VULKAN_FUNCTION(vkGetBufferMemoryRequirements)
+ XE_UI_VULKAN_FUNCTION(vkGetDeviceQueue)
+ XE_UI_VULKAN_FUNCTION(vkGetFenceStatus)
+ XE_UI_VULKAN_FUNCTION(vkGetImageMemoryRequirements)
++XE_UI_VULKAN_FUNCTION(vkGetPipelineCacheData)
+ XE_UI_VULKAN_FUNCTION(vkInvalidateMappedMemoryRanges)
++XE_UI_VULKAN_FUNCTION(vkMergePipelineCaches)
+ XE_UI_VULKAN_FUNCTION(vkMapMemory)
+ XE_UI_VULKAN_FUNCTION(vkResetCommandPool)
+ XE_UI_VULKAN_FUNCTION(vkResetDescriptorPool)
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 91ac08f..0422662 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -12,6 +12,8 @@
+ #include <algorithm>
+ #include <array>
+ #include <atomic>
++#include <chrono>
++#include <fstream>
+ #include <cstdint>
+ #include <cstring>
+ #include <memory>
+@@ -288,6 +290,8 @@ VulkanPipelineCache::~VulkanPipelineCache() {
+ bool VulkanPipelineCache::Initialize() {
+   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
+ 
++  CreateDriverPipelineCache();
++
+   bool edram_fragment_shader_interlock =
+       render_target_cache_.GetPath() == RenderTargetCache::Path::kPixelShaderInterlock;
+ 
+@@ -408,6 +412,50 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+     }
+   }
+ 
++  // Load the driver pipeline cache saved by an earlier run (the driver validates its header and
++  // ignores data from another device or driver version).
++  if (driver_pipeline_cache_ != VK_NULL_HANDLE) {
++    const ui::vulkan::VulkanDevice* const cache_device = command_processor_.GetVulkanDevice();
++    const ui::vulkan::VulkanDevice::Functions& cache_dfn = cache_device->functions();
++    const VkDevice device_handle = cache_device->device();
++    const ui::vulkan::VulkanDevice::Properties& device_properties = cache_device->properties();
++    std::string uuid_text =
++        fmt::format("{:04x}-{:04x}-{:08x}", device_properties.vendorID, device_properties.deviceID,
++                    device_properties.driverVersion);
++    driver_pipeline_cache_path_ = shader_storage_root / fmt::format("{}.vk.pcache", uuid_text);
++    std::vector<char> cache_data;
++    {
++      std::ifstream cache_file(driver_pipeline_cache_path_, std::ios::binary | std::ios::ate);
++      if (cache_file) {
++        std::streamsize cache_size = cache_file.tellg();
++        if (cache_size > 0 && cache_size < (std::streamsize(1) << 30)) {
++          cache_data.resize(size_t(cache_size));
++          cache_file.seekg(0);
++          if (!cache_file.read(cache_data.data(), cache_size)) {
++            cache_data.clear();
++          }
++        }
++      }
++    }
++    if (!cache_data.empty()) {
++      VkPipelineCacheCreateInfo loaded_create_info = {};
++      loaded_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
++      loaded_create_info.initialDataSize = cache_data.size();
++      loaded_create_info.pInitialData = cache_data.data();
++      VkPipelineCache loaded_cache = VK_NULL_HANDLE;
++      if (cache_dfn.vkCreatePipelineCache(device_handle, &loaded_create_info, nullptr,
++                                          &loaded_cache) == VK_SUCCESS) {
++        cache_dfn.vkMergePipelineCaches(device_handle, driver_pipeline_cache_, 1, &loaded_cache);
++        cache_dfn.vkDestroyPipelineCache(device_handle, loaded_cache, nullptr);
++        REXGPU_INFO("Loaded the Vulkan driver pipeline cache ({} KB)", cache_data.size() >> 10);
++      }
++    }
++    driver_pipeline_cache_last_save_ms_.store(
++        std::chrono::duration_cast<std::chrono::milliseconds>(
++            std::chrono::steady_clock::now().time_since_epoch())
++            .count());
++  }
++
+   bool edram_fragment_shader_interlock =
+       render_target_cache_.GetPath() == RenderTargetCache::Path::kPixelShaderInterlock;
+ 
+@@ -791,6 +839,74 @@ void VulkanPipelineCache::EndSubmission() {
+   ProcessDeferredPipelineDestructions(false);
+ }
+ 
++void VulkanPipelineCache::CreateDriverPipelineCache() {
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  VkPipelineCacheCreateInfo create_info = {};
++  create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
++  if (vulkan_device->functions().vkCreatePipelineCache(vulkan_device->device(), &create_info,
++                                                       nullptr, &driver_pipeline_cache_) !=
++      VK_SUCCESS) {
++    driver_pipeline_cache_ = VK_NULL_HANDLE;
++  }
++}
++
++void VulkanPipelineCache::SaveDriverPipelineCache(bool force) {
++  if (driver_pipeline_cache_ == VK_NULL_HANDLE || driver_pipeline_cache_path_.empty()) {
++    return;
++  }
++  uint32_t unsaved = driver_pipeline_cache_unsaved_.load(std::memory_order_relaxed);
++  if (!unsaved) {
++    return;
++  }
++  const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
++                             std::chrono::steady_clock::now().time_since_epoch())
++                             .count();
++  if (!force && (unsaved < 16 || now_ms - driver_pipeline_cache_last_save_ms_.load() < 30000)) {
++    return;
++  }
++  std::unique_lock<std::mutex> lock(driver_pipeline_cache_save_lock_, std::try_to_lock);
++  if (!lock.owns_lock()) {
++    return;
++  }
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  size_t data_size = 0;
++  if (dfn.vkGetPipelineCacheData(device, driver_pipeline_cache_, &data_size, nullptr) !=
++          VK_SUCCESS ||
++      !data_size) {
++    return;
++  }
++  std::vector<char> data(data_size);
++  VkResult get_result =
++      dfn.vkGetPipelineCacheData(device, driver_pipeline_cache_, &data_size, data.data());
++  if (get_result != VK_SUCCESS && get_result != VK_INCOMPLETE) {
++    return;
++  }
++  data.resize(data_size);
++  std::filesystem::path temp_path = driver_pipeline_cache_path_;
++  temp_path += ".tmp";
++  {
++    std::ofstream temp_file(temp_path, std::ios::binary | std::ios::trunc);
++    if (!temp_file.write(data.data(), std::streamsize(data.size()))) {
++      return;
++    }
++  }
++  std::error_code error;
++  std::filesystem::rename(temp_path, driver_pipeline_cache_path_, error);
++  if (error) {
++    std::filesystem::remove(driver_pipeline_cache_path_, error);
++    std::filesystem::rename(temp_path, driver_pipeline_cache_path_, error);
++  }
++  driver_pipeline_cache_unsaved_.store(0, std::memory_order_relaxed);
++  driver_pipeline_cache_last_save_ms_.store(now_ms);
++  REXGPU_INFO(
++      "Saved the Vulkan driver pipeline cache ({} KB); {} pipelines created by the driver this "
++      "run, {} ms in total",
++      data.size() >> 10, driver_pipeline_create_count_.load(),
++      driver_pipeline_create_time_us_.load() / 1000);
++}
++
+ void VulkanPipelineCache::Shutdown() {
+   // Shut down creation threads before destroying any pipelines they may touch.
+   if (!creation_threads_.empty()) {
+@@ -822,6 +938,12 @@ void VulkanPipelineCache::Shutdown() {
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+ 
++  SaveDriverPipelineCache(true);
++  if (driver_pipeline_cache_ != VK_NULL_HANDLE) {
++    dfn.vkDestroyPipelineCache(device, driver_pipeline_cache_, nullptr);
++    driver_pipeline_cache_ = VK_NULL_HANDLE;
++  }
++
+   ProcessDeferredPipelineDestructions(true);
+ 
+   // Destroy all pipelines.
+@@ -3480,8 +3602,19 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+   VkPipeline pipeline;
+-  VkResult create_result = dfn.vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1,
+-                                                         &pipeline_create_info, nullptr, &pipeline);
++  const auto driver_create_start = std::chrono::steady_clock::now();
++  VkResult create_result = dfn.vkCreateGraphicsPipelines(
++      device, driver_pipeline_cache_, 1, &pipeline_create_info, nullptr, &pipeline);
++  driver_pipeline_create_count_.fetch_add(1, std::memory_order_relaxed);
++  driver_pipeline_create_time_us_.fetch_add(
++      uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
++                   std::chrono::steady_clock::now() - driver_create_start)
++                   .count()),
++      std::memory_order_relaxed);
++  if (create_result == VK_SUCCESS) {
++    driver_pipeline_cache_unsaved_.fetch_add(1, std::memory_order_relaxed);
++    SaveDriverPipelineCache(false);
++  }
+   if (create_result != VK_SUCCESS) {
+     uint64_t ps_hash = creation_arguments.pixel_shader
+                            ? creation_arguments.pixel_shader->shader().ucode_data_hash()

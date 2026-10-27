@@ -20,11 +20,12 @@ gpu_backend = "vulkan"
 # Avoid a sync wait forcing slow frame-rate steps when the emulator cannot hold 60 FPS.
 gpu_vsync = false
 
-# Emulate EDRAM with fragment shader interlock instead of host render targets. The host-RT
-# path showed fully black frames during entrances (thousands of draws per frame still
-# issued, so the scene was rendered but lost in EDRAM aliasing); FSI renders them correctly
-# at the same frame rate on NVIDIA. GPUs without VK_EXT_fragment_shader_interlock fall back.
-render_target_path_vulkan = "fsi"
+# "auto": emulate EDRAM with fragment shader interlock (FSI), except on AMD GPUs, which use host
+# render targets. FSI fixed the entrance black frames of October 2026 (the host path no longer
+# shows them since), and costs ~1.6x GPU time on NVIDIA; AMD drivers make it 3-4x slower than
+# the host path (2-10 fps matches on an RX 6750 XT, issue #3). "fsi" forces FSI, any other value
+# forces host render targets. GPUs without VK_EXT_fragment_shader_interlock always use the host path.
+render_target_path_vulkan = "auto"
 
 # Superstar Threads (and created superstars) build attire and skin textures on the GPU, then the
 # CPU reads them back to compress them in DXT. Without readback it compressed stale memory:

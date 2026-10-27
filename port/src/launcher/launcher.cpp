@@ -68,7 +68,7 @@ struct Options {
   bool auto_backup = true;    // back up saves before each launch (keeps 10)
   bool mods = true;           // wwe2k15_mods
   int anisotropic = 3;        // anisotropic_override: 0 off, 2 = 2x, 3 = 4x, 4 = 8x, 5 = 16x
-  bool fsi = true;            // render_target_path_vulkan = fsi (fixes entrance black screens)
+  bool fsi = true;            // render_target_path_vulkan = auto (FSI except on AMD, where it is very slow)
   bool keyboard = false;      // mnk_mode
   bool azerty = true;         // French keyboard layout for the keyboard pad
   int language = 0;           // user_language (XLanguage): 1 en, 3 de, 4 fr, 5 es, 6 it; 0 = unset
@@ -301,7 +301,7 @@ std::wstring OptionArgs() {
   return L" --fullscreen=" + b(opt.fullscreen) +
          L" --resolution_scale=" + std::to_wstring(RenderScale(opt.resolution)) +
          L" --anisotropic_override=" + std::to_wstring(opt.anisotropic) +
-         L" --render_target_path_vulkan=" + (opt.fsi ? L"fsi" : L"rtv") +
+         L" --render_target_path_vulkan=" + (opt.fsi ? L"auto" : L"rtv") +
          L" --mnk_mode=" + b(opt.keyboard) +
          L" --user_language=" + std::to_wstring(opt.language) +
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +

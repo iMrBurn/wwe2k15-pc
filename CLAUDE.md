@@ -106,6 +106,9 @@ files, with `git add <paths>`, never `git add -A`; never overwrite another chat'
 - (Main) Testers' reports on AMD / Intel GPUs, older CPUs, controllers, Linux/Proton.
 - (Perf) Faster loading: WWE '12 raised its loader's time budget per frame (`sub_82819258`, x2);
   2K15's equivalent is not found yet (sample a real loading screen).
+- (Perf) Issue #4 (Vega 7 iGPU, 30-37 fps, 4.7 s load stall): persistent driver pipeline cache added
+  (`rexglue-sdk-pipeline-cache.patch`), its gain on the tester's old driver is unconfirmed; the iGPU is GPU-bound
+  (see PORTING_PLAN 2026-10-27).
 - (Perf) True 540p (and lower) for weak GPUs: the Xenos plugin only scales by whole multiples of
   720p; would need the game to render smaller.
 - ~~(Rendu) AMD entrance black frames without FSI~~: not reproduced on 2026-10-26 (see Known facts).
