@@ -253,3 +253,17 @@ au rendu habituel et envoyez-nous le journal.
   render target path now picks host render targets on NVIDIA GPUs older than Pascal (device ID
   below 0x1800 outside 0x15xx-0x16xx: Kepler, Maxwell such as the 940MX of issue #6), in
   `rexglue-sdk-render-path-log.patch`. Checked here: both GPUs listed, RTX 5070 Ti keeps FSI.
+- **Anti-aliasing and anisotropy (2026-10-28).** The native renderer draws the game's own render
+  targets without MSAA (as in WWE '12 PC; `bd_msaa` only applies to re:Blue's own scene path), so
+  AA is FXAA in the present pass: cvar `svr_fxaa` (0 off, 1, 2 strong; classic FXAA in
+  `gamma_correction_ps.hlsl`, level carried in the present pass's unused second descriptor
+  slot). Anisotropic filtering already works through `bd_anisotropy` (default 16). Launcher
+  (asked): in native mode pass `--svr_fxaa=<aa 0/1/2>` and `--bd_anisotropy=<0/2/4/8/16>` from
+  the existing AA and anisotropy choices.
+- **Parity review from source (no game run, PC busy).** Brightness/crowd now match (0.2.1).
+  Shadows: reblue-XenosRecomp rewrites the guest's binary shadow-map taps into bilinear
+  filtered compares (`shadowCmp2D`, a WWE '12 change), so contact shadows are softer than the
+  Xenos path's point-sampled PCF, which fits the "weaker shadows" seen on 10-27; the ring floor
+  in the WrestleMania demo is 147-150 native vs 138-145 Xenos. To confirm on the same camera
+  (pause in a match, both paths) before changing it. Post-processing (bloom, depth of field) is
+  drawn by the game's own shaders on both paths; no difference seen in the demo captures.

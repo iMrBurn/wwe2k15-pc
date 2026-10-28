@@ -37,6 +37,7 @@
 bool Wwe12LoadTurboSkipPresent();  // native/wwe12_load_turbo.cpp
 #if defined(SVR_NATIVE_RENDERER)
 void SvrGuestGammaRamp(float& gamma, float& scale);  // native/wwe2k15_gamma.cpp: brightness
+unsigned SvrFxaaLevel();  // native/wwe2k15_gamma.cpp: svr_fxaa
 #endif
 
 namespace bd::gpu {
@@ -261,7 +262,9 @@ void RecordPresentPass(VideoState &s, GuestTexture *rt,
   float ramp_scale = 1.0f;
   SvrGuestGammaRamp(s.guest_gamma, ramp_scale);
   const float kPresentDisplayCorrection = -ramp_scale;
+  const u32 fxaa_level = SvrFxaaLevel();
 #else
+  constexpr u32 fxaa_level = 0;
   constexpr float kPresentGamma = 1.0f;
   constexpr float kPresentDisplayCorrection = 1.0f;
 #endif
@@ -271,7 +274,7 @@ void RecordPresentPass(VideoState &s, GuestTexture *rt,
     u32 descriptor_index_2;
     float gamma;
     float display_correction;
-  } pc{gamma_src_desc, 0, s.guest_gamma * kPresentGamma,
+  } pc{gamma_src_desc, fxaa_level, s.guest_gamma * kPresentGamma,
        kPresentDisplayCorrection};
   s.command_list->setGraphicsPushConstants(kCopyPushConstantRangeIndex, &pc,
                                            kCopyPushConstantByteOffset,
