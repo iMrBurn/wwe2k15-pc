@@ -374,6 +374,8 @@ std::wstring OptionArgs() {
     // The native renderer has no Xenos GPU emulation: only the options it shares or its own.
     return L" --fullscreen=" + b(opt.fullscreen) +
            L" --svr_render_scale=" + std::to_wstring(opt.native_resolution) +
+           L" --svr_fxaa=" + std::to_wstring(opt.aa) +
+           L" --bd_anisotropy=" + std::to_wstring(opt.anisotropic < 2 ? 0 : 1 << (opt.anisotropic - 1)) +
            (opt.gpu.empty() ? std::wstring() : L" --svr_gpu_device=\"" + Widen(opt.gpu.c_str()) + L"\"") +
            L" --mnk_mode=" + b(opt.keyboard) +
            L" --user_language=" + std::to_wstring(opt.language) +
