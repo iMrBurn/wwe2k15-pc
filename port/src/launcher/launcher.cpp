@@ -201,8 +201,15 @@ std::string StartFailureFromLog(fs::file_time_type since) {
   }
   if (best.empty()) return {};
   std::ifstream in(best);
-  std::string line, found;
+  std::string line, found, tu_version;
+  bool no_function = false;
   while (std::getline(in, line)) {
+    // "XEX patch applied successfully: base version: 0.0.0.4, new version: 0.0.6.4" (TU4 gives 0.0.6.4)
+    if (const size_t v = line.find("new version: "); v != std::string::npos) {
+      tu_version.clear();
+      for (size_t i = v + 13; i < line.size() && (isdigit((unsigned char)line[i]) || line[i] == '.'); ++i) tu_version += line[i];
+    }
+    if (line.find("No function registered at") != std::string::npos) no_function = true;
     if (line.find("Failed to load XEX") != std::string::npos)
       found = tr("Le jeu n'a pas pu charger default.xex. Vérifie que la Title Update 4 est bien installée et qu'elle correspond à ton jeu (même région et même édition, default.xex non modifié), et que les fichiers du jeu sont complets. Détails : bouton JOURNAUX.");
     else if (found.empty() && (line.find("no default.xexp") != std::string::npos ||
@@ -212,6 +219,10 @@ std::string StartFailureFromLog(fs::file_time_type since) {
              (line.find("fail") != std::string::npos || line.find("error") != std::string::npos))
       found = tr("La Title Update 4 ne correspond pas à ton jeu (autre région ou édition, ou default.xex déjà modifié). Utilise le jeu d'origine et la TU4 de la même région. Détails : bouton JOURNAUX.");
   }
+  // A Title Update that is not TU4: the game starts, then calls code that only TU4 has.
+  if (found.empty() && tu_version != "0.0.6.4" && (no_function || !tu_version.empty()))
+    found = tr("Mauvaise Title Update : la version ") + (tu_version.empty() ? std::string(tr("inconnue")) : tu_version) +
+            tr(" est installée, il faut la Title Update 4 (0.0.6.4). Supprime game_update\\default.xexp (ou le dossier update) et ajoute le bon paquet (RÉGLAGES > AJOUTER TU / DLC).");
   return found;
 }
 
@@ -691,6 +702,26 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
     const std::string dlc_text = dlc ? std::to_string(dlc) + " PACK(S)" : tr("AUCUN");
     Chip(d, {o.x + 48, o.y + 226}, "TITLE UPDATE", tu ? tr("TU4 INSTALLÉE") : tr("MANQUANTE"), tu ? IM_COL32(110, 200, 80, 255) : kGold);
     Chip(d, {o.x + 330, o.y + 226}, "DLC", dlc_text.c_str(), dlc ? IM_COL32(110, 200, 80, 255) : kMuted);
+  }
+
+  // No gamepad and no keyboard play: the game would start but could not be played.
+  if (!pad && !running) {
+    const float cx = o.x + 800, cw = area.x - 800 - 48;
+    float cy = o.y + 170;
+    if (!opt.keyboard) {
+      const char* msg = tr("Aucune manette détectée : branche-en une, ou joue au clavier.");
+      d->AddText(ui_font, 16, {cx, cy}, kGold, msg, nullptr, cw);
+      cy += ui_font->CalcTextSizeA(16, FLT_MAX, cw, msg).y + 8;
+      ImGui::SetCursorScreenPos({cx, cy});
+      if (Tile("kb_on", tr("ACTIVER LE CLAVIER"), {200, 36}, false, false, 16)) { opt.keyboard = true; SaveOptions(); }
+      ImGui::SetCursorScreenPos({cx + 208, cy});
+      if (Tile("kb_page", tr("CONTRÔLES"), {120, 36}, false, false, 16)) page = "CONTRÔLES";
+      cy += 44;
+    }
+    d->AddText(ui_font, 15, {cx, cy}, kMuted,
+               tr(opt.azerty ? "Clavier AZERTY : Z Q S D, Espace = A, Entrée = Start (CONTRÔLES pour changer)."
+                             : "Clavier QWERTY : W A S D, Espace = A, Entrée = Start (CONTRÔLES pour changer)."),
+               nullptr, cw);
   }
 
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 292});
