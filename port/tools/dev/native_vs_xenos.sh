@@ -38,10 +38,14 @@ T1=$(date +%s)
 sleep 25
 powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w $D/thread_cpu.ps1)" -seconds 30 > $S/${T}_cpu.txt
 cp $L $S/${T}.log
+# memory of the game process: working set / private / peak (MB) and its GPU memory (nvidia-smi, NVIDIA only)
+powershell -NoProfile -Command "\$p=Get-Process $PROC; 'mem: WS {0:N0} MB, private {1:N0} MB, peak WS {2:N0} MB' -f (\$p.WorkingSet64/1MB),(\$p.PrivateMemorySize64/1MB),(\$p.PeakWorkingSet64/1MB)" > $S/${T}_mem.txt
+nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader >> $S/${T}_mem.txt 2>/dev/null
 taskkill //IM $EXE //F > /dev/null; sleep 3
 echo "== $T ($R, affinity $M, args: $*)"
 echo "title after ~${t_title}s of log time, demo match detected ${t}s later (wall $((T1-T0)) s from launch)"
 grep total $S/${T}_cpu.txt; sed -n 4,8p $S/${T}_cpu.txt
+cat $S/${T}_mem.txt
 echo -n "pacing (last 6): "; grep "Guest pacing" $S/$T.log | tail -6 | grep -o "[0-9.]* fps), max gap [0-9.]* ms" | tr '\n' ';'; echo
 if [ "$R" = native ]; then
   grep "\[perf\]" $S/$T.log | tail -4
