@@ -624,3 +624,12 @@ Test (AMD iGPU, Xenos host RT, demo match, scratch copy, user playing another ga
 
 ## 2026-10-28 (Perf): native exe first launch with an empty cache (scratch copy, AMD/NVIDIA default GPU)
 Scratch copy needs `wwe2k15_native.exe`, `rexgpu-xenos.dll`, `rexruntime.dll`, `dxcompiler.dll`, `wwe2k15.toml` (without the Xenos DLL the native exe stays alive without a window and logs "GPU plugin 'xenos' not found"). With no `cache\` folder: first frames after ~6 s of log time, steady 60 fps from the start (worst early gap 77 ms, then 18-19 ms), no visible shader preparation at the title screen; afterwards `cache\` holds only 7.3 MB (`native_shaders.bin` + the driver `.vk.pcache`). Nothing to show the player at the title screen, so no progress UI is needed there. Not measured: the first match with an empty cache (the attract-mode demo needs a played match in the same install, so the scratch copy never reached it) and the 2-core 6-man / Elimination Chamber and real loading-screen timings: they need key presses (menus), which would steal focus from the user's game; do them in a slot where the user is away.
+
+## 2026-10-28 (Perf): first match with an empty cache, and 2-core match, native vs Xenos (RTX 5070 Ti, 0.2.2 build; the user's own game was NOT running on this GPU from 21:10)
+`ab3.sh` (title -> 1v1 match with random picks, `--monitor=2`), CPU measured 150 s into the match. Scratch copies without `cache\` for the cold runs.
+| run | CPU in match | last 12 pacing windows | notes |
+| native, cold cache | 53 % of one core | 30 fps (entrance) then 58-60 fps, worst gap 45 ms | no pipeline stall; cache ends small |
+| Xenos host RT, cold cache | 101 % | 30 -> 60 fps, one gap 105 ms | 560 pipelines created during the run (pixel-less ones in the background) |
+| native, 2 cores | 59 % | 60 fps, worst gap 66 ms | main game thread 21 %, GPU Commands 7 % |
+| Xenos, 2 cores | 113 % | 60 fps, one gap 107 ms, then 21-34 ms | GPU Commands thread 43 % |
+Conclusion: a 1v1 match holds 60 fps on 2 logical cores with both exes (the GPU is the strong NVIDIA one here); native uses about half the CPU of Xenos. The 30 fps windows are the game's own entrance scenes. Not done: 6-man / Elimination Chamber (no key script for the roster screens), a real loading-screen timing (needs a loading-screen sampler), the same on the AMD iGPU with a match driven by keys.
