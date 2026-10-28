@@ -467,6 +467,9 @@ void BrowseGame() {
   dialog->Release();
 }
 
+SDL_Gamepad* pad = nullptr;
+bool keyboard_forced = false;  // this launch plays on the keyboard because no gamepad was found
+
 void LaunchGame() {
   if (game_process && WaitForSingleObject(game_process, 0) == WAIT_TIMEOUT) {
     status = tr("Le jeu tourne déjà.");
@@ -487,11 +490,17 @@ void LaunchGame() {
     std::string err;
     if (saves::CreateBackup(user_data, err)) saves::PruneBackups(user_data, 10);
   }
+  // The game does not wait for a pad: with none and no keyboard, the title screen could not be answered.
+  // Play on the keyboard for this launch only; the saved option stays as it is.
+  const bool saved_keyboard = opt.keyboard;
+  keyboard_forced = !pad && !opt.keyboard;
+  if (keyboard_forced) opt.keyboard = true;
   const std::wstring args = L"--game_data_root=\"" + game_data.wstring() +
       L"\" --user_data_root=\"" + user_data.wstring() +
       L"\"" + (native ? L"" : L" --gpu_plugin=xenos --gpu_backend=vulkan") +
       L" --input_backend=sdl --hid_mappings_file=\"" +
       (root / L"gamecontrollerdb.txt").wstring() + L"\"" + OptionArgs();
+  opt.keyboard = saved_keyboard;
   SHELLEXECUTEINFOW info{sizeof(info)};
   info.fMask = SEE_MASK_NOCLOSEPROCESS;
   info.lpFile = exe.c_str();
@@ -543,7 +552,6 @@ void UpdateGameProcess() {
 }
 
 // SDL3 gamepad input (DualSense, Xbox, ...) fed into ImGui navigation; ImGui's own backend is XInput-only.
-SDL_Gamepad* pad = nullptr;
 void InitPad() {
   SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
   if (!SDL_Init(SDL_INIT_GAMEPAD)) return;
@@ -735,6 +743,9 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (Tile("logs", tr("JOURNAUX"), {190, 52}, false, false, 20)) OpenFolder(root / L"logs");
 
   if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 416}, kWhite, status.c_str());
+  if (running && keyboard_forced)
+    d->AddText(ui_font, 17, {o.x + 48, o.y + 446}, kGold,
+               tr("Aucune manette détectée : le clavier a été activé pour cette partie (Espace = A, Entrée = Start)."));
   // Red note: the game files look wrong, or the game just failed to start because of them.
   float extra = 0;
   {
