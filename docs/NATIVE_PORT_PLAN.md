@@ -220,3 +220,28 @@ au rendu habituel et envoyez-nous le journal.
   exe quits (no black window). A shader cache that can't be written (read-only folder; tested by
   turning `cache` into a file) logs one warning and the game runs normally, converting the
   shaders again at each launch (2 s here).
+
+## 0.2 issues (2026-10-28)
+
+- **#7 brightness stuck / crowd too bright (fixed).** WWE 2K15 uploads a display gamma ramp (its
+  brightness option) through DC_LUT registers; the Xenos path applies it at swap, the native
+  present pass ignored it. The null guest GPU's shared CommandProcessor still records the
+  256-entry table, so `native/wwe2k15_gamma.cpp` reads it each present and fits it as
+  scale * x^gamma (default setting: table 32/64/128/192/255 -> 53/162/396/639/884 of 1023, fit
+  0.93 * x^1.32); `gamma_correction_ps.hlsl` takes a negative Param1 as that scale. Measured on the
+  WrestleMania attract demo: crowd band 14/15/28 native vs 13/14/31 Xenos (was 31/32/46), ring
+  floor 150 vs 145. This was also the "crowd too bright" 0.2 known issue. The ramp is re-read every
+  frame, so the in-game slider applies at once (not clicked through the options menu here).
+- **#10/#12 white attire and hair (AMD; not reproduced).** The reporter's log (Vega 7) shows 64x64
+  reflection cubes (slot 11, k_8_8_8_8 tiled) sampled through texture headers other than the one
+  the game resolved into, so they were unresolved. `SvrResolveTexture` now falls back to a GPU
+  target with the same fetch dwords 1-2 (same memory, format, size): on the AMD iGPU those
+  textures now resolve (log "sampled as target ... (same memory)"). On this PC (RTX 5070 Ti and
+  the AMD iGPU) 0.2.0 shows no white attire with Cena, Reigns or Orton, so whether this fixes the
+  reports is unconfirmed; an affected model (Superstar Threads attire, 2K Showcase or DLC such as
+  Randy Orton '11) still has to be tested, and the reporters asked to retry.
+- **#8 (Intel, igvk64.dll) and #6 (GeForce 940MX, nvoglv64.dll, Xenos exe) crashes inside the
+  Vulkan driver.** The crash reports list every thread but skipped the faulting one, so they show
+  no caller. `crash_report.cpp` now writes the faulting thread's own stack (40 return addresses
+  from the exception context) first; the native "GPU caps" line now has the driver version and
+  VRAM. Needs a new report from the reporters with the next release.

@@ -35,6 +35,9 @@
 #include "platform/platform.h"
 
 bool Wwe12LoadTurboSkipPresent();  // native/wwe12_load_turbo.cpp
+#if defined(SVR_NATIVE_RENDERER)
+void SvrGuestGammaRamp(float& gamma, float& scale);  // native/wwe2k15_gamma.cpp: brightness
+#endif
 
 namespace bd::gpu {
 
@@ -251,10 +254,13 @@ void RecordPresentPass(VideoState &s, GuestTexture *rt,
 #if defined(SVR_NATIVE_RENDERER)
   // SvR's front buffer is already display-encoded (Blue Dragon's is linear and relies on the
   // pow(x, 0.5) scanout ramp its bdBuildGammaRampLUT hook captures; SvR has neither), and the
-  // playable build shows it as written: present it unchanged.
+  // playable build shows it as written. WWE 2K15's brightness option reshapes the scanout ramp:
+  // apply it as scale * x^gamma (native/wwe2k15_gamma.cpp; the shader takes a negative display
+  // correction as that scale).
   constexpr float kPresentGamma = 1.0f;
-  constexpr float kPresentDisplayCorrection = 0.0f;
-  s.guest_gamma = 1.0f;
+  float ramp_scale = 1.0f;
+  SvrGuestGammaRamp(s.guest_gamma, ramp_scale);
+  const float kPresentDisplayCorrection = -ramp_scale;
 #else
   constexpr float kPresentGamma = 1.0f;
   constexpr float kPresentDisplayCorrection = 1.0f;

@@ -1059,6 +1059,27 @@ void SvrOnFrame() {
 
 u64 SvrFrameIndex() { return g_frame.load(std::memory_order_relaxed); }
 
+// A GPU-written texture sampled through another texture header than the one the game resolved
+// into: same base address, format and size (fetch dwords 1 and 2). WWE 2K15 renders a 64x64
+// reflection cube per wrestler and samples it through copies of the resolved header, which were
+// left unresolved (the 2D debug texture, so no cube in slot 11). Seen in issue #10's log (white
+// attire on AMD); whether it is what turns attire white is not confirmed. Caller holds g_mutex.
+static GuestTexture *TargetWithSameMemory(u32 texture_va) {
+  rex::graphics::xenos::xe_gpu_texture_fetch_t fetch{};
+  if (!ReadFetch(texture_va, fetch) || !fetch.base_address)
+    return nullptr;
+  for (auto &[va, target] : g_targets) {
+    if (target.host && target.desc[0] == fetch.dword_1 && target.desc[1] == fetch.dword_2) {
+      target.last_used = g_surface_frame.load(std::memory_order_relaxed);
+      static u32 s_logged = 0;
+      if (s_logged < 16 && ++s_logged)
+        BD_INFO("SvR texture 0x{:08X}: sampled as target 0x{:08X} (same memory)", texture_va, va);
+      return target.host;
+    }
+  }
+  return nullptr;
+}
+
 // The game writes texture memory with the CPU whenever it likes (every Bink movie frame, menus
 // reloading into reused memory), so a mirror is checked against its source once per frame it's
 // used and rebuilt when the fetch constant or the bytes changed. A texture that can't be mirrored
@@ -1076,11 +1097,12 @@ GuestTexture *SvrResolveTexture(u32 texture_va) {
   }
   MirrorCheck &check = g_mirror_checks[texture_va];
   if (check.frame == frame)
-    return check.host;
+    return check.host ? check.host : TargetWithSameMemory(texture_va);
   NativeMirrorSource src;
   if (!GetNativeMirrorSource(texture_va, src)) {
     check.frame = frame;
-    return check.host = nullptr;
+    check.host = nullptr;
+    return TargetWithSameMemory(texture_va);
   }
   u64 sample = 0;
   if (src.base_size + src.mips_size >= kSampledHashMin) {
@@ -1088,7 +1110,7 @@ GuestTexture *SvrResolveTexture(u32 texture_va) {
     if (check.frame != 0 && check.sample == sample && frame - check.full_frame < kFullHashFrames) {
       g_texture_sampled.fetch_add(1, std::memory_order_relaxed);
       check.frame = frame;
-      return check.host;
+      return check.host ? check.host : TargetWithSameMemory(texture_va);
     }
   }
   const u64 hash = HashSource(src);
@@ -1096,7 +1118,7 @@ GuestTexture *SvrResolveTexture(u32 texture_va) {
     check.frame = frame;
     check.sample = sample;
     check.full_frame = frame;
-    return check.host;
+    return check.host ? check.host : TargetWithSameMemory(texture_va);
   }
   const auto build_start = std::chrono::steady_clock::now();
   check.host = GetOrCreateNativeMirror(texture_va, 0);
@@ -1109,7 +1131,7 @@ GuestTexture *SvrResolveTexture(u32 texture_va) {
   check.frame = frame;
   check.sample = sample;
   check.full_frame = frame;
-  return check.host;
+  return check.host ? check.host : TargetWithSameMemory(texture_va);
 }
 
 }  // namespace bd::gpu

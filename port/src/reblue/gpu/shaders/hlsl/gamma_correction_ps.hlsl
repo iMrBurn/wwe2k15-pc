@@ -9,6 +9,10 @@ float4 main(in float4 position : SV_Position, in float2 texCoord : TEXCOORD) : S
                        .Sample(g_SamplerDescriptorHeap[0], texCoord);
     // max() guards pow() against NaN on negative HDR values (source RT may be R16F).
     float3 ramp = pow(max(sampled.rgb, 0.0), g_PushConstants.Param0);
+    // A negative Param1 is a scale instead (no display correction): WWE 2K15's brightness ramp
+    // is scale * x^gamma (native/wwe2k15_gamma.cpp).
+    if (g_PushConstants.Param1 < 0.0)
+        return float4(saturate(ramp * -g_PushConstants.Param1), 1.0);
     // X360 scanout: the system reshapes the app ramp for the display before upload
     // (D3D::GammaRampCorrected 0x8246F538): for display-gamma type 2 (TV) the
     // hardware LUT is Rec709_encode(sRGB_decode(app_ramp)). Xenia measurably
