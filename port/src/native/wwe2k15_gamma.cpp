@@ -12,6 +12,7 @@
 
 #include <cmath>
 
+#include <rex/cvar.h>
 #include <rex/graphics/command_processor.h>
 #include <rex/graphics/graphics_system.h>
 #include <rex/logging.h>
@@ -67,3 +68,10 @@ void SvrGuestGammaRamp(float& gamma, float& scale) {
                 table[128].color_10_green, table[192].color_10_green, table[255].color_10_green);
   }
 }
+
+// Edge smoothing (FXAA) in the present pass: the native renderer draws the game's own render
+// targets without MSAA. The launcher's anti-aliasing choice maps to it (0 off, 1, 2 strong).
+REXCVAR_DEFINE_INT32(svr_fxaa, 0, "SvR", "Edge smoothing (FXAA) on the final image: 0 = off, 1 = on, 2 = strong")
+    .range(0, 2);
+
+unsigned SvrFxaaLevel() { return unsigned(REXCVAR_GET(svr_fxaa)); }
