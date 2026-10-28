@@ -394,9 +394,11 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
     const bool upload_caps = s.device->getCapabilities().gpuUploadHeap;
     const bool upload_on = upload_caps && Settings::Get().GeometryGPUUpload();
     std::string caps = std::format(
-        "GPU caps: {} on {} | scene {} {} | MSAA color=0x{:X} depth=0x{:X} "
-        "usable=0x{:X} | geometry GPU_UPLOAD {}",
+        "GPU caps: {} on {} (driver 0x{:X}, {} MB) | scene {} {} | MSAA color=0x{:X} "
+        "depth=0x{:X} usable=0x{:X} | geometry GPU_UPLOAD {}",
         s.backend_info, s.device->getDescription().name,
+        s.device->getDescription().driverVersion,
+        s.device->getDescription().dedicatedVideoMemory / (1024 * 1024),
         s.scene_color_format == plume::RenderFormat::R11G11B10_FLOAT
             ? "R11G11B10"
             : "RGBA16F",

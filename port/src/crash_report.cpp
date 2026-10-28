@@ -135,6 +135,25 @@ LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep) {
     if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && ep->ExceptionRecord->NumberParameters >= 2)
       std::fprintf(f, "access %s 0x%llX\n", ep->ExceptionRecord->ExceptionInformation[0] ? "write" : "read",
                    static_cast<unsigned long long>(ep->ExceptionRecord->ExceptionInformation[1]));
+    // The faulting thread's own stack, deeper than the others': a crash inside a GPU driver
+    // (issues #6, #8) only says which of our calls led there a few driver frames further up.
+    std::fprintf(f, "\nfaulting thread %lu  rip %s\n", GetCurrentThreadId(),
+                 Where(ep->ContextRecord->Rip).c_str());
+    int shown = 0;
+    for (int i = 0; i < 2048 && shown < 40; ++i) {
+      uint64_t v = 0;
+      SIZE_T got = 0;
+      if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(ep->ContextRecord->Rsp + i * 8),
+                             &v, 8, &got))
+        break;
+      HMODULE m = nullptr;
+      if (v > 0x10000 &&
+          GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                             reinterpret_cast<LPCWSTR>(v), &m) && m) {
+        std::fprintf(f, "    ret? %s\n", Where(v).c_str());
+        ++shown;
+      }
+    }
     std::fprintf(f, "\nthreads:\n");
     DumpThreads(f, GetCurrentThreadId());
     std::fclose(f);
