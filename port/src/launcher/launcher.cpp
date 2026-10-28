@@ -693,6 +693,26 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
     Chip(d, {o.x + 330, o.y + 226}, "DLC", dlc_text.c_str(), dlc ? IM_COL32(110, 200, 80, 255) : kMuted);
   }
 
+  // No gamepad and no keyboard play: the game would start but could not be played.
+  if (!pad && !running) {
+    const float cx = o.x + 800, cw = area.x - 800 - 48;
+    float cy = o.y + 170;
+    if (!opt.keyboard) {
+      const char* msg = tr("Aucune manette détectée : branche-en une, ou joue au clavier.");
+      d->AddText(ui_font, 16, {cx, cy}, kGold, msg, nullptr, cw);
+      cy += ui_font->CalcTextSizeA(16, FLT_MAX, cw, msg).y + 8;
+      ImGui::SetCursorScreenPos({cx, cy});
+      if (Tile("kb_on", tr("ACTIVER LE CLAVIER"), {200, 36}, false, false, 16)) { opt.keyboard = true; SaveOptions(); }
+      ImGui::SetCursorScreenPos({cx + 208, cy});
+      if (Tile("kb_page", tr("CONTRÔLES"), {120, 36}, false, false, 16)) page = "CONTRÔLES";
+      cy += 44;
+    }
+    d->AddText(ui_font, 15, {cx, cy}, kMuted,
+               tr(opt.azerty ? "Clavier AZERTY : Z Q S D, Espace = A, Entrée = Start (CONTRÔLES pour changer)."
+                             : "Clavier QWERTY : W A S D, Espace = A, Entrée = Start (CONTRÔLES pour changer)."),
+               nullptr, cw);
+  }
+
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 292});
   if (Tile("play", running ? tr("EN COURS…") : (has ? tr("JOUER") : tr("CHOISIR LE JEU")), {400, 96}, false, true, 40) && !running) {
     if (has) LaunchGame(); else page = "RÉGLAGES";
