@@ -347,25 +347,62 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
 #endif
 #endif
     // svr_gpu_device: the Vulkan name of the GPU to use (as vulkaninfo lists it), e.g. a laptop's
-    // integrated one; empty picks the most capable (a discrete GPU first).
-    s.device = s.render_iface->createDevice(REXCVAR_GET(svr_gpu_device));
-    if (!s.device) {
-      BD_ERROR("Plume RenderInterface::createDevice failed");
-      return false;
+    // integrated one; empty picks the most capable (a discrete GPU first). plume reports why a
+    // device fails only on stderr, so list the GPUs here, and when the chosen one can't run the
+    // game (an old discrete GPU beside a newer integrated one, or the other way round) try the
+    // others before giving up.
+    std::vector<std::string> gpu_names;
+#if !defined(REBLUE_D3D12)
+    if (auto *vk = static_cast<plume::VulkanInterface *>(s.render_iface.get()); vk && vk->instance) {
+      uint32_t count = 0;
+      vkEnumeratePhysicalDevices(vk->instance, &count, nullptr);
+      std::vector<VkPhysicalDevice> devices(count);
+      vkEnumeratePhysicalDevices(vk->instance, &count, devices.data());
+      for (VkPhysicalDevice d : devices) {
+        VkPhysicalDeviceProperties p{};
+        vkGetPhysicalDeviceProperties(d, &p);
+        BD_INFO("Vulkan GPU: '{}' type {} API {}.{}.{} driver 0x{:X} vendor 0x{:04X}",
+                p.deviceName, u32(p.deviceType), VK_API_VERSION_MAJOR(p.apiVersion),
+                VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion),
+                p.driverVersion, p.vendorID);
+        gpu_names.emplace_back(p.deviceName);
+      }
     }
+#endif
     // plume treats these as optional, the recompiled shaders don't: without them every draw
     // reads nothing and the game runs behind a black screen (old drivers, e.g. issue #14 on a
-    // Radeon HD 8790M). Fail here so the player gets the "Vulkan too old" message instead.
-    {
-      const auto &caps = s.device->getCapabilities();
-      if (!caps.bufferDeviceAddress || !caps.descriptorIndexing) {
-        BD_ERROR("GPU '{}' lacks Vulkan features the game needs (bufferDeviceAddress {}, "
-                 "descriptorIndexing {}): driver too old or GPU too old",
-                 s.device->getDescription().name, caps.bufferDeviceAddress,
-                 caps.descriptorIndexing);
+    // Radeon HD 8790M). Fail if no GPU has them, so the player gets the "Vulkan too old" message.
+    auto usable = [](plume::RenderDevice *device) {
+      const auto &caps = device->getCapabilities();
+      if (caps.bufferDeviceAddress && caps.descriptorIndexing)
+        return true;
+      BD_WARN("GPU '{}' lacks Vulkan features the game needs (bufferDeviceAddress {}, "
+              "descriptorIndexing {}): driver too old or GPU too old",
+              device->getDescription().name, caps.bufferDeviceAddress, caps.descriptorIndexing);
+      return false;
+    };
+    const std::string wanted = REXCVAR_GET(svr_gpu_device);
+    s.device = s.render_iface->createDevice(wanted);
+    if (s.device && !usable(s.device.get()))
+      s.device.reset();
+    if (!s.device)
+      BD_WARN("GPU '{}' can't be used (missing Vulkan extensions or features), trying the others",
+              wanted.empty() ? "default" : wanted);
+    for (const std::string &name : gpu_names) {
+      if (s.device)
+        break;
+      if (name == wanted)
+        continue;
+      s.device = s.render_iface->createDevice(name);
+      // plume falls back to the highest-ranked GPU when the name isn't chosen: keep only a match.
+      if (s.device && (s.device->getDescription().name != name || !usable(s.device.get())))
         s.device.reset();
-        return false;
-      }
+      else if (s.device)
+        BD_WARN("Using GPU '{}' instead", name);
+    }
+    if (!s.device) {
+      BD_ERROR("No Vulkan GPU can run the game (see the 'Vulkan GPU' and warning lines above)");
+      return false;
     }
     s.backend_info = DescribeBackend(s.device.get());
     // bd_msaa is clamped to the color/depth intersection. Everything
