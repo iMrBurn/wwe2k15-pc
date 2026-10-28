@@ -201,8 +201,15 @@ std::string StartFailureFromLog(fs::file_time_type since) {
   }
   if (best.empty()) return {};
   std::ifstream in(best);
-  std::string line, found;
+  std::string line, found, tu_version;
+  bool no_function = false;
   while (std::getline(in, line)) {
+    // "XEX patch applied successfully: base version: 0.0.0.4, new version: 0.0.6.4" (TU4 gives 0.0.6.4)
+    if (const size_t v = line.find("new version: "); v != std::string::npos) {
+      tu_version.clear();
+      for (size_t i = v + 13; i < line.size() && (isdigit((unsigned char)line[i]) || line[i] == '.'); ++i) tu_version += line[i];
+    }
+    if (line.find("No function registered at") != std::string::npos) no_function = true;
     if (line.find("Failed to load XEX") != std::string::npos)
       found = tr("Le jeu n'a pas pu charger default.xex. Vérifie que la Title Update 4 est bien installée et qu'elle correspond à ton jeu (même région et même édition, default.xex non modifié), et que les fichiers du jeu sont complets. Détails : bouton JOURNAUX.");
     else if (found.empty() && (line.find("no default.xexp") != std::string::npos ||
@@ -212,6 +219,10 @@ std::string StartFailureFromLog(fs::file_time_type since) {
              (line.find("fail") != std::string::npos || line.find("error") != std::string::npos))
       found = tr("La Title Update 4 ne correspond pas à ton jeu (autre région ou édition, ou default.xex déjà modifié). Utilise le jeu d'origine et la TU4 de la même région. Détails : bouton JOURNAUX.");
   }
+  // A Title Update that is not TU4: the game starts, then calls code that only TU4 has.
+  if (found.empty() && tu_version != "0.0.6.4" && (no_function || !tu_version.empty()))
+    found = tr("Mauvaise Title Update : la version ") + (tu_version.empty() ? std::string(tr("inconnue")) : tu_version) +
+            tr(" est installée, il faut la Title Update 4 (0.0.6.4). Supprime game_update\\default.xexp (ou le dossier update) et ajoute le bon paquet (RÉGLAGES > AJOUTER TU / DLC).");
   return found;
 }
 
