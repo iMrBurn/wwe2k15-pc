@@ -1,5 +1,5 @@
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index 0298f06..1347e1d 100644
+index 0298f06..3329b77 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
 @@ -38,7 +38,8 @@
@@ -7,12 +7,12 @@ index 0298f06..1347e1d 100644
  
  REXCVAR_DEFINE_STRING(render_target_path_vulkan, "", "GPU/Vulkan",
 -                      "Vulkan render target implementation path")
-+                      "Vulkan render target path: fsi, auto (fsi except on AMD GPUs), anything else = host "
++                      "Vulkan render target path: fsi, auto (fsi except on AMD and pre-Pascal NVIDIA GPUs), anything else = host "
 +                      "render targets")
      .lifecycle(rex::cvar::Lifecycle::kInitOnly);
  
  // DEFINE_string(
-@@ -206,10 +207,25 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+@@ -206,10 +207,35 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
        device_properties.fragmentStoresAndAtomics && device_properties.sampleRateShading &&
        device_properties.standardSampleLocations &&
        shared_memory_binding_count < device_properties.maxPerStageDescriptorStorageBuffers;
@@ -23,10 +23,20 @@ index 0298f06..1347e1d 100644
 +  // by serializing overlapping fragments, which made matches 3-4x slower than host render targets
 +  // (Radeon iGPU: 3-6 fps vs 14-18 fps; RX 6750 XT at 1440p: 2-10 fps), while on NVIDIA FSI costs
 +  // only ~1.6x GPU time.
++  // Nor on NVIDIA GPUs older than Pascal (Kepler, Maxwell: device IDs below 0x1800 outside
++  // Pascal's 0x15xx-0x16xx): their interlock support is the least tested and a GeForce 940MX
++  // crashed inside the driver at startup (issue #6).
 +  constexpr uint32_t kVendorAmd = 0x1002;
++  constexpr uint32_t kVendorNvidia = 0x10DE;
++  const uint32_t device_id = device_properties.deviceID;
++  const bool old_nvidia = device_properties.vendorID == kVendorNvidia && device_id < 0x1800 &&
++                          !(device_id >= 0x1500 && device_id < 0x1700);
 +  if (requested_path == "fsi") {
      path_ = Path::kPixelShaderInterlock;
 +    path_reason = "render_target_path_vulkan = fsi";
++  } else if (requested_path == "auto" && old_nvidia) {
++    path_ = Path::kHostRenderTargets;
++    path_reason = "render_target_path_vulkan = auto, NVIDIA GPU older than Pascal";
 +  } else if (requested_path == "auto" && device_properties.vendorID != kVendorAmd) {
 +    path_ = Path::kPixelShaderInterlock;
 +    path_reason = "render_target_path_vulkan = auto, non-AMD GPU";
@@ -39,7 +49,7 @@ index 0298f06..1347e1d 100644
    }
    // Fragment shader interlock is a feature implemented by pretty advanced GPUs,
    // closer to Direct3D 11 / OpenGL ES 3.2 level mainly, not Direct3D 10 /
-@@ -235,6 +251,9 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+@@ -235,6 +261,9 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
      // for simplicity.
      if (!fsi_path_supported) {
        path_ = Path::kHostRenderTargets;
@@ -49,7 +59,7 @@ index 0298f06..1347e1d 100644
      }
    }
  
-@@ -307,6 +326,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+@@ -307,6 +336,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
            color_rg16_draw_format_supported ? "available" : "unavailable",
            color_rgba16_draw_format_supported ? "available" : "unavailable");
        path_ = Path::kPixelShaderInterlock;
@@ -57,7 +67,7 @@ index 0298f06..1347e1d 100644
      } else {
        REXGPU_ERROR(
            "VulkanRenderTargetCache: Host render target 16-bit formats are unsupported "
-@@ -325,6 +345,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+@@ -325,6 +355,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
            "is unavailable for k_8_8_8_8_GAMMA linear storage; switching to "
            "fragment shader interlock path for D3D12 parity");
        path_ = Path::kPixelShaderInterlock;
@@ -65,7 +75,7 @@ index 0298f06..1347e1d 100644
      } else {
        REXGPU_ERROR(
            "VulkanRenderTargetCache: R16G16B16A16_UNORM render target support "
-@@ -405,6 +426,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+@@ -405,6 +436,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
            "can't be bit-exact on this device; switching to fragment shader "
            "interlock path for D3D12 parity");
        path_ = Path::kPixelShaderInterlock;
@@ -73,7 +83,7 @@ index 0298f06..1347e1d 100644
      } else {
        REXGPU_ERROR(
            "VulkanRenderTargetCache: Bit-exact host render target ownership "
-@@ -413,6 +435,10 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+@@ -413,6 +445,10 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
        return false;
      }
    }

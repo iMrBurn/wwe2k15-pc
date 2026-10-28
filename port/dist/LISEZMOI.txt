@@ -1,51 +1,86 @@
-WWE 2K15 PC — version {VERSION} (bêta)
-=====================================
+WWE 2K15 PC - version {VERSION} (bêta)
+======================================
 
-Portage PC non officiel de WWE 2K15 (Xbox 360), recompilé avec ReXGlue.
-Aucune donnée du jeu n'est fournie : il faut ta propre copie du jeu Xbox 360
-et sa Title Update 4.
+Portage PC non officiel de WWE 2K15 (Xbox 360). Aucune donnée du jeu n'est incluse : il te faut
+TA PROPRE copie du jeu Xbox 360 (fichiers extraits ou image .iso) ET la Title Update 4 (TU4).
+Sans les deux, le jeu ne démarre pas. Ne demande pas les fichiers à quelqu'un.
 
-CONFIGURATION REQUISE
-- Windows 10/11 64 bits, processeur 64 bits de 2009 ou plus récent (SSE4.2), 4 threads
-  ou plus conseillés.
-- Carte graphique Vulkan. Recommandé : NVIDIA ou Intel récente (rendu « FSI »).
-  Les cartes AMD fonctionnent sans FSI, avec des écrans noirs possibles pendant les entrées.
 
-INSTALLATION
-1. Copie les fichiers de ton jeu Xbox 360 (default.xex, pac, sound, movies...)
-   dans le dossier « game » à côté du lanceur. Tu peux aussi les laisser ailleurs
-   et choisir le fichier default.xex dans le lanceur (RÉGLAGES > PARCOURIR).
-   Une image disque marche aussi : RÉGLAGES > PARCOURIR et choisis le .iso, ou pose le .iso dans « game ».
-   Avec une ISO, la Title Update et les DLC vont dans « game_update » à côté du lanceur.
-2. Lance « WWE 2K15 Launcher.exe ».
-3. RÉGLAGES > AJOUTER TU / DLC… : choisis le fichier de la Title Update 4
-   (tu00000004_00000000) et, si tu les as, tes DLC (dossier 545408B6\00000002).
-4. Choisis ta langue dans RÉGLAGES, puis clique sur JOUER.
+1. CE QU'IL TE FAUT
+- Windows 10 ou 11 en 64 bits, un processeur de 2009 ou plus récent (4 threads ou plus conseillés).
+- Une carte graphique compatible Vulkan (presque toutes celles des ~8 dernières années ;
+  mets à jour ton pilote !). Le « rendu natif » demande Vulkan 1.2.
+- Ton jeu WWE 2K15 Xbox 360 : le dossier qui contient « default.xex » (et « pac », « sound »,
+  « movies »...), ou le fichier .iso.
+- Le paquet Title Update 4, nommé « tu00000004_00000000 » (sans extension). Les DLC sont facultatifs.
 
-Le premier lancement est plus long (installation des DLC, préparation des shaders).
 
-LINUX / STEAM DECK
-Pas encore de version Linux native. Ajoute « WWE 2K15 Launcher.exe » à Steam comme
-jeu non-Steam, force Proton dans ses propriétés (Compatibilité) puis lance-le.
-Dis-nous si ça marche.
+2. PREMIER DÉMARRAGE, ÉTAPE PAR ÉTAPE
+1) Décompresse TOUTE l'archive dans un dossier normal (par exemple C:\WWE2K15). PAS dans le zip,
+   PAS dans « Program Files », PAS dans un Bureau synchronisé par OneDrive.
+2) Mets les fichiers de ton jeu dans le dossier « game » à côté du lanceur (pour que
+   game\default.xex existe), ou laisse-les où ils sont et utilise RÉGLAGES > PARCOURIR.
+   Pour une .iso : RÉGLAGES > PARCOURIR et choisis l'.iso, ou RÉGLAGES > CHOISIR UNE ISO.
+3) Lance « WWE 2K15 Launcher.exe » (pas wwe2k15.exe).
+4) RÉGLAGES > AJOUTER TU / DLC... et choisis le fichier Title Update 4 (tu00000004_00000000).
+   Fais pareil pour tes DLC si tu en as.
+5) Sur la page JOUER, « Jeu » et « Title Update » doivent être tous les deux au vert. S'il y a une
+   note rouge, lis-la : elle dit ce qui manque.
+6) Choisis ta langue dans RÉGLAGES, puis clique sur JOUER.
+Le premier démarrage est plus long (installation des DLC, préparation des shaders) : attends,
+c'est normal.
 
-MISES À JOUR
-Le lanceur vérifie sur GitHub s'il y a une nouvelle version au démarrage (page
-À PROPOS). La mise à jour garde ton dossier du jeu, tes mods, tes journaux, tes
-réglages et tes sauvegardes.
 
-DOSSIERS
-- game\                          : tes fichiers du jeu (non fournis).
-- logs\                          : journaux du jeu, rapports crash_*.txt / freeze_*.txt.
-- mods\                          : fichiers qui remplacent ceux du jeu, au même chemin
-                                   (par exemple mods\pac\menu\menu.pac).
-- cache\                         : cache des shaders (peut être supprimé sans risque).
-- %LOCALAPPDATA%\WWE2K15\        : sauvegardes, copies de sécurité et DLC installés.
+3. GRAPHISMES : QUOI COCHER
+- PC normal : laisse les réglages par défaut (720p pour commencer ; monte si ton PC est costaud).
+- PC faible, portable, carte graphique intégrée (Intel UHD, AMD Vega...) : coche
+  GRAPHISMES > « Rendu natif (expérimental) ». Sur un GPU intégré AMD on passe de 15-40 fps
+  à 60 fps stables. Laisse la résolution sur AUTO ou 720p/540p.
+- Si le rendu natif se comporte mal (écran noir, défaut d'affichage, plantage), décoche-le
+  et utilise le rendu normal. Le rendu normal choisit tout seul un mode plus léger sur les cartes AMD.
+- Préréglage PERFORMANCE = coût minimal pour le rendu normal.
+- Clavier : tu peux taper les noms dans les écrans de texte du jeu avec ton clavier. Pour jouer,
+  une manette (Xbox) est conseillée ; le clavier marche aussi (voir les touches dans RÉGLAGES).
 
-SIGNALER UN BUG
-Indique ta carte graphique, la scène (menu, entrée, match...) et joins le dernier
-fichier logs\wwe2k15_*.log (et le rapport crash_ / freeze_ si le lanceur en affiche
-un) et une capture si possible.
 
-Ne partage jamais les fichiers du jeu, la Title Update ou les DLC.
-Sans affiliation avec WWE, 2K ou Yuke's.
+4. ÇA NE DÉMARRE PAS ? VÉRIFIE D'ABORD CECI
+- Le lanceur affiche une note rouge sur la page JOUER : suis-la (souvent la TU4 manque).
+- Message « Failed to load XEX ... C0000001/C0000002 » : ta Title Update 4 manque ou n'est pas celle
+  de ta copie du jeu, ou les fichiers du jeu sont incomplets / abîmés.
+- Le jeu s'ouvre et se ferme aussitôt : mets à jour le pilote de ta carte graphique, puis essaie
+  le rendu natif (ou décoche-le). Envoie-nous logs\wwe2k15_*.log et le crash_*.txt.
+- Rien ne se passe en cliquant sur JOUER : l'antivirus bloque peut-être ; ajoute le dossier en exception.
+- Ne lance PAS le jeu depuis le zip, et pas deux copies en même temps.
+
+
+5. MISES À JOUR
+Le lanceur cherche les nouvelles versions sur GitHub (page À PROPOS) et les installe pour toi. Une mise
+à jour garde ton dossier de jeu, tes mods, tes journaux, tes réglages et tes sauvegardes.
+
+
+6. DOSSIERS
+- game\                    : les fichiers de ton jeu (non fournis).
+- game_update\             : title update et DLC quand tu joues depuis une .iso.
+- logs\                    : journaux du jeu et rapports crash_*.txt / freeze_*.txt.
+- mods\                    : fichiers qui remplacent ceux du jeu, au même chemin
+                             (par exemple mods\pac\menu\menu.pac). Voir docs/MODS.md sur GitHub.
+- cache\                   : caches de shaders (peuvent être supprimés, ils se refont).
+- %LOCALAPPDATA%\WWE2K15\  : sauvegardes, copies de sauvegarde et DLC installés.
+
+
+7. LINUX / STEAM DECK
+Pas de version Linux native. Ajoute « WWE 2K15 Launcher.exe » à Steam comme jeu non-Steam, force
+Proton dans ses propriétés (Compatibilité) et lance-le. Dis-nous comment ça se passe.
+
+
+8. SIGNALER UN BUG (pour qu'on puisse le corriger)
+Ouvre une issue : https://github.com/iMrBurn/wwe2k15-pc/issues et donne :
+- ta carte graphique et la version du pilote, ton processeur et ta RAM ;
+- le rendu utilisé (normal ou natif) et ta résolution ;
+- ce que tu faisais (menu, entrée, match, mode...) ;
+- le fichier le plus récent du dossier « logs » (wwe2k15_*.log), et le crash_*.txt s'il y en a un ;
+- une capture d'écran si c'est un problème visuel.
+« Ça marche pas » sans journal ne peut pas être corrigé.
+
+Ne partage jamais les fichiers du jeu, la Title Update ni les DLC.
+Ce projet est sous licence GPL-3.0 (voir le dossier licenses). Non affilié à WWE, 2K ni Yuke's.

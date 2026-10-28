@@ -245,3 +245,11 @@ au rendu habituel et envoyez-nous le journal.
   no caller. `crash_report.cpp` now writes the faulting thread's own stack (40 return addresses
   from the exception context) first; the native "GPU caps" line now has the driver version and
   VRAM. Needs a new report from the reporters with the next release.
+- **GPU robustness (2026-10-28).** Native: every Vulkan GPU is logged at startup ("Vulkan GPU:
+  name, type, API, driver, vendor"); when the chosen GPU (svr_gpu_device, else plume's best,
+  discrete first) can't be created or lacks bufferDeviceAddress/descriptorIndexing, the others
+  are tried in turn ("Using GPU ... instead") before the "Vulkan too old" message (laptops with
+  an old discrete GPU beside a newer integrated one, or the reverse). Xenos exe: the "auto"
+  render target path now picks host render targets on NVIDIA GPUs older than Pascal (device ID
+  below 0x1800 outside 0x15xx-0x16xx: Kepler, Maxwell such as the 940MX of issue #6), in
+  `rexglue-sdk-render-path-log.patch`. Checked here: both GPUs listed, RTX 5070 Ti keeps FSI.
