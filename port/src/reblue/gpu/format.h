@@ -112,6 +112,9 @@ plume::RenderFormat ConvertGuestFormat(u32 guest_format);
 
 // Whitelist of RT-capable formats ConvertGuestFormat emits.
 bool IsRenderTargetCapable(plume::RenderFormat format);
+#if defined(SVR_NATIVE_RENDERER)
+void SetR16G16UnormRenderTargetSupported(bool supported);
+#endif
 
 inline bool IsDepthFormat(plume::RenderFormat format) {
   return plume::RenderFormatIsDepth(format);

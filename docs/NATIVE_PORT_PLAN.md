@@ -267,3 +267,17 @@ au rendu habituel et envoyez-nous le journal.
   in the WrestleMania demo is 147-150 native vs 138-145 Xenos. To confirm on the same camera
   (pause in a match, both paths) before changing it. Post-processing (bloom, depth of field) is
   drawn by the game's own shaders on both paths; no difference seen in the demo captures.
+- **Intel crash at match start (#8, #13) and dark wrestlers in pins (#14, #16), 2026-10-29.**
+  Main symbolized the Intel reports: plume clearColor <- `Video::ClearTexture` <-
+  `SvrResolveTarget`, right after "SvR target ...: 512x512 fmt 25" (k_16_16 -> R16G16_UNORM).
+  R16G16_UNORM was not in `IsRenderTargetCapable`, so that texture was created without
+  colour-attachment usage, its resolves were skipped ("dst format 27 is not RT-capable", on every
+  GPU) and `ClearColorTargetLocked` still cleared it through a framebuffer: NVIDIA and AMD let it
+  pass, Intel's driver read a null object. Fixes: R16G16_UNORM is RT-capable when the device
+  reports it as a colour attachment (logged at startup); `ClearColorTargetLocked` skips any
+  non-RT-capable texture; the EDRAM-only surface formats k_16_16_16_16_EDRAM (0x1A20AB55, a
+  512x512 surface that failed to create) and k_16_16_EDRAM map to float formats. That 512x512
+  two-channel target is probably the close-up shadow map the pin/grapple cameras use, which would
+  explain the dark wrestlers there. Checked on the RTX: a native match runs, no RT-capable or
+  0x1A20AB55 errors; a pin was not captured (the run was cut short), and no Intel GPU here.
+  No Vulkan validation layer is installed on this PC (it would need the Vulkan SDK).
