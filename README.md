@@ -4,6 +4,8 @@ Unofficial Windows PC port of **WWE 2K15 (Xbox 360)**, made by statically recomp
 
 **This repository contains project code and documentation only. No game data is included or linked.** You need your own copy of the Xbox 360 game and its Title Update 4. Please do not ask for game files in the issues.
 
+> **Status: beta, best effort.** This is a hobby project maintained by one person next to other projects. Bug reports are read and fixed in batches: a fix can take a few days. The more complete your report (GPU, log, steps), the faster it gets fixed.
+
 ## Download
 
 Get the latest release (a `.zip`) from the **[releases page](https://github.com/iMrBurn/wwe2k15-pc/releases)**. The launcher updates itself afterwards (ABOUT page). Release notes are in [docs/releases](docs/releases).
