@@ -265,6 +265,12 @@ plume::RenderFormat ConvertGuestFormat(u32 guest_format) {
       return plume::RenderFormat::R16G16B16A16_FLOAT;
     case xe::TextureFormat::k_16_16_16_16:
       return plume::RenderFormat::R16G16B16A16_UNORM;
+    // EDRAM-only 16-bit render target formats (WWE 2K15 renders 512x512 surfaces in
+    // 0x1A20AB55): signed fixed point with a -32..32 range on the Xbox, kept as float here.
+    case xe::TextureFormat::k_16_16_16_16_EDRAM:
+      return plume::RenderFormat::R16G16B16A16_FLOAT;
+    case xe::TextureFormat::k_16_16_EDRAM:
+      return plume::RenderFormat::R16G16_FLOAT;
     case xe::TextureFormat::k_32_FLOAT:
     // Depth resolved into a texture (D3DRESOLVE_DEPTHSTENCIL) is sampled as one float channel.
     case xe::TextureFormat::k_24_8:
@@ -286,7 +292,17 @@ plume::RenderFormat ConvertGuestFormat(u32 guest_format) {
   }
 }
 
+#if defined(SVR_NATIVE_RENDERER)
+// R16G16_UNORM as a colour attachment is optional in Vulkan: set from the device at creation.
+static bool g_r16g16_unorm_rt = false;
+void SetR16G16UnormRenderTargetSupported(bool supported) { g_r16g16_unorm_rt = supported; }
+#endif
+
 bool IsRenderTargetCapable(plume::RenderFormat format) {
+#if defined(SVR_NATIVE_RENDERER)
+  if (format == plume::RenderFormat::R16G16_UNORM)
+    return g_r16g16_unorm_rt;
+#endif
   // BCn is not RT-capable (D3D12 rejects RENDER_TARGET on it).
   switch (format) {
   case plume::RenderFormat::R8_UNORM:
@@ -305,6 +321,9 @@ bool IsRenderTargetCapable(plume::RenderFormat format) {
   case plume::RenderFormat::R16_FLOAT:
   case plume::RenderFormat::R8G8_UNORM:
   case plume::RenderFormat::R32G32_FLOAT:
+  // WWE 2K15 also resolves a 512x512 k_16_16_FLOAT target into a k_16_16 (R16G16_UNORM)
+  // texture, probably a two-channel shadow map for close-ups (the darkened wrestlers in pins of
+  // issues #14, #16); that format is answered above, from the device.
 #endif
     return true;
   default:

@@ -277,6 +277,11 @@ bool ClearColorTargetLocked(VideoState &s, GuestTexture *dst,
   if (IsDepthFormat(dst->format) ||
       dst->sampleCount != plume::RenderSampleCount::COUNT_1)
     return false;
+  // A texture created without colour-attachment usage (a format that isn't RT-capable, e.g.
+  // R16G16_UNORM where the device lacks it) has no valid framebuffer: clearing it through one
+  // crashed Intel's driver at match start (issues #8, #13; NVIDIA and AMD let it pass).
+  if (!IsRenderTargetCapable(dst->format))
+    return false;
   BeginCommandList(s);
   if (!s.command_list_open)
     return false;

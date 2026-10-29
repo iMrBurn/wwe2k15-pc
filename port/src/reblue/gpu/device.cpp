@@ -404,6 +404,15 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
       BD_ERROR("No Vulkan GPU can run the game (see the 'Vulkan GPU' and warning lines above)");
       return false;
     }
+#if defined(SVR_NATIVE_RENDERER) && !defined(REBLUE_D3D12)
+    if (auto *vk_device = static_cast<plume::VulkanDevice *>(s.device.get())) {
+      VkFormatProperties props{};
+      vkGetPhysicalDeviceFormatProperties(vk_device->physicalDevice, VK_FORMAT_R16G16_UNORM, &props);
+      const bool rt = (props.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) != 0;
+      SetR16G16UnormRenderTargetSupported(rt);
+      BD_INFO("R16G16_UNORM colour attachment: {}", rt ? "supported" : "not supported");
+    }
+#endif
     s.backend_info = DescribeBackend(s.device.get());
     // bd_msaa is clamped to the color/depth intersection. Everything
     // shader-resolves, so no hardware resolve capability is needed.
