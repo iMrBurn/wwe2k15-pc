@@ -811,6 +811,13 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   ImGui::SetCursorScreenPos({o.x + 480, o.y + 314});
   if (Tile("logs", tr("JOURNAUX"), {190, 52}, false, false, 20)) OpenFolder(root / L"logs");
 
+  // The native renderer converts the game's shaders at its first launch (a few seconds).
+  if (!running && UseNative()) {
+    std::error_code ec;
+    if (!fs::exists(root / L"cache" / L"native_shaders.bin", ec))
+      d->AddText(ui_font, 15, {o.x + 48, o.y + 394}, kMuted,
+                 tr("Premier lancement du rendu natif : préparation des shaders, quelques secondes."));
+  }
   if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 416}, kWhite, status.c_str());
   if (running && keyboard_forced)
     d->AddText(ui_font, 17, {o.x + 48, o.y + 446}, kGold,
