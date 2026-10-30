@@ -325,6 +325,13 @@ plume::RenderShader *GetOrLinkShader(GuestShader *gs, u32 specConstants) {
   if (gs->shader)
     return gs->shader.get();
   const ShaderCacheEntry *entry = gs->shaderCacheEntry;
+#if defined(WWE2K15_RUNTIME_SHADERS)
+  // Converted at run time: wait for it rather than skip the draw (see Wwe2k15WaitShader).
+  if (!entry) {
+    Wwe2k15WaitShader(gs, 2000);
+    entry = gs->shaderCacheEntry;
+  }
+#endif
   if (!entry)
     return nullptr;
   auto *device = Video::HostDevice();

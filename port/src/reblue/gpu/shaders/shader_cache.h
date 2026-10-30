@@ -41,6 +41,10 @@ const uint8_t *Wwe2k15ShaderSpirv(const ShaderCacheEntry *entry);
 // gets its entry (until then the renderer skips the draws that need it).
 void Wwe2k15RequestShader(uint64_t hash, const uint8_t *container, uint32_t size,
                           bd::gpu::GuestShader *shader);
+// Blocks until `shader` has its entry (its conversion finished) or failed, at most timeout_ms.
+// Draws that build textures (attire composition, damage maps) run once: skipping them while their
+// shader converts left wrestlers white for good.
+void Wwe2k15WaitShader(bd::gpu::GuestShader *shader, uint32_t timeout_ms);
 #endif
 
 extern ShaderCacheEntry g_shaderCacheEntries[];

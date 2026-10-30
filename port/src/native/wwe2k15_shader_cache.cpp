@@ -13,6 +13,7 @@
 #include <objidl.h>  // IUnknown, IStream for dxcapi.h (the build defines WIN32_LEAN_AND_MEAN)
 #include <unknwn.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -74,6 +75,7 @@ std::unordered_map<uint64_t, std::unique_ptr<Stored>> g_entries;
 
 std::mutex g_jobs_mutex;
 std::condition_variable g_jobs_cv;
+std::condition_variable g_published_cv;  // a conversion finished or failed
 std::deque<Job> g_jobs;
 std::unordered_map<uint64_t, std::vector<bd::gpu::GuestShader *>> g_waiting;
 std::unordered_set<uint64_t> g_failed;
@@ -236,11 +238,15 @@ void Publish(uint64_t hash) {
   }
   if (!entry)
     return;
-  for (auto *shader : waiting) {
-    if (!entry->guestShader)
-      entry->guestShader = shader;
-    shader->shaderCacheEntry = entry;
+  {
+    std::lock_guard lock(g_jobs_mutex);
+    for (auto *shader : waiting) {
+      if (!entry->guestShader)
+        entry->guestShader = shader;
+      shader->shaderCacheEntry = entry;
+    }
   }
+  g_published_cv.notify_all();
   bd::gpu::OnShaderCreated(hash);
 }
 
@@ -276,6 +282,7 @@ void Worker() {
         g_failed.insert(job.hash);
         g_waiting.erase(job.hash);
       }
+      g_published_cv.notify_all();
       BD_WARN("Native shaders: {} shader 0x{:016X} not converted ({}); its draws stay skipped",
               job.pixel ? "pixel" : "vertex", job.hash,
               error.empty() ? "no SPIR-V" : error.substr(0, 300));
@@ -323,6 +330,42 @@ const uint8_t *Wwe2k15ShaderSpirv(const ShaderCacheEntry *entry) {
   std::shared_lock lock(g_entries_mutex);
   auto it = g_entries.find(entry->hash);
   return it == g_entries.end() ? nullptr : it->second->smolv.data();
+}
+
+void Wwe2k15WaitShader(bd::gpu::GuestShader *shader, uint32_t timeout_ms) {
+  if (!shader)
+    return;
+  std::unique_lock lock(g_jobs_mutex);
+  const auto pending = [shader] {
+    for (const auto &[hash, shaders] : g_waiting)
+      for (const auto *s : shaders)
+        if (s == shader)
+          return true;
+    return false;
+  };
+  if (shader->shaderCacheEntry || !pending())
+    return;
+  // Convert it next: at first launch hundreds of shaders are queued ahead of it.
+  for (auto &[hash, shaders] : g_waiting) {
+    if (std::find(shaders.begin(), shaders.end(), shader) == shaders.end())
+      continue;
+    auto job = std::find_if(g_jobs.begin(), g_jobs.end(), [h = hash](const Job &j) { return j.hash == h; });
+    if (job != g_jobs.end() && job != g_jobs.begin()) {
+      Job moved = std::move(*job);
+      g_jobs.erase(job);
+      g_jobs.push_front(std::move(moved));
+    }
+    break;
+  }
+  const auto start = std::chrono::steady_clock::now();
+  g_published_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+                          [&] { return shader->shaderCacheEntry || !pending(); });
+  static std::atomic<uint32_t> s_logged{0};
+  if (s_logged.fetch_add(1) < 20)
+    BD_INFO("Native shaders: a draw waited {} ms for its shader ({})",
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start).count(),
+            shader->shaderCacheEntry ? "ready" : "not ready, skipped");
 }
 
 void Wwe2k15RequestShader(uint64_t hash, const uint8_t *container, uint32_t size,
