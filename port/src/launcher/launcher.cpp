@@ -75,6 +75,7 @@ struct Options {
   int anisotropic = 3;        // anisotropic_override: 0 off, 2 = 2x, 3 = 4x, 4 = 8x, 5 = 16x
   bool fsi = true;            // render_target_path_vulkan = auto (FSI except on AMD, where it is very slow)
   bool keyboard = false;      // mnk_mode
+  bool separate_player = false;  // mnk_separate_player: the keyboard is the next player after the pads
   bool azerty = true;         // French keyboard layout for the keyboard pad
   int language = 0;           // user_language (XLanguage): 1 en, 3 de, 4 fr, 5 es, 6 it; 0 = unset
   bool cpu_yield = true;      // wwe2k15_render_wait_yield
@@ -310,7 +311,7 @@ void SaveOptions() {
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
       << "\nnative=" << opt.native << "\nnative_resolution=" << opt.native_resolution << "\ngpu=" << opt.gpu
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
 // ---- Key bindings remapped in the game (F4 > "Save to config") ----
@@ -404,6 +405,7 @@ void LoadOptions() {
     else if (k == "fsi") opt.fsi = v != 0;
     else if (k == "keyboard") opt.keyboard = v != 0;
     else if (k == "azerty") opt.azerty = v != 0;
+    else if (k == "separate_player") opt.separate_player = v != 0;
     else if (k == "language") opt.language = v;
     else if (k == "gpu_wait_yield") opt.cpu_yield = v != 0;  // (the old cpu_yield key defaulted to off)
     else if (k == "show_fps") opt.show_fps = v != 0;
@@ -439,11 +441,12 @@ bool UseNative() { return opt.native && NativeAvailable(); }
 std::wstring KeybindArgs() {
   if (!opt.keyboard) return {};
   SyncSavedKeys();
+  const std::wstring separate = opt.separate_player ? L" --mnk_separate_player=true" : std::wstring();
   KeyMap keys = opt.azerty ? AzertyKeys() : KeyMap();
   for (const auto& [n, v] : saved_keys) keys[n] = v;
   std::wstring args;
   for (const auto& [n, v] : keys) args += L" --" + Widen(n.c_str()) + L"=\"" + Widen(v.c_str()) + L"\"";
-  return args;
+  return args + separate;
 }
 
 std::wstring OptionArgs() {
@@ -1064,7 +1067,16 @@ void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (ImGui::Checkbox(tr("Jouer au clavier (manette virtuelle)"), &opt.keyboard)) SaveOptions();
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 196});
   if (ImGui::Checkbox(tr("Clavier AZERTY (français)"), &opt.azerty)) SaveOptions();
-  d->AddText(ui_font, 16, {o.x + 48, o.y + 246}, opt.keyboard ? kWhite : kMuted,
+  float help_y = o.y + 246;
+  // With a pad plugged in, the keyboard can be a second player instead of sharing player one.
+  if (pad || opt.separate_player) {
+    ImGui::SetCursorScreenPos({o.x + 48, o.y + 232});
+    ImGui::BeginDisabled(!opt.keyboard);
+    if (ImGui::Checkbox(tr("Clavier = joueur séparé (2 joueurs avec une manette)"), &opt.separate_player)) SaveOptions();
+    ImGui::EndDisabled();
+    help_y = o.y + 286;
+  }
+  d->AddText(ui_font, 16, {o.x + 48, help_y}, opt.keyboard ? kWhite : kMuted,
              tr(opt.azerty ? i18n::kKeysAzerty : i18n::kKeysQwerty));
 }
 
