@@ -60,10 +60,16 @@ HANDLE game_process = nullptr;
 Updater updater;
 fs::file_time_type launch_time{};
 std::chrono::steady_clock::time_point launch_start{};
+bool launched_native = false;  // the running (or last) game is the native renderer
+std::string fallback_note;     // shown when the native renderer failed to start and the normal one was launched
 std::string start_failure;  // plain-language reason the game stopped right after starting
 bool disable_obs_vulkan_hook = true;
 
 // Game options passed to wwe2k15.exe as cvars (saved in launcher-options.ini).
+// Whether a launcher without a saved choice starts on the native renderer. Off until the native
+// renderer is validated as the default; the saved option (native=0/1) always wins.
+constexpr bool kNativeByDefault = false;
+
 struct Options {
   bool fullscreen = true;
   int resolution = 720;       // 720, 1080, 1440 or 2160: render scale and windowed size
@@ -81,7 +87,7 @@ struct Options {
   bool cpu_yield = true;      // wwe2k15_render_wait_yield
   bool vsync = true;          // no tearing (vulkan_allow_present_mode_immediate = false)
   bool show_fps = false;      // wwe2k15_show_fps
-  bool native = false;        // experimental native renderer: wwe2k15_native.exe
+  bool native = kNativeByDefault;  // native renderer: wwe2k15_native.exe
   int native_resolution = 0;  // native renderer: svr_render_scale, 0 = automatic (GPU and screen)
   std::string gpu;            // native renderer only: Vulkan name of the GPU ("" = automatic)
 } opt;
@@ -412,7 +418,7 @@ void LoadOptions() {
     else if (k == "vsync") opt.vsync = v != 0;
     else if (k == "native") opt.native = v != 0;
     else if (k == "native_resolution")
-      opt.native_resolution = v == 540 || v == 720 || v == 1080 || v == 1440 || v == 2160 ? v : 0;
+      opt.native_resolution = v == 360 || v == 480 || v == 540 || v == 720 || v == 1080 || v == 1440 || v == 2160 ? v : 0;
   }
   if (opt.language != 1 && opt.language != 3 && opt.language != 4 && opt.language != 5 &&
       opt.language != 6) {
@@ -541,7 +547,7 @@ void BrowseGame() {
 SDL_Gamepad* pad = nullptr;
 bool keyboard_forced = false;  // this launch plays on the keyboard because no gamepad was found
 
-void LaunchGame() {
+void LaunchGame(bool automatic = false) {
   if (game_process && WaitForSingleObject(game_process, 0) == WAIT_TIMEOUT) {
     status = tr("Le jeu tourne déjà.");
     return;
@@ -557,6 +563,8 @@ void LaunchGame() {
   launch_time = fs::file_time_type::clock::now();
   launch_start = std::chrono::steady_clock::now();
   start_failure.clear();
+  if (!automatic) fallback_note.clear();
+  launched_native = native;
   if (opt.auto_backup) {
     std::string err;
     if (saves::CreateBackup(user_data, err)) saves::PruneBackups(user_data, 10);
@@ -621,6 +629,17 @@ void UpdateGameProcess() {
   // A failure within the first seconds is the game files, not a crash during play.
   if (exit_code != 0 && std::chrono::steady_clock::now() - launch_start < std::chrono::seconds(30))
     start_failure = StartFailureFromLog(launch_time - std::chrono::seconds(2));
+  // The native renderer could not start (Vulkan 1.2 missing, crash at start) and the log does not
+  // blame the game files: start the normal renderer instead, once, and stay on it until the player
+  // ticks the native option again.
+  if (launched_native && exit_code != 0 && start_failure.empty() &&
+      std::chrono::steady_clock::now() - launch_start < std::chrono::seconds(30)) {
+    opt.native = false;
+    SaveOptions();
+    LaunchGame(true);
+    if (game_process)
+      fallback_note = tr("Le rendu natif n'a pas pu démarrer sur ce PC : le rendu normal a été lancé à la place. Pour réessayer : GRAPHISMES > Rendu natif.");
+  }
 }
 
 // SDL3 gamepad input (DualSense, Xbox, ...) fed into ImGui navigation; ImGui's own backend is XInput-only.
@@ -822,6 +841,10 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
                  tr("Premier lancement du rendu natif : préparation des shaders, quelques secondes."));
   }
   if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 416}, kWhite, status.c_str());
+  if (!fallback_note.empty()) {
+    const float wrap = area.x - 96;
+    d->AddText(ui_font, 17, {o.x + 48, o.y + 500}, kGold, fallback_note.c_str(), nullptr, wrap);
+  }
   if (running && keyboard_forced)
     d->AddText(ui_font, 17, {o.x + 48, o.y + 446}, kGold,
                tr("Aucune manette détectée : le clavier a été activé pour cette partie (Espace = A, Entrée = Start)."));
@@ -974,9 +997,9 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
     // The native renderer has its own choice: AUTO (it picks from the GPU and the screen) and 540p
     // (below the Xbox's own image); the Xenos choice is left alone.
     if (UseNative()) {
-      const char* l[] = {tr("AUTO"), "540p", "720p", "1080p", "1440p", "4K"};
-      static const int v[] = {0, 540, 720, 1080, 1440, 2160};
-      if (Choice("nres", {o.x + 48, y + 46}, l, v, 6, opt.native_resolution, 78)) SaveOptions();
+      const char* l[] = {tr("AUTO"), "360p", "480p", "540p", "720p", "1080p", "1440p", "4K"};
+      static const int v[] = {0, 360, 480, 540, 720, 1080, 1440, 2160};
+      if (Choice("nres", {o.x + 48, y + 46}, l, v, 8, opt.native_resolution, 62)) SaveOptions();
     } else {
       static const char* l[] = {"720p", "1080p", "1440p", "4K"};
       static const int v[] = {720, 1080, 1440, 2160};
