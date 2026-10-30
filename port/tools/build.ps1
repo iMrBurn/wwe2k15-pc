@@ -42,7 +42,10 @@ if ($Sdk) {
 Push-Location $port
 try {
   $i = $install -replace '\\', '/'
+  # Explicit release flags: a configure run from a shell where clang-cl detection is incomplete leaves
+  # CMAKE_CXX_FLAGS_RELEASE empty and the exes are built without optimization (2-3x slower).
   cmake --preset win-amd64-release "-DCMAKE_PREFIX_PATH=$i" "-DSDL3_DIR=$i/cmake" `
+    "-DCMAKE_C_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG" "-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG" `
     "-DWWE2K15_IMGUI_DIR:PATH=$(($SdkDir -replace '\\', '/'))/thirdparty/imgui"
   if ($LASTEXITCODE) { throw "configure failed" }
   cmake --build --preset win-amd64-release; if ($LASTEXITCODE) { throw "build failed" }
