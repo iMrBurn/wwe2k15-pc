@@ -308,7 +308,8 @@ void NoteSwapChainWindow(plume::RenderWindow window) {
 }
 #endif
 
-void Video::Clear(u32 flags, u32 color_argb, float depth, u32 stencil) {
+void Video::Clear(u32 flags, u32 color_argb, float depth, u32 stencil,
+                  const plume::RenderRect *rects, u32 rect_count) {
   auto &s = state();
   std::lock_guard lock(s.mutex);
   s.frame_present_committed = false;
@@ -325,11 +326,30 @@ void Video::Clear(u32 flags, u32 color_argb, float depth, u32 stencil) {
     return;
   if (!BindDrawFramebufferLocked(clear_color))
     return;
+  // A partial clear stays partial (a whole-target clear there wipes the rest of a texture the
+  // game builds in pieces). Rects are clamped to the framebuffer; none left = nothing to clear.
+  plume::RenderRect clamped[8];
+  u32 clamped_count = 0;
+  if (rect_count) {
+    const GuestTexture *fb = clear_color ? rt : ds;
+    for (u32 i = 0; i < rect_count && clamped_count < 8; ++i) {
+      plume::RenderRect r = rects[i];
+      r.left = std::max(r.left, 0);
+      r.top = std::max(r.top, 0);
+      r.right = std::min(r.right, i32(fb->width));
+      r.bottom = std::min(r.bottom, i32(fb->height));
+      if (r.left < r.right && r.top < r.bottom)
+        clamped[clamped_count++] = r;
+    }
+    if (!clamped_count)
+      return;
+  }
+  const plume::RenderRect *clear_rects = clamped_count ? clamped : nullptr;
   if (clear_color)
-    s.command_list->clearColor(0, ArgbToRenderColor(color_argb));
+    s.command_list->clearColor(0, ArgbToRenderColor(color_argb), clear_rects, clamped_count);
   if (clear_depth || clear_stencil) {
     s.command_list->clearDepthStencil(clear_depth, clear_stencil, depth,
-                                      stencil);
+                                      stencil, clear_rects, clamped_count);
   }
 }
 

@@ -1,0 +1,123 @@
+diff --git a/include/rex/graphics/vulkan/pipeline_cache.h b/include/rex/graphics/vulkan/pipeline_cache.h
+--- a/include/rex/graphics/vulkan/pipeline_cache.h
++++ b/include/rex/graphics/vulkan/pipeline_cache.h
+@@ -94,6 +94,9 @@ class VulkanPipelineCache {
+       VulkanRenderTargetCache::RenderPassKey render_pass_key, VkPipeline& pipeline_out,
+       const PipelineLayoutProvider*& pipeline_layout_out, void** pipeline_handle_out = nullptr);
+   bool IsCreatingPipelines() const;
++  // The next ConfigurePipeline builds the real pipeline now (no placeholder, not deferred), for
++  // draws whose result the game keeps (texture building): a skipped one is never redone.
++  void SetNextPipelineSynchronous(bool synchronous) { next_pipeline_synchronous_ = synchronous; }
+   void GetPipelineAndLayoutByHandle(void* handle, VkPipeline& pipeline_out,
+                                     const PipelineLayoutProvider*& pipeline_layout_out,
+                                     bool* is_placeholder_out = nullptr) const;
+@@ -437,6 +440,7 @@ class VulkanPipelineCache {
+ 
+   // Previously used pipeline, to avoid lookups if the state wasn't changed.
+   const std::pair<const PipelineDescription, Pipeline>* last_pipeline_ = nullptr;
++  bool next_pipeline_synchronous_ = false;
+   // <Submission index, pipeline>.
+   std::deque<std::pair<uint64_t, VkPipeline>> deferred_destroy_pipelines_;
+   std::mutex deferred_destroy_lock_;
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -1231,7 +1231,10 @@ bool VulkanPipelineCache::ConfigurePipeline(
+         uint32_t(primitive_processing_result.host_primitive_reset_enabled), render_pass_key.key);
+     return false;
+   }
+-  if (last_pipeline_ && last_pipeline_->first == description) {
++  const bool synchronous = next_pipeline_synchronous_;
++  next_pipeline_synchronous_ = false;
++  if (last_pipeline_ && last_pipeline_->first == description &&
++      !(synchronous && last_pipeline_->second.is_placeholder.load(std::memory_order_acquire))) {
+     VkPipeline last_pipeline = last_pipeline_->second.pipeline.load(std::memory_order_acquire);
+     const PipelineLayoutProvider* last_pipeline_layout =
+         last_pipeline_->second.pipeline_layout.load(std::memory_order_acquire);
+@@ -1246,7 +1249,7 @@ bool VulkanPipelineCache::ConfigurePipeline(
+   }
+ 
+   bool use_async = REXCVAR_GET(async_shader_compilation) && !creation_threads_.empty() &&
+-                   pixel_shader && placeholder_pixel_shader_ != VK_NULL_HANDLE;
++                   pixel_shader && placeholder_pixel_shader_ != VK_NULL_HANDLE && !synchronous;
+   uint8_t async_priority = pipeline_util::kPriorityLowest;
+   if (use_async) {
+     uint32_t bound_rts =
+@@ -1264,7 +1267,7 @@ bool VulkanPipelineCache::ConfigurePipeline(
+   // is a placeholder-flagged pipeline that has no VkPipeline yet.
+   const bool defer_pixelless = REXCVAR_GET(vulkan_async_pixelless_pipelines) &&
+                                REXCVAR_GET(async_shader_compilation) && !creation_threads_.empty() &&
+-                               !pixel_shader && !description.rasterizer_discard;
++                               !pixel_shader && !description.rasterizer_discard && !synchronous;
+   auto queue_pending = [&](PipelineCreationArguments arguments) {
+     arguments.priority = pipeline_util::kPriorityDepthOnly;
+     {
+@@ -1293,7 +1296,10 @@ bool VulkanPipelineCache::ConfigurePipeline(
+       }
+       return true;  // pending: the caller skips the draw
+     }
+-    if (found_pipeline == VK_NULL_HANDLE) {
++    if (found_pipeline == VK_NULL_HANDLE ||
++        (synchronous && it->second.is_placeholder.load(std::memory_order_acquire))) {
++      // A synchronous draw that finds a placeholder builds the real pipeline here; a creation
++      // thread may still build it as well, the later of the two simply replaces the other.
+       PipelineCreationArguments creation_arguments;
+       if (!TryGetPipelineCreationArgumentsForDescription(description, &*it, creation_arguments) ||
+           !EnsurePipelineCreated(creation_arguments)) {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -125,6 +125,12 @@ REXCVAR_DEFINE_BOOL(vulkan_async_skip_incomplete_frames, true, "GPU/Vulkan",
+                     "used placeholder pipelines to avoid visible flashing")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(vulkan_texture_draws_wait, true, "GPU/Vulkan",
++                    "With async shader compilation, draws into targets that are not screen-shaped "
++                    "(not 16:9: the attire, skin and damage textures the game builds once) build "
++                    "their pipeline at once instead of being skipped while it compiles")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(vulkan_submit_on_primary_buffer_end, true, "GPU/Vulkan",
+                     "Submit command buffer when PM4 primary buffer ends")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+@@ -4012,6 +4018,20 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   // textures.
+   VkPipeline pipeline;
+   void* pipeline_handle = nullptr;
++  // A skipped texture-building draw (WWE 2K15 composes attire, skin and damage maps once, when a
++  // wrestler loads) is never redone: the model stays white or blank. Those targets are not
++  // screen-shaped; per-frame scene and post-effect passes are 16:9 and keep the async path.
++  bool synchronous_pipeline = false;
++  if (REXCVAR_GET(async_shader_compilation) && REXCVAR_GET(vulkan_texture_draws_wait) &&
++      pixel_shader != nullptr && normalized_color_mask != 0) {
++    draw_util::Scissor draw_scissor;
++    draw_util::GetScissor(regs, draw_scissor);
++    const uint32_t w = draw_scissor.extent[0], h = draw_scissor.extent[1];
++    synchronous_pipeline =
++        w && h && !(w * 9 >= h * 16 * 95 / 100 && w * 9 <= h * 16 * 105 / 100);
++    pipeline_cache_->SetNextPipelineSynchronous(synchronous_pipeline);
++  }
++  const auto configure_start = std::chrono::steady_clock::now();
+   if (!pipeline_cache_->ConfigurePipeline(vertex_shader_translation, pixel_shader_translation,
+                                           primitive_processing_result, normalized_depth_control,
+                                           normalized_color_mask,
+@@ -4019,6 +4039,19 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+                                           pipeline, pipeline_layout_provider, &pipeline_handle)) {
+     return draw_fail("configure_pipeline");
+   }
++  if (synchronous_pipeline) {
++    const auto waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
++                               std::chrono::steady_clock::now() - configure_start)
++                               .count();
++    static uint32_t texture_draw_waits_logged = 0;
++    if (waited_ms >= 2 && texture_draw_waits_logged < 32) {
++      ++texture_draw_waits_logged;
++      draw_util::Scissor draw_scissor;
++      draw_util::GetScissor(regs, draw_scissor);
++      REXGPU_INFO("Texture draw built its pipeline at once: {} ms ({}x{} target)", waited_ms,
++                  draw_scissor.extent[0], draw_scissor.extent[1]);
++    }
++  }
+   bool pipeline_is_placeholder = false;
+   // Reload the current handle state to observe async hot-swap completions that
+   // may happen between pipeline configuration and binding.

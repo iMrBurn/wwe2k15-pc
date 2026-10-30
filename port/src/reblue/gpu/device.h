@@ -61,7 +61,9 @@ public:
   // Same, but the caller holds state().mutex.
   static void OpenCommandListLocked();
 
-  static void Clear(u32 flags, u32 color_argb, float depth, u32 stencil);
+  // rects (host pixels of the bound target, count may be 0 = whole target): D3D Clear's rects.
+  static void Clear(u32 flags, u32 color_argb, float depth, u32 stencil,
+                    const plume::RenderRect *rects = nullptr, u32 rect_count = 0);
 
   static void ClearTexture(GuestTexture *texture, u32 color_argb);
 
