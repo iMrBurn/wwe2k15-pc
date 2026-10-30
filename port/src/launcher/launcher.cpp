@@ -197,7 +197,7 @@ std::string GameFilesProblem() {
 }
 
 // Why the game stopped at start, read from its newest log ("" = nothing recognised).
-std::string StartFailureFromLog(fs::file_time_type since) {
+fs::path NewestLog(fs::file_time_type since) {
   fs::path best;
   fs::file_time_type best_time{};
   std::error_code ec;
@@ -207,6 +207,23 @@ std::string StartFailureFromLog(fs::file_time_type since) {
     const auto t = e.last_write_time(ec);
     if (t >= since && t > best_time) { best = e.path(); best_time = t; }
   }
+  return best;
+}
+
+// The native renderer writes this line before its message box (Vulkan 1.2 features missing, no
+// usable GPU) and only exits once the player clicks OK, however long that takes.
+bool NativeDeviceFailureInLog(fs::file_time_type since) {
+  const fs::path log = NewestLog(since);
+  if (log.empty()) return false;
+  std::ifstream in(log);
+  std::string line;
+  while (std::getline(in, line))
+    if (line.find("could not create the host device") != std::string::npos) return true;
+  return false;
+}
+
+std::string StartFailureFromLog(fs::file_time_type since) {
+  const fs::path best = NewestLog(since);
   if (best.empty()) return {};
   std::ifstream in(best);
   std::string line, found, tu_version;
@@ -633,7 +650,8 @@ void UpdateGameProcess() {
   // blame the game files: start the normal renderer instead, once, and stay on it until the player
   // ticks the native option again.
   if (launched_native && exit_code != 0 && start_failure.empty() &&
-      std::chrono::steady_clock::now() - launch_start < std::chrono::seconds(30)) {
+      (std::chrono::steady_clock::now() - launch_start < std::chrono::seconds(30) ||
+       NativeDeviceFailureInLog(launch_time - std::chrono::seconds(2)))) {
     opt.native = false;
     SaveOptions();
     LaunchGame(true);
