@@ -665,3 +665,21 @@ Microbenchmark `port/tools/dev/bench_byteswap.cpp` (clang -O2, x86-64-v2): the e
 1) Xenos (blank / white DLC wrestlers, #10 #12 #15 #17). With `async_shader_compilation = true`, a draw whose pipeline is not built yet gets a placeholder pipeline and `IssueDraw` returns without drawing (`VulkanCommandProcessor::IssueDraw`, "pipeline_is_placeholder"). For scene draws that costs a frame or two. But the game composes attire, skin and damage textures ONCE when a wrestler loads, through render targets that are then resolved (and read back for Superstar Threads); a skipped one is never redone, so the model stays white or blank until the next load. DLC / Showcase / created wrestlers bring pipelines the stored set does not have, which is why they were the ones hit. Same cause as Jarrod's 2K14 v0.2.1/v0.2.2 ("texture drawings never skipped"). Fix (SDK patch `rexglue-sdk-texture-draws-wait.patch`, cvar `vulkan_texture_draws_wait`, default true): a draw with a pixel shader that writes colour into a target whose scissor is NOT 16:9 (+-5 %, the same shape rule as the readback filter) builds its real pipeline at once (`VulkanPipelineCache::SetNextPipelineSynchronous`: no placeholder, no deferral, and a placeholder already in the cache is replaced by a synchronous build). Scene, shadow (pixel-less) and 16:9 post-effect passes keep the async path, so match stutter is unchanged. Log: "Texture draw built its pipeline at once: N ms (WxH target)" (first 32 waits of 2 ms or more). Cost: a one-off pause the first time a new wrestler's texture pipelines are built (stored after that). Switch off with `vulkan_texture_draws_wait = false`.
 2) Native partial clears (dark pins #14 #16, Jarrod 2K14 v0.2.8 "tiny clear dropped"). Here the opposite was true: the native `D3DDevice_Clear` hook ignored the rects and cleared the WHOLE target. A partial clear of a texture the game builds in pieces (damage map, atlas) wiped the rest. Now the rects (up to 8, scaled to the host target with `SvrSurfaceScale`, clamped to the framebuffer) are passed to plume's `clearColor` / `clearDepthStencil`; unreadable rects clear nothing. Log: "Native: partial Clear flags ..., N rect(s)" (first 8). Whether 2K15 issues rect clears at all was not known (no draw log with clears on disk): the log line answers it.
 Test (RTX, 2026-10-30): Xenos with a cold cache (shader/pipeline storage deleted), 1v1 match: 32+ "built its pipeline at once" lines of 2-6 ms each (targets 256x256, 512x512, 1024x512, 384x64...), match at 60 fps (max gap 19 ms), wrestlers fully textured. Native 1v1: the game DOES issue partial clears (flags 0x1, one rect 0,0-528,512 every frame at the title), match at 60 fps, picture normal. Not seen here: a DLC wrestler that used to be white, a pin close-up (needs a reporter). Also native `svr_render_scale` 360 (0.5x) and 480 (2/3x) for the launcher's new choices: built, not run in game.
+
+## 2026-10-30 (Perf) Elimination Chamber 6-man, native vs Xenos, all cores vs 2 cores (scripted)
+`port/tools/dev/chamber.sh` (title -> Exhibition -> 6-MAN -> ELIMINATION CHAMBER -> random wrestlers -> PLAY; verified by screenshots).
+Key path lessons: at +90 s the game is still in the intro videos (first ENTER skips them), the title needs a second ENTER, then an
+"Xbox Live" Attention box needs SPACE; in the rules list S once = Elimination Chamber, then SPACE, SPACE, SPACE. An earlier series
+was invalid (stuck at the title, the demo match was measured instead).
+Same random-wrestler picks differ per run, so +-15 % CPU noise is expected. Cold-ish shader cache, RTX 5070 Ti, game on --monitor=2.
+
+| case | load (PLAY -> gameplay) | fps | worst gap | CPU (30 s, % of one core) |
+|---|---|---|---|---|
+| native, all cores | 9-12 s | 60 | 20-29 ms | 86 |
+| Xenos, all cores | 9-12 s | 60 | 18-34 ms | 101 |
+| native, 2 cores | 9-12 s | 60 | 23-31 ms | 110 |
+| Xenos, 2 cores | 9-12 s | 60 (one 56.6 dip, 50 ms gap) | 19-50 ms | 106 |
+
+Load time is the same on both renderers (3 s screenshot resolution); the first gameplay frame is on screen at 12 s at the latest.
+Conclusion: native holds 60 fps in a 6-man Chamber on 2 cores at about the Xenos CPU cost, with no worse gaps: no obstacle to
+making it the default on this criterion. Not tested: weak GPUs, cold native shader cache in the first match.
