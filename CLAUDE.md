@@ -101,17 +101,31 @@ files, with `git add <paths>`, never `git add -A`; never overwrite another chat'
 - `streaming_install.pck` and per-DLC sound banks are requested but absent; not fatal.
 - 6-man Elimination Chamber holds 60 fps on the user's PC (RTX 5070 Ti) since 0.1.1; the game
   threads wait 88-92 % of the time there.
+- **Two renderers** (since 0.2.0): `wwe2k15.exe` = Xenos GPU emulation (Vulkan); `wwe2k15_native.exe` = native renderer
+  (re:Blue + plume, built with `-DWWE2K15_NATIVE_RENDERER=ON`, deps via `port/tools/setup_native_deps.ps1`, notes in
+  `docs/NATIVE_PORT_PLAN.md`). The native exe converts the player's own shaders at run time (XenosRecomp built in +
+  `dxcompiler.dll`, cache `cache
+ative_shaders.bin`, never packaged). `package.ps1 -Native` ships it. Repo is GPL-3.0.
+- `render_target_path_vulkan = "auto"`: FSI everywhere except AMD (host RT: FSI is 3-4x slower on AMD) and pre-Pascal NVIDIA.
+- Logs every 5 s: "GPU time: busy N%" (GPU-bound vs CPU-bound). Crash reports show the faulting thread first.
+- Text fields use the game's own letter grid, not XamShowKeyboardUI: `text_entry_kbd.cpp` replays keys into it.
+  TU4: insert `sub_828A2CA8`, button handler `sub_828A6478`, direct delete `sub_828A3670`.
+- Players need exactly Title Update 4 (XEX patch "new version: 0.0.6.4"); another TU gives "No function registered at
+  822626A8" and the launcher shows a "wrong Title Update" note. With no controller, the launcher turns the keyboard on.
+- Jarrod's wwe2k14-recomp (BSD-3-Clause, same engine) is a good source of ideas/fixes (CHANGELOG.md); Kaiko's SvR2011 port
+  has no licence file: ideas only, never copy code.
+- **Build trap**: always run cmake/build.ps1 from a shell with the VS Installer dir in PATH (vswhere); otherwise
+  CMAKE_CXX_FLAGS_RELEASE ends up empty and the exes are built with NO optimisation (2-core regression, 2026-10-30).
 
-## Open work
-- (Main) Testers' reports on AMD / Intel GPUs, older CPUs, controllers, Linux/Proton.
-- (Perf) Faster loading: WWE '12 raised its loader's time budget per frame (`sub_82819258`, x2);
-  2K15's equivalent is not found yet (sample a real loading screen).
-- (Perf) Issue #4 (Vega 7 iGPU, 30-37 fps, 4.7 s load stall): persistent driver pipeline cache added
-  (`rexglue-sdk-pipeline-cache.patch`), its gain on the tester's old driver is unconfirmed; the iGPU is GPU-bound
-  (see PORTING_PLAN 2026-10-27).
-- (Perf) True 540p (and lower) for weak GPUs: the Xenos plugin only scales by whole multiples of
-  720p; would need the game to render smaller.
-- ~~(Rendu) AMD entrance black frames without FSI~~: not reproduced on 2026-10-26 (see Known facts).
-- ~~(Rendu) Log which render target path the SDK picked~~: done (`rexglue-sdk-render-path-log.patch`,
-  one "render target path: ..." gpu info line at startup). In the next release.
-- (Launcher) Possibly a square icon variant for small sizes.
+## Open work: goal 0.3 = the native renderer becomes the default
+Exit criteria (all must hold; Main checks the issues before tagging 0.3.0):
+1. (Rendu) No known visual bug: white/blank wrestler models (#10 #12 #15 #17, shader-wait fix 42806ad, Xenos-path part still open),
+   dark pins (#14 #16, R16G16 fix in 0.2.4: confirm with a reporter).
+2. (Rendu) No known crash on Intel / old NVIDIA with native (#8 #13 fixed in 0.2.4: need an Intel player to confirm).
+3. (Perf) 2-core CPU cost of native back to the 0.2.4 level (build-flags root cause found; verify after the full rebuild).
+4. (Launcher) Automatic fallback to the normal renderer when native cannot start (Vulkan 1.2 missing...), 540p/480p/360p
+   choices, "preparing shaders" note, separate keyboard player test (pad + keyboard), keybinds kept (#18, done).
+5. A few days without new serious issues after the last fix release.
+Other open items: (Perf) loading time native vs Xenos, 6-man/Chamber on 2 cores; (Perf) few-core job hand-off fix and silent-audio
+patch need player confirmation; (Mods) #19 camera cuts, Create-a-Story leftovers (SvR11 Story Designer audio only: not feasible);
+(Main) Linux/Proton reports; (Launcher) square icon variant.

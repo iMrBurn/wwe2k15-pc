@@ -21,3 +21,6 @@ Projects the native renderer comes from:
 - WWE '12 PC by iMrBurn (GPL-3.0): `port/src/reblue` and `port/src/native` (svr_* glue) are its
   native renderer, with WWE 2K15 changes (D3D addresses, device layout, Resolve entry point).
 - nefariousjosiah's SvR 2008/2009/2010 ports (GPL-3.0): the native renderer WWE '12 PC is based on.
+- Jarrod's WWE 2K14 PC port ([wwe2k14-recomp](https://github.com/Jarrodfeng/wwe2k14-recomp), BSD-3-Clause):
+  idea only, no code copied: the job hand-off ordering fix for PCs with few CPU threads
+  (`port/src/job_dispatch_fix.cpp`).

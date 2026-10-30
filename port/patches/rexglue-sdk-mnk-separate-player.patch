@@ -1,0 +1,45 @@
+diff --git a/src/input/device_assignment.cpp b/src/input/device_assignment.cpp
+index 52e0073..f9a01f1 100644
+--- a/src/input/device_assignment.cpp
++++ b/src/input/device_assignment.cpp
+@@ -11,6 +11,14 @@
+ 
+ #include <rex/input/device_assignment.h>
+ 
++#include <algorithm>
++
++#include <rex/cvar.h>
++
++REXCVAR_DEFINE_BOOL(mnk_separate_player, false, "Input",
++                    "Keyboard and mouse play as their own player, the next one after the "
++                    "controllers, instead of sharing player one with the first controller");
++
+ namespace rex::input {
+ 
+ void SlotAssignment::OnDevicesChanged(const std::vector<DeviceInfo>& devices) {
+@@ -18,11 +26,24 @@ void SlotAssignment::OnDevicesChanged(const std::vector<DeviceInfo>& devices) {
+     user.clear();
+   }
+ 
++  // The keyboard goes to the user after the highest pad ordinal in use, so it never shares a
++  // user with a pad. With no pad that is user 0, as without the option.
++  uint32_t keyboard_user = 0;
++  if (REXCVAR_GET(mnk_separate_player)) {
++    for (const auto& device : devices) {
++      if (!device.synthetic && device.ordinal < kMaxGuestUsers) {
++        keyboard_user = std::max(keyboard_user, device.ordinal + 1);
++      }
++    }
++    keyboard_user = std::min(keyboard_user, kMaxGuestUsers - 1);
++  }
++
+   // Key off the ordinal rather than list position, so unplugging pad one does
+   // not promote pad two to player one.
+   for (const auto& device : devices) {
+     if (device.synthetic) {
+-      users_[0].push_back(device.id);
++      const bool keyboard = device.name == "Keyboard and Mouse";
++      users_[keyboard ? keyboard_user : 0].push_back(device.id);
+     } else if (device.ordinal < kMaxGuestUsers) {
+       users_[device.ordinal].push_back(device.id);
+     }

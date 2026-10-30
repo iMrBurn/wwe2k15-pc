@@ -281,3 +281,12 @@ au rendu habituel et envoyez-nous le journal.
   explain the dark wrestlers there. Checked on the RTX: a native match runs, no RT-capable or
   0x1A20AB55 errors; a pin was not captured (the run was cut short), and no Intel GPU here.
   No Vulkan validation layer is installed on this PC (it would need the Vulkan SDK).
+- **White attire / blank DLC models: draws no longer skipped while their shader converts
+  (2026-10-30).** Idea from Jarrod's WWE 2K14 port (v0.2.1: texture-building draws skipped
+  during slow shader compiles were never redone). Here a GuestShader with no cache entry yet made
+  `GetOrLinkShader` return null and the draw was dropped; the draws that compose attire, skin and
+  damage textures run once at load, and DLC / Showcase / Superstar Threads wrestlers bring shaders
+  the boot set (609) does not have (reporters' caches reach 1246). Now `GetOrLinkShader` calls
+  `Wwe2k15WaitShader` (at most 2 s): that shader's job moves to the front of the queue and the
+  draw waits for it. Cold-cache check here: four title draws waited 11-26 ms and rendered (1.6 s
+  before the job was moved forward). Not checked: an affected DLC wrestler in a match.

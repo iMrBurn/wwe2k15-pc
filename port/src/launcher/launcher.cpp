@@ -15,6 +15,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -74,6 +75,7 @@ struct Options {
   int anisotropic = 3;        // anisotropic_override: 0 off, 2 = 2x, 3 = 4x, 4 = 8x, 5 = 16x
   bool fsi = true;            // render_target_path_vulkan = auto (FSI except on AMD, where it is very slow)
   bool keyboard = false;      // mnk_mode
+  bool separate_player = false;  // mnk_separate_player: the keyboard is the next player after the pads
   bool azerty = true;         // French keyboard layout for the keyboard pad
   int language = 0;           // user_language (XLanguage): 1 en, 3 de, 4 fr, 5 es, 6 it; 0 = unset
   bool cpu_yield = true;      // wwe2k15_render_wait_yield
@@ -309,8 +311,73 @@ void SaveOptions() {
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
       << "\nnative=" << opt.native << "\nnative_resolution=" << opt.native_resolution << "\ngpu=" << opt.gpu
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
+
+// ---- Key bindings remapped in the game (F4 > "Save to config") ----
+// The game writes them to the exe-side wwe2k15.toml, which an update replaces, and our own command
+// line used to override the AZERTY ones. So they are kept in launcher-keybinds.ini and passed as
+// arguments at each launch (the command line wins over the toml).
+using KeyMap = std::map<std::string, std::string>;
+KeyMap saved_keys;
+
+// The keyboard pad reads layout-dependent virtual keys: on AZERTY move the left stick to Z Q S D and
+// the keys it displaces (LT on Q, Back on Z) elsewhere.
+const KeyMap& AzertyKeys() {
+  static const KeyMap k = {{"keybind_lstick_up", "Z"},    {"keybind_lstick_left", "Q"},
+                           {"keybind_lstick_down", "S"},  {"keybind_lstick_right", "D"},
+                           {"keybind_left_trigger", "A,I"}, {"keybind_back", "W,Tab"}};
+  return k;
+}
+
+fs::path KeysFile() { return root / L"launcher-keybinds.ini"; }
+
+void LoadSavedKeys() {
+  saved_keys.clear();
+  std::ifstream in(KeysFile());
+  std::string line;
+  while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    const size_t eq = line.find('=');
+    if (eq != std::string::npos && line.rfind("keybind_", 0) == 0) saved_keys[line.substr(0, eq)] = line.substr(eq + 1);
+  }
+}
+
+// Takes the bindings the game saved in wwe2k15.toml (marked by its "Auto-generated" header, written
+// only by that save) when that file is newer than our copy. A shipped or updated toml has no header
+// and changes nothing, so the saved bindings survive updates.
+void SyncSavedKeys() {
+  std::error_code ec;
+  const fs::path toml = root / L"wwe2k15.toml";
+  const auto toml_time = fs::last_write_time(toml, ec);
+  if (ec) return;
+  const auto keys_time = fs::last_write_time(KeysFile(), ec);
+  if (!ec && keys_time >= toml_time) return;
+  std::ifstream in(toml);
+  std::string line;
+  bool saved_by_game = false;
+  KeyMap keys;
+  while (std::getline(in, line)) {
+    if (line.rfind("# Auto-generated cvar configuration", 0) == 0) saved_by_game = true;
+    if (line.rfind("keybind_", 0) != 0) continue;
+    const size_t eq = line.find('='), q1 = line.find('"'), q2 = line.rfind('"');
+    if (eq == std::string::npos || q1 == std::string::npos || q2 <= q1) continue;
+    std::string name = line.substr(0, eq);
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    keys[name] = line.substr(q1 + 1, q2 - q1 - 1);
+  }
+  if (!saved_by_game) return;
+  // The launcher's AZERTY choice supplies its own keys: do not freeze them as remapped.
+  for (const auto& [n, v] : AzertyKeys()) {
+    const auto it = keys.find(n);
+    if (it != keys.end() && it->second == v) keys.erase(it);
+  }
+  saved_keys = keys;
+  std::ofstream out(KeysFile(), std::ios::trunc);
+  for (const auto& [n, v] : saved_keys) out << n << "=" << v << "\n";
+}
+
+std::wstring KeybindArgs();  // defined with the other launch arguments
 
 void LoadOptions() {
   std::ifstream in(root / L"launcher-options.ini");
@@ -338,6 +405,7 @@ void LoadOptions() {
     else if (k == "fsi") opt.fsi = v != 0;
     else if (k == "keyboard") opt.keyboard = v != 0;
     else if (k == "azerty") opt.azerty = v != 0;
+    else if (k == "separate_player") opt.separate_player = v != 0;
     else if (k == "language") opt.language = v;
     else if (k == "gpu_wait_yield") opt.cpu_yield = v != 0;  // (the old cpu_yield key defaulted to off)
     else if (k == "show_fps") opt.show_fps = v != 0;
@@ -356,6 +424,8 @@ void LoadOptions() {
       default: opt.language = 1; break;
     }
   }
+  LoadSavedKeys();
+  SyncSavedKeys();
 }
 
 // The GPU emulation renders whole multiples of the Xbox 360's 720p: 1080p renders at 2x (1440p)
@@ -367,6 +437,17 @@ bool NativeAvailable() {
   return fs::exists(root / L"wwe2k15_native.exe", ec) && fs::exists(root / L"dxcompiler.dll", ec);
 }
 bool UseNative() { return opt.native && NativeAvailable(); }
+
+std::wstring KeybindArgs() {
+  if (!opt.keyboard) return {};
+  SyncSavedKeys();
+  const std::wstring separate = opt.separate_player ? L" --mnk_separate_player=true" : std::wstring();
+  KeyMap keys = opt.azerty ? AzertyKeys() : KeyMap();
+  for (const auto& [n, v] : saved_keys) keys[n] = v;
+  std::wstring args;
+  for (const auto& [n, v] : keys) args += L" --" + Widen(n.c_str()) + L"=\"" + Widen(v.c_str()) + L"\"";
+  return args + separate;
+}
 
 std::wstring OptionArgs() {
   auto b = [](bool v) { return std::wstring(v ? L"true" : L"false"); };
@@ -385,11 +466,7 @@ std::wstring OptionArgs() {
            L" --window_height=" + std::to_wstring(opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) +
            L" --monitor=" + std::to_wstring(opt.monitor) +
            L" --wwe2k15_mods=" + b(opt.mods) +
-           (opt.keyboard && opt.azerty
-                ? std::wstring(L" --keybind_lstick_up=Z --keybind_lstick_left=Q --keybind_lstick_down=S"
-                               L" --keybind_lstick_right=D --keybind_left_trigger=A,I"
-                               L" --keybind_back=W,Tab")
-                : std::wstring());
+           KeybindArgs();
   }
   return L" --fullscreen=" + b(opt.fullscreen) +
          L" --resolution_scale=" + std::to_wstring(RenderScale(opt.resolution)) +
@@ -406,13 +483,7 @@ std::wstring OptionArgs() {
          L" --swap_post_effect=" + (opt.aa == 2 ? L"fxaa_extreme" : opt.aa == 1 ? L"fxaa" : L"none") +
          L" --present_letterbox=" + b(opt.letterbox) +
          L" --wwe2k15_mods=" + b(opt.mods) +
-         // The keyboard pad reads layout-dependent virtual keys: on AZERTY move the left stick
-         // to Z Q S D and the keys it displaces (LT on Q, Back on Z) elsewhere.
-         (opt.keyboard && opt.azerty
-              ? std::wstring(L" --keybind_lstick_up=Z --keybind_lstick_left=Q --keybind_lstick_down=S"
-                             L" --keybind_lstick_right=D --keybind_left_trigger=A,I"
-                             L" --keybind_back=W,Tab")
-              : std::wstring());
+         KeybindArgs();
 }
 
 void SaveSettings() {
@@ -542,6 +613,7 @@ void UpdateGameProcess() {
   GetExitCodeProcess(game_process, &exit_code);
   CloseHandle(game_process);
   game_process = nullptr;
+  SyncSavedKeys();  // the player may have saved remapped keys in game
   char code_hex[16];
   snprintf(code_hex, sizeof(code_hex), "0x%08lX", static_cast<unsigned long>(exit_code));
   status = tr("Le jeu s'est arrêté (code ") + (exit_code < 256 ? std::to_string(exit_code) : std::string(code_hex)) +
@@ -742,6 +814,13 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   ImGui::SetCursorScreenPos({o.x + 480, o.y + 314});
   if (Tile("logs", tr("JOURNAUX"), {190, 52}, false, false, 20)) OpenFolder(root / L"logs");
 
+  // The native renderer converts the game's shaders at its first launch (a few seconds).
+  if (!running && UseNative()) {
+    std::error_code ec;
+    if (!fs::exists(root / L"cache" / L"native_shaders.bin", ec))
+      d->AddText(ui_font, 15, {o.x + 48, o.y + 394}, kMuted,
+                 tr("Premier lancement du rendu natif : préparation des shaders, quelques secondes."));
+  }
   if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 416}, kWhite, status.c_str());
   if (running && keyboard_forced)
     d->AddText(ui_font, 17, {o.x + 48, o.y + 446}, kGold,
@@ -988,7 +1067,16 @@ void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (ImGui::Checkbox(tr("Jouer au clavier (manette virtuelle)"), &opt.keyboard)) SaveOptions();
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 196});
   if (ImGui::Checkbox(tr("Clavier AZERTY (français)"), &opt.azerty)) SaveOptions();
-  d->AddText(ui_font, 16, {o.x + 48, o.y + 246}, opt.keyboard ? kWhite : kMuted,
+  float help_y = o.y + 246;
+  // With a pad plugged in, the keyboard can be a second player instead of sharing player one.
+  if (pad || opt.separate_player) {
+    ImGui::SetCursorScreenPos({o.x + 48, o.y + 232});
+    ImGui::BeginDisabled(!opt.keyboard);
+    if (ImGui::Checkbox(tr("Clavier = joueur séparé (2 joueurs avec une manette)"), &opt.separate_player)) SaveOptions();
+    ImGui::EndDisabled();
+    help_y = o.y + 286;
+  }
+  d->AddText(ui_font, 16, {o.x + 48, help_y}, opt.keyboard ? kWhite : kMuted,
              tr(opt.azerty ? i18n::kKeysAzerty : i18n::kKeysQwerty));
 }
 
