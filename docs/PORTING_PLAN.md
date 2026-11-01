@@ -708,3 +708,7 @@ Same numbers with the old exe and without the texture-draws wait: 7f5a19f is NOT
 | 480 | 60 | 25-29 ms | 68 | 4.2 | 0 |
 The native renderer holds 60 fps on this iGPU even at 1080p (GPU not the limit: gpu wait ~0), where the Xenos exe gets 9-32 fps.
 540p/480p are therefore only needed on much weaker GPUs; they cost nothing here. Scripts take about 85 s to the demo match.
+
+Same day, Elimination Chamber 6-man, native, AMD iGPU (default render size, `chamber.sh ig_ch_n ... --svr_gpu_device="AMD Radeon(TM) Graphics"`):
+loading screen about 10-13 s after PLAY, then 59.9 fps, worst gap 35-38 ms, CPU 85 % of one core, work 4.0-4.4 ms/frame, gpu wait 0, 1 hitch
+over 25 ms per 10 s. The iGPU is not a limit for the native renderer in the heaviest mode either.
