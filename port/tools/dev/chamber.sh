@@ -19,6 +19,7 @@ nav "S:130,WAIT1,SPACE:300,WAIT3,SPACE:300,WAIT3,SPACE:300,WAIT5" ${T}_s3
 P="P:300,WAIT2,SPACE:300,WAIT2,SPACE:300,WAIT2,SPACE:300,WAIT2"
 nav "$P,$P,$P" ${T}_s6; nav "$P,$P,$P,WAIT3" ${T}_s7
 t0=$(date +%s)
+if [ -n "$LOADPROF" ]; then nav "SPACE:300" ${T}_pl; if [ "$LOADPROF" = stack ]; then sleep 4; SCAN_PROC=$PROC powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w $D/stackscan.ps1)" -out "$(cygpath -w $S/${T}_stack.txt)"; sleep 3; SCAN_PROC=$PROC powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w $D/stackscan.ps1)" -out "$(cygpath -w $S/${T}_stack2.txt)"; elif [ "$LOADPROF" = samp ]; then powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w $D/sampler.ps1)" -seconds 14 -topThreads 6 -proc $PROC -out "$(cygpath -w $S/${T}_samp.txt)"; else powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w $D/thread_cpu.ps1)" -seconds 14 > $S/${T}_loadcpu.txt; fi; nav "WAIT0" ${T}_ld_8; cp $(ls -t $B/logs/*.log | head -1) $S/${T}.log; taskkill //IM $EXE //F > /dev/null; exit 0; fi
 nav "SPACE:300" ${T}_ld_0
 for i in 1 2 3 4 5 6 7 8; do nav "WAIT0" ${T}_ld_$i; echo "ld $i $(( $(date +%s) - t0 )) s"; done
 sleep 30

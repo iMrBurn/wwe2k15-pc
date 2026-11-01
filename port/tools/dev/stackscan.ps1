@@ -11,8 +11,8 @@ public static class SS {
   [DllImport("kernel32", CharSet=CharSet.Unicode)] public static extern int GetThreadDescription(IntPtr h, out IntPtr d);
 }
 "@
-$p = Get-Process wwe2k15
-$m = $p.Modules | Where-Object { $_.ModuleName -eq "wwe2k15.exe" }
+$p = Get-Process $(if ($env:SCAN_PROC) { $env:SCAN_PROC } else { "wwe2k15" })
+$m = $p.Modules | Where-Object { $_.ModuleName -eq ($(if ($env:SCAN_PROC) { $env:SCAN_PROC } else { "wwe2k15" }) + ".exe") }
 $base = [uint64]$m.BaseAddress.ToInt64(); $end = $base + [uint64]$m.ModuleMemorySize
 $ph = [SS]::OpenProcess(0x0010 -bor 0x0400, $false, $p.Id)
 $raw = [Runtime.InteropServices.Marshal]::AllocHGlobal(1232 + 16); $buf = [IntPtr](([int64]$raw + 15) -band -16)

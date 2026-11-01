@@ -712,3 +712,16 @@ The native renderer holds 60 fps on this iGPU even at 1080p (GPU not the limit: 
 Same day, Elimination Chamber 6-man, native, AMD iGPU (default render size, `chamber.sh ig_ch_n ... --svr_gpu_device="AMD Radeon(TM) Graphics"`):
 loading screen about 10-13 s after PLAY, then 59.9 fps, worst gap 35-38 ms, CPU 85 % of one core, work 4.0-4.4 ms/frame, gpu wait 0, 1 hitch
 over 25 ms per 10 s. The iGPU is not a limit for the native renderer in the heaviest mode either.
+
+## 2026-11-01 (Perf) Chamber loading screen profile, native renderer (`chamber.sh` with `LOADPROF=cpu|samp|stack`)
+- 14 s after PLAY: busiest game thread 14 % of a core, GPU thread 8 %, whole process under 50 % of a core: the load is NOT CPU bound.
+- RIP samples (6 busiest threads, 5352 samples): 96.7 % in ntdll (waits), 2.4 % game code, 0.5 % NVIDIA driver.
+- Stack scan: the main game thread and most helper threads sit in the guest wait wrapper `sub_82263CA0` (event waits through
+  `sub_82262300` / `sub_82B36418`), i.e. they move in step with frames: same behaviour as WWE '12, where the loader works only a
+  few ms per 16.7 ms frame (WWE '12 fix: raise the loader's per-frame budget, float at this+196, hook of `sub_82819258`,
+  load 12 s -> 6 s; see wwe12-pc `src/native/wwe12_loading.cpp`).
+- Not found yet: the 2K15 loader's budget function. A shape search of the generated code (functions with a timebase read, `+196` and
+  `+200` offsets, float compare) gives no clear candidate: only 3 functions (`sub_83128258`, `sub_83127FE8`, `sub_83127E50`, library
+  area) have `+196` and a timebase read and they look unrelated. Next step would be to find which thread is the loader (thread
+  names in the stack scan are generic `XThread...`) by logging calls of candidate wait functions during the loading screen.
+`stackscan.ps1` now takes the process from `SCAN_PROC` (native exe).
