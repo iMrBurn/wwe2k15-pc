@@ -464,7 +464,9 @@ bool UseNative() { return opt.native && NativeAvailable(); }
 std::wstring KeybindArgs() {
   if (!opt.keyboard) return {};
   SyncSavedKeys();
-  const std::wstring separate = opt.separate_player ? L" --mnk_separate_player=true" : std::wstring();
+  // Only with a pad at launch: the keyboard is a guest user without a profile, so with no pad it must
+  // stay player one (the one that validates START keeps the profile and the saves).
+  const std::wstring separate = opt.separate_player && pad ? L" --mnk_separate_player=true" : std::wstring();
   KeyMap keys = opt.azerty ? AzertyKeys() : KeyMap();
   for (const auto& [n, v] : saved_keys) keys[n] = v;
   std::wstring args;
@@ -1115,7 +1117,9 @@ void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
     ImGui::BeginDisabled(!opt.keyboard);
     if (ImGui::Checkbox(tr("Clavier = joueur séparé (2 joueurs avec une manette)"), &opt.separate_player)) SaveOptions();
     ImGui::EndDisabled();
-    help_y = o.y + 286;
+    d->AddText(ui_font, 15, {o.x + 76, o.y + 264}, kMuted,
+               tr("Appuie sur START avec la manette (joueur 1 = profil et sauvegardes) ; le clavier est le joueur 2."));
+    help_y = o.y + 306;
   }
   d->AddText(ui_font, 16, {o.x + 48, help_y}, opt.keyboard ? kWhite : kMuted,
              tr(opt.azerty ? i18n::kKeysAzerty : i18n::kKeysQwerty));
