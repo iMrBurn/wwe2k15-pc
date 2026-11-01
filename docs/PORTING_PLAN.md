@@ -725,3 +725,17 @@ over 25 ms per 10 s. The iGPU is not a limit for the native renderer in the heav
   area) have `+196` and a timebase read and they look unrelated. Next step would be to find which thread is the loader (thread
   names in the stack scan are generic `XThread...`) by logging calls of candidate wait functions during the loading screen.
 `stackscan.ps1` now takes the process from `SCAN_PROC` (native exe).
+
+## 2026-11-01 (Perf) Chamber loading: state of the loader-budget work (stopped for the day, nothing shipped)
+Tested (native, Chamber 6-man, loading ~10-13 s at 60 fps):
+- `--vsync=false --bd_vsync=false` (SDK guest vblank 1 kHz, swap chain vsync off): loading unchanged, game still 60 fps.
+- plus a dev cvar `svr_fps_limit=0` (removes `PaceFrame`'s 60 fps sleep in `reblue/gpu/present.cpp`): still exactly 60 fps, same loading.
+  So neither the SDK vblank nor the native present cap is what holds the game at 60: the guest game paces itself (its timing struct
+  at 0x838DC7A8, ms per frame at +40, `sub_82AB14C8` SetFrameRate; swap `sub_82BADF20` runs on thread F8000058 which was the busiest
+  game thread during the load, 14 %). The experiment patch is `work/dev/exp_svr_fps_limit.patch` (not committed, source reverted).
+- A shape search for the WWE '12 loader-budget function (float at this+196, timebase at +200) found no match in the TU4 code.
+Remaining ideas: (1) find where the game waits for its frame time (probably in the swap/begin-frame code near `sub_82BADF20`,
+sub_82BA* / sub_82BB*, comparing against the +40 ms value) and shorten that wait only during loading screens, with the WWE '12
+"turbo" detection (loading-screen classes, `Wwe12LoadTurboSkipPresent()` stub already exists in `wwe2k15_native_stubs.cpp`);
+(2) find the loader thread by logging guest wait calls (`sub_82263CA0`) per thread during the load. Needs the PC for runs; start from
+`chamber.sh` with `LOADPROF=samp|cpu|stack`. Build state: tu4 builds fine, no uncommitted source changes.
