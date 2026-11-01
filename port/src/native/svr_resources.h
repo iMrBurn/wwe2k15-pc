@@ -48,9 +48,9 @@ bool SvrTakePendingClear(u32 surface_va, u32 &clear_flags, u32 &color_argb, floa
                          u32 &stencil);
 
 // Internal resolution as a multiple of the guest's (1280x720): host render targets and resolve
-// textures are this many times larger, and viewports/scissors are scaled to match. 1, 1.5
-// (1080p), 2, 3 or 4. Set with svr_render_scale (a multiple 1-4 or a height 720/1080/1440/2160/
-// 2880; 0 = from the window height: 2 at 1080p/1440p, 3 at 4K, 1 at 720p/800p). Fixed for the
+// textures are this many times larger, and viewports/scissors are scaled to match. 0.5 (360p),
+// 2/3 (480p), 0.75 (540p), 1, 1.5 (1080p), 2, 3 or 4. Set with svr_render_scale (a multiple 1-4
+// or a height 360/480/540/720/1080/1440/2160/2880; 0 = from the window height: 2 at 1080p/1440p, 3 at 4K, 1 at 720p/800p). Fixed for the
 // session once the first render target exists.
 float SvrRenderScale();
 // Frames presented so far, plus 1 (never 0); per-frame mirror checks compare against it.

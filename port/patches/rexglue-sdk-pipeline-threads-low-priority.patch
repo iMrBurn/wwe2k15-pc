@@ -1,0 +1,24 @@
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 96da203..5aad21b 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -63,6 +63,11 @@ REXCVAR_DEFINE_BOOL(vulkan_async_pixelless_pipelines, true, "GPU/Vulkan",
+                     "the GPU command thread (a slow driver compile there stops presentation)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(vulkan_pipeline_creation_low_priority, true, "GPU/Vulkan",
++                    "Run the pipeline creation threads below normal priority so that building pipelines "
++                    "does not take CPU time from the game threads on CPUs with few cores")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
+ REXCVAR_DEFINE_BOOL(vulkan_tessellation_wireframe, false, "GPU/Vulkan",
+                     "Render tessellation as wireframe")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+@@ -391,6 +396,7 @@ bool VulkanPipelineCache::Initialize() {
+           rex::thread::Thread::Create({}, [this, i]() { CreationThread(i); });
+       assert_not_null(creation_thread);
+       creation_thread->set_name("Vulkan Pipelines");
++      if (REXCVAR_GET(vulkan_pipeline_creation_low_priority)) creation_thread->set_priority(-1);
+       creation_threads_.push_back(std::move(creation_thread));
+     }
+   }

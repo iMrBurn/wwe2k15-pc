@@ -647,3 +647,68 @@ Setup: `--mnk_mode=false`, the pad hidden from SDL (`SDL_GAMECONTROLLER_IGNORE_D
 
 ## 2026-10-30 (Perf): 2-core regression = the build dir lost its release flags (not code)
 Bisect: 0.2.4 release exe (65b6971) at 2 logical cores, native demo match: 60 fps at 105 % of a core. Current head: 26 fps at 179 %. Swapping parts (scratch dirs): head exe + 0.2.4 `rexruntime.dll` slow, 0.2.4 exe + head runtime fast, so the exe. Candidates in the code (job-dispatch hook, Rendu's draw-wait for shaders: new cvar `svr_wait_for_shader` in guest_shaders.cpp, default true, A/B no difference) were not it. Profile of the slow run: the hot loop is `CopyByteSwap32Impl` compiled with stack spills everywhere (-O0 code). `CMakeCache.txt` of `port/out/build/win-amd64-release` had `CMAKE_CXX_FLAGS_RELEASE` empty (rewritten Oct 30 ~16:23 by a hand-run `cmake -S port -B ...` without the preset), so no `/O2` anywhere, even on the generated recompiled code. Fix: `build.ps1` now passes `-DCMAKE_C_FLAGS_RELEASE` / `-DCMAKE_CXX_FLAGS_RELEASE="/O2 /Ob2 /DNDEBUG"` explicitly; full rebuild (17 min). After: native 2 cores, demo match: 60 fps at 81 % of a core (worst gap 21 ms); Xenos 2 cores 51-57 fps at 114 %. RULE: never run `cmake -B out/build/win-amd64-release` by hand; use `port\tools\build.ps1` only. CHECK before packaging: `grep CMAKE_CXX_FLAGS_RELEASE port/out/build/win-amd64-release/CMakeCache.txt` must show `/O2 /Ob2 /DNDEBUG`. `sampler.ps1` takes `-proc wwe2k15_native` for the native exe.
+
+## 2026-10-30 (Perf): background threads below normal priority (idea from Jarrod's background_speed.h)
+Xenos: SDK patch `rexglue-sdk-pipeline-threads-low-priority.patch` (applies after the other patches; cvar `vulkan_pipeline_creation_low_priority`, default true, restart): the runtime "Vulkan Pipelines" workers run at THREAD_PRIORITY_BELOW_NORMAL (the startup storage replay keeps normal priority: nothing else runs yet). Native: the shader conversion workers (`wwe2k15_shader_cache.cpp`) set BELOW_NORMAL, cvar `wwe2k15_shader_low_priority` (default true). A/B on 2 logical cores, cold cache scratch copies, attract-mode demo match (same run, cvar false vs true): Xenos 58.4 vs 58.0 mean fps, worst gap 301 vs 279 ms, one gap >100 ms in both; native 59.87 vs 59.88 fps, worst gap 86 ms in both. No measurable change here (the demo needs few new pipelines and shaders); kept on because it can only help when game threads and builders compete, and it costs nothing. Late-frame handling at scene starts: not applicable, the 30 fps windows at entrances are the game's own 30 fps entrance scenes (log "title fps" 30/60), not slow motion. A "PREPARING SHADERS" step is not needed on the native path (cold native launch reaches 60 fps in 6 s, conversion runs in the background and already logs its progress) nor on Xenos (cold run: ~280 pipelines, worst gap 182 ms since the pixel-less change).
+
+## 2026-10-30 (Perf): item 4, CPU profile of the attract-mode demo match (O2 build, all cores, no key presses)
+Tools: `sampler.ps1 -proc wwe2k15_native` plus an awk aggregator over `wwe2k15_native.map` (work/dev/agg.awk) for the exe, `llvm-symbolizer` with `rexgpu-xenos.pdb` at 0x180000000 for the plugin. The game is lightly loaded: native 1v1 = about 80-115 % of ONE core in total at 60 fps, Xenos about 114 %. Findings:
+- Native, busy samples (10 % of all samples; the rest is threads waiting): flat profile. Top: `UploadPixelShaderConstants` / `UploadVertexShaderConstants` / `UploadSharedConstants` together about 10 % of busy samples (the byte-swap/denormal copy loop), then guest code: `sub_82B0F440` (a 12-instruction float-to-half pack helper, `vpkd3d128`, called from 8 places) about 3.6 %, `sub_8266C408` (matrix transform, `vmsum4fp128`) 3.4 %, and the CPU vertex-skinning family `sub_82477F80`, `sub_824780C0`, `sub_824782E0`, `sub_82478590`, `sub_82479010`, `sub_824789E0` (they call the half-pack helper and step 28-byte vertex records, the same loop Jarrod ported to native code in 2K14 as `native_skin.h`, `sub_82508738` there) about 3-4 % together.
+- Xenos GPU Commands thread: 47 % busy in the demo, of which only about a quarter is not waiting; no hot spot: `ExecutePacket`, `IssueDraw`, `UpdateBindings`, `RenderTargetCache::ChangeOwnership`, `UpdateSystemConstantValues` each 1-2 % of the thread's samples, the NVIDIA driver (`nvoglv64`) about 6 %.
+Conclusion: no single CPU hot spot is worth a risky port now. A native skinning loop (strictly bit-identical, with the register/stack leftovers Jarrod had to replay) would cut the skinning part by about 40 %, i.e. about 1-2 % of one core in a 1v1; it only matters with 6+ wrestlers on a weak CPU. Worth doing only after a profile of a 6-man / Elimination Chamber (needs keys: user-away slot). Possible cheap win first: the constant upload copy loops (`CopyByteSwap32Impl`) with SSE/AVX2 byte-swap (`pshufb`), measure on the 2-core run. Crowd draw batching could not be assessed (the demo crowd shots are rare in the samples).
+
+## 2026-10-30 (Perf): byte-swap vectorisation of the constant upload copy: no gain, not applied
+Microbenchmark `port/tools/dev/bench_byteswap.cpp` (clang -O2, x86-64-v2): the existing SSE2 loop (`CopyByteSwap32Impl`: shift/or + two 16-bit shuffles + NaN flush) against an SSSE3 `pshufb` version, bit-identical on every size 0..4096 and 4 source misalignments (0 mismatches). Speed: 256 B 9.6 vs 9.4 ns, 1 KiB 35.2 vs 29.3 ns, 4 KiB 109.7 vs 110.1 ns per call (the loop is bound by load/store throughput, about 37 B/ns). At about 300 draws per frame that is about 30 us per frame in total, so the change would save nothing measurable; the "hot loop" seen earlier in the profile was the -O0 build. Left as is (no cvar added). The upload functions' 10 % of busy samples in the O2 profile is the per-draw constant bookkeeping, not the copy.
+
+
+## 2026-10-30 (Rendu): Xenos-path texture-building draws no longer skipped while their pipeline compiles; native partial clears
+1) Xenos (blank / white DLC wrestlers, #10 #12 #15 #17). With `async_shader_compilation = true`, a draw whose pipeline is not built yet gets a placeholder pipeline and `IssueDraw` returns without drawing (`VulkanCommandProcessor::IssueDraw`, "pipeline_is_placeholder"). For scene draws that costs a frame or two. But the game composes attire, skin and damage textures ONCE when a wrestler loads, through render targets that are then resolved (and read back for Superstar Threads); a skipped one is never redone, so the model stays white or blank until the next load. DLC / Showcase / created wrestlers bring pipelines the stored set does not have, which is why they were the ones hit. Same cause as Jarrod's 2K14 v0.2.1/v0.2.2 ("texture drawings never skipped"). Fix (SDK patch `rexglue-sdk-texture-draws-wait.patch`, cvar `vulkan_texture_draws_wait`, default true): a draw with a pixel shader that writes colour into a target whose scissor is NOT 16:9 (+-5 %, the same shape rule as the readback filter) builds its real pipeline at once (`VulkanPipelineCache::SetNextPipelineSynchronous`: no placeholder, no deferral, and a placeholder already in the cache is replaced by a synchronous build). Scene, shadow (pixel-less) and 16:9 post-effect passes keep the async path, so match stutter is unchanged. Log: "Texture draw built its pipeline at once: N ms (WxH target)" (first 32 waits of 2 ms or more). Cost: a one-off pause the first time a new wrestler's texture pipelines are built (stored after that). Switch off with `vulkan_texture_draws_wait = false`.
+2) Native partial clears (dark pins #14 #16, Jarrod 2K14 v0.2.8 "tiny clear dropped"). Here the opposite was true: the native `D3DDevice_Clear` hook ignored the rects and cleared the WHOLE target. A partial clear of a texture the game builds in pieces (damage map, atlas) wiped the rest. Now the rects (up to 8, scaled to the host target with `SvrSurfaceScale`, clamped to the framebuffer) are passed to plume's `clearColor` / `clearDepthStencil`; unreadable rects clear nothing. Log: "Native: partial Clear flags ..., N rect(s)" (first 8). Whether 2K15 issues rect clears at all was not known (no draw log with clears on disk): the log line answers it.
+Test (RTX, 2026-10-30): Xenos with a cold cache (shader/pipeline storage deleted), 1v1 match: 32+ "built its pipeline at once" lines of 2-6 ms each (targets 256x256, 512x512, 1024x512, 384x64...), match at 60 fps (max gap 19 ms), wrestlers fully textured. Native 1v1: the game DOES issue partial clears (flags 0x1, one rect 0,0-528,512 every frame at the title), match at 60 fps, picture normal. Not seen here: a DLC wrestler that used to be white, a pin close-up (needs a reporter). Also native `svr_render_scale` 360 (0.5x) and 480 (2/3x) for the launcher's new choices: built, not run in game.
+
+## 2026-10-30 (Perf) Elimination Chamber 6-man, native vs Xenos, all cores vs 2 cores (scripted)
+`port/tools/dev/chamber.sh` (title -> Exhibition -> 6-MAN -> ELIMINATION CHAMBER -> random wrestlers -> PLAY; verified by screenshots).
+Key path lessons: at +90 s the game is still in the intro videos (first ENTER skips them), the title needs a second ENTER, then an
+"Xbox Live" Attention box needs SPACE; in the rules list S once = Elimination Chamber, then SPACE, SPACE, SPACE. An earlier series
+was invalid (stuck at the title, the demo match was measured instead).
+Same random-wrestler picks differ per run, so +-15 % CPU noise is expected. Cold-ish shader cache, RTX 5070 Ti, game on --monitor=2.
+
+| case | load (PLAY -> gameplay) | fps | worst gap | CPU (30 s, % of one core) |
+|---|---|---|---|---|
+| native, all cores | 9-12 s | 60 | 20-29 ms | 86 |
+| Xenos, all cores | 9-12 s | 60 | 18-34 ms | 101 |
+| native, 2 cores | 9-12 s | 60 | 23-31 ms | 110 |
+| Xenos, 2 cores | 9-12 s | 60 (one 56.6 dip, 50 ms gap) | 19-50 ms | 106 |
+
+Load time is the same on both renderers (3 s screenshot resolution); the first gameplay frame is on screen at 12 s at the latest.
+Conclusion: native holds 60 fps in a 6-man Chamber on 2 cores at about the Xenos CPU cost, with no worse gaps: no obstacle to
+making it the default on this criterion. Not tested: weak GPUs, cold native shader cache in the first match.
+
+## 2026-11-01 (Perf) AMD iGPU, Xenos exe, demo match, 2nd screen now 2560x1440 (not a regression)
+`native_vs_xenos.sh`, `--vulkan_device=1 --monitor=2`, cold cache. Last six 5 s pacing lines (fps, worst gap):
+| exe / setting | fps | worst gap |
+|---|---|---|
+| current tu4 (7f5a19f), resolution_scale=1 (720p) | 21-32 | 83-102 ms |
+| current tu4, resolution_scale=2 (1440p) | 8.5-10 | 100-350 ms |
+| 0.2.5 release exe (before 7f5a19f), scale 1 | 22-38 | 51-84 ms |
+| 0.2.5 release exe, scale 2 | 8.5-10 | 118-333 ms |
+| current tu4, scale 1, `vulkan_texture_draws_wait=false` | 20-33 | 51-84 ms |
+Same numbers with the old exe and without the texture-draws wait: 7f5a19f is NOT the cause. The cost scales with the render size
+(1440p = 3x slower than 720p) and even 720p is far from the 60 fps of the old 1080p-screen runs, so the iGPU is limited by the
+2560x1440 screen output (swapchain/present/memory bandwidth shared with the CPU) on top of the internal resolution; the exe makes a
+2560x1440 swapchain on either monitor now. Not isolated further (no 1080p output available). Native on this iGPU: 60 fps.
+
+## 2026-11-01 (Perf) Native renderer on the AMD iGPU (Radeon Graphics, Vulkan 1.4), demo match, cold cache, 2nd screen 2560x1440
+`native_vs_xenos.sh ... native --monitor=2 --svr_gpu_device="AMD Radeon(TM) Graphics" --svr_render_scale=N` (GPU confirmed in the log):
+| render height | fps | worst gap | CPU (% of one core) | work ms/frame (avg) | gpu wait |
+|---|---|---|---|---|---|
+| 1080 | 59.6-60 | 32-36 ms | 80 | 5.1-5.5 | 0.4 ms |
+| 720 | 60 | 19-32 ms | 78 | 5.7-7.6 | 0 |
+| 540 | 60 | 26-29 ms | 83 | 4.4 | 0 |
+| 480 | 60 | 25-29 ms | 68 | 4.2 | 0 |
+The native renderer holds 60 fps on this iGPU even at 1080p (GPU not the limit: gpu wait ~0), where the Xenos exe gets 9-32 fps.
+540p/480p are therefore only needed on much weaker GPUs; they cost nothing here. Scripts take about 85 s to the demo match.
+
+Same day, Elimination Chamber 6-man, native, AMD iGPU (default render size, `chamber.sh ig_ch_n ... --svr_gpu_device="AMD Radeon(TM) Graphics"`):
+loading screen about 10-13 s after PLAY, then 59.9 fps, worst gap 35-38 ms, CPU 85 % of one core, work 4.0-4.4 ms/frame, gpu wait 0, 1 hitch
+over 25 ms per 10 s. The iGPU is not a limit for the native renderer in the heaviest mode either.

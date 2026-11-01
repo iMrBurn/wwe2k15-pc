@@ -44,12 +44,37 @@ namespace {
 u32 D3DDevice_Clear_hook([[maybe_unused]] u32 device, [[maybe_unused]] u32 count,
                          [[maybe_unused]] u32 rects, u32 flags, u32 color, f64 z,
                          u32 /*z_gpr_slot*/, u32 stencil, u32 /*edram_clear*/) {
+  plume::RenderRect host_rects[8];
+  u32 host_rect_count = 0;
 #if defined(SVR_NATIVE_RENDERER)
   bd::gpu::SvrDrawLogClear(device, count, rects, flags, color);
-  if (const auto *dev = bd::mem::at<const bd::gpu::D3DDevice>(device))
+  const auto *dev = bd::mem::at<const bd::gpu::D3DDevice>(device);
+  if (dev)
     bd::gpu::SvrNoteGameClear(u32(dev->renderTargetShadow[0]), float(z), stencil);
+  // D3D Clear with rects clears only those (guest pixels; the host target is scaled).
+  if (count && rects) {
+    const float k = dev ? bd::gpu::SvrSurfaceScale(u32(dev->renderTargetShadow[0])) : 1.0f;
+    const auto sc = [k](i32 v) { return i32(float(v) * k + 0.5f); };
+    for (u32 i = 0; i < count && host_rect_count < 8; ++i) {
+      const auto *r = bd::mem::try_at<const bd::gpu::D3DRect>(rects + i * 16u);
+      if (!r)
+        break;
+      host_rects[host_rect_count++] =
+          plume::RenderRect{sc(i32(r->left)), sc(i32(r->top)), sc(i32(r->right)),
+                            sc(i32(r->bottom))};
+    }
+    static u32 rect_clears_logged = 0;
+    if (host_rect_count && rect_clears_logged < 8) {
+      ++rect_clears_logged;
+      BD_INFO("Native: partial Clear flags 0x{:X}, {} rect(s), first {},{}-{},{} (host)", flags,
+              count, host_rects[0].left, host_rects[0].top, host_rects[0].right,
+              host_rects[0].bottom);
+    }
+    if (!host_rect_count)
+      return 0;  // unreadable rects: clear nothing rather than the whole target
+  }
 #endif
-  bd::gpu::Video::Clear(flags, color, float(z), stencil);
+  bd::gpu::Video::Clear(flags, color, float(z), stencil, host_rects, host_rect_count);
   return 0;
 }
 

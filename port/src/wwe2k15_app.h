@@ -111,7 +111,8 @@ class Wwe2k15App : public rex::ReXApp {
     if (!bd::gpu::Video::CreateHostDevice(window())) {
       // GPU or driver without the Vulkan 1.2 features re:Blue needs (bufferDeviceAddress,
       // descriptor indexing...): device.cpp has logged which. Say so, point to the normal
-      // renderer, and quit instead of running behind a black window.
+      // renderer, and quit instead of running behind a black window. The launcher looks for
+      // "could not create the host device" in the log to fall back to wwe2k15.exe: keep it.
       REXLOG_ERROR("Native renderer: could not create the host device (Vulkan unavailable or "
                    "too old); use the normal renderer (untick \"Rendu natif\" in the launcher)");
       rex::FlushLogging();

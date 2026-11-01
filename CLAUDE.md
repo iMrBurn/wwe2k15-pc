@@ -14,9 +14,13 @@ Code, commits and docs in English.
 - **No game data in Git or in any package**: no xex/xexp, iso, .pac, .bk2, sound, textures,
   `port/generated/`, dumps, Title Update or DLC, no download links for them.
 - GitHub: Claude commits and pushes itself from `C:\Dev\wwe2k15-pc2` (branch `tu4`; `main` gets
-  merges from `tu4`). Tags `v<VERSION>` are pushed by Claude. **Releases (page + zip) are created by
-  the user on the website**; never use the GitHub API with stored credentials. End commit messages
+  merges from `tu4`). Tags `v<VERSION>` are pushed by Claude. End commit messages
   with the Co-Authored-By line given by the harness.
+- **GitHub is managed by Main alone** (user's decision, 2026-11-01), through the built-in browser, which is
+  signed in as iMrBurn (`gh` is not installed). Main reads new issues, replies (English, polite, ask for GPU/log/version),
+  closes fixed ones, creates releases (page, notes, zip). Never delete issues/comments, never touch repo settings,
+  access or visibility, never store or type credentials. Other chats do not post on GitHub: they tell Main.
+  Discord messages stay with the user (Main drafts them).
 - Ask before any download. Never touch Windows security settings.
 - Never modify the user's original game folders (`Desktop\WWE2K15`, `Desktop\dlc 2k15`,
   `Desktop\tu00000004_00000000`). Work in `C:\Dev\games\WWE2K15-TU4` (hard links + TU + DLC).
