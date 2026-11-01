@@ -697,3 +697,14 @@ Same numbers with the old exe and without the texture-draws wait: 7f5a19f is NOT
 (1440p = 3x slower than 720p) and even 720p is far from the 60 fps of the old 1080p-screen runs, so the iGPU is limited by the
 2560x1440 screen output (swapchain/present/memory bandwidth shared with the CPU) on top of the internal resolution; the exe makes a
 2560x1440 swapchain on either monitor now. Not isolated further (no 1080p output available). Native on this iGPU: 60 fps.
+
+## 2026-11-01 (Perf) Native renderer on the AMD iGPU (Radeon Graphics, Vulkan 1.4), demo match, cold cache, 2nd screen 2560x1440
+`native_vs_xenos.sh ... native --monitor=2 --svr_gpu_device="AMD Radeon(TM) Graphics" --svr_render_scale=N` (GPU confirmed in the log):
+| render height | fps | worst gap | CPU (% of one core) | work ms/frame (avg) | gpu wait |
+|---|---|---|---|---|---|
+| 1080 | 59.6-60 | 32-36 ms | 80 | 5.1-5.5 | 0.4 ms |
+| 720 | 60 | 19-32 ms | 78 | 5.7-7.6 | 0 |
+| 540 | 60 | 26-29 ms | 83 | 4.4 | 0 |
+| 480 | 60 | 25-29 ms | 68 | 4.2 | 0 |
+The native renderer holds 60 fps on this iGPU even at 1080p (GPU not the limit: gpu wait ~0), where the Xenos exe gets 9-32 fps.
+540p/480p are therefore only needed on much weaker GPUs; they cost nothing here. Scripts take about 85 s to the demo match.
