@@ -683,3 +683,17 @@ Same random-wrestler picks differ per run, so +-15 % CPU noise is expected. Cold
 Load time is the same on both renderers (3 s screenshot resolution); the first gameplay frame is on screen at 12 s at the latest.
 Conclusion: native holds 60 fps in a 6-man Chamber on 2 cores at about the Xenos CPU cost, with no worse gaps: no obstacle to
 making it the default on this criterion. Not tested: weak GPUs, cold native shader cache in the first match.
+
+## 2026-11-01 (Perf) AMD iGPU, Xenos exe, demo match, 2nd screen now 2560x1440 (not a regression)
+`native_vs_xenos.sh`, `--vulkan_device=1 --monitor=2`, cold cache. Last six 5 s pacing lines (fps, worst gap):
+| exe / setting | fps | worst gap |
+|---|---|---|
+| current tu4 (7f5a19f), resolution_scale=1 (720p) | 21-32 | 83-102 ms |
+| current tu4, resolution_scale=2 (1440p) | 8.5-10 | 100-350 ms |
+| 0.2.5 release exe (before 7f5a19f), scale 1 | 22-38 | 51-84 ms |
+| 0.2.5 release exe, scale 2 | 8.5-10 | 118-333 ms |
+| current tu4, scale 1, `vulkan_texture_draws_wait=false` | 20-33 | 51-84 ms |
+Same numbers with the old exe and without the texture-draws wait: 7f5a19f is NOT the cause. The cost scales with the render size
+(1440p = 3x slower than 720p) and even 720p is far from the 60 fps of the old 1080p-screen runs, so the iGPU is limited by the
+2560x1440 screen output (swapchain/present/memory bandwidth shared with the CPU) on top of the internal resolution; the exe makes a
+2560x1440 swapchain on either monitor now. Not isolated further (no 1080p output available). Native on this iGPU: 60 fps.
