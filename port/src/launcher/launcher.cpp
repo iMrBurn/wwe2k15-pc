@@ -62,6 +62,7 @@ fs::file_time_type launch_time{};
 std::chrono::steady_clock::time_point launch_start{};
 bool launched_native = false;  // the running (or last) game is the native renderer
 std::string fallback_note;     // shown when the native renderer failed to start and the normal one was launched
+SDL_Gamepad* pad = nullptr;  // the connected gamepad (SDL), if any
 std::string start_failure;  // plain-language reason the game stopped right after starting
 bool disable_obs_vulkan_hook = true;
 
@@ -563,7 +564,6 @@ void BrowseGame() {
   dialog->Release();
 }
 
-SDL_Gamepad* pad = nullptr;
 bool keyboard_forced = false;  // this launch plays on the keyboard because no gamepad was found
 
 void LaunchGame(bool automatic = false) {
