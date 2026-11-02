@@ -44,7 +44,10 @@ c'est normal.
   réessayer. Le rendu normal choisit tout seul un mode plus léger sur les cartes AMD.
 - Préréglage PERFORMANCE = coût minimal pour le rendu normal.
 - Clavier : tu peux taper les noms dans les écrans de texte du jeu avec ton clavier. Pour jouer,
-  une manette (Xbox) est conseillée ; le clavier marche aussi (voir les touches dans RÉGLAGES).
+  une manette (Xbox) est conseillée ; le clavier marche aussi. L'onglet CONTRÔLES permet de
+  changer chaque touche (clique sur une action, appuie sur la touche voulue ; préréglages
+  QWERTY / AZERTY / flèches + pavé et bouton RÉINITIALISER). Les touches changées en jeu avec
+  F4 > Save to config sont conservées aussi.
 
 
 4. ÇA NE DÉMARRE PAS ? VÉRIFIE D'ABORD CECI

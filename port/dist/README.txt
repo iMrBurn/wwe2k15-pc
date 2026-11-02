@@ -42,7 +42,9 @@ The first start is longer (installing the DLC, preparing shaders): wait, it is n
   The normal renderer on AMD cards picks a lighter mode by itself.
 - PERFORMANCE preset = lowest cost for the normal renderer.
 - Keyboard: you can type names in the game's text screens with your keyboard. To play,
-  a controller is recommended (Xbox pad); the keyboard works too (see the Controls in SETTINGS).
+  a controller is recommended (Xbox pad); the keyboard works too. The CONTROLS tab lets you
+  remap every key (click an action, press the key you want; QWERTY / AZERTY / arrows + numpad
+  presets and a RESET button). Keys remapped in game with F4 > Save to config are kept too.
 
 
 4. IT DOES NOT START? CHECK THIS FIRST
