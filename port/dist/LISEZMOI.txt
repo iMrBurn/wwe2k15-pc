@@ -33,11 +33,15 @@ c'est normal.
 
 3. GRAPHISMES : QUOI COCHER
 - PC normal : laisse les réglages par défaut (720p pour commencer ; monte si ton PC est costaud).
-- PC faible, portable, carte graphique intégrée (Intel UHD, AMD Vega...) : coche
-  GRAPHISMES > « Rendu natif (expérimental) ». Sur un GPU intégré AMD on passe de 15-40 fps
-  à 60 fps stables. Laisse la résolution sur AUTO ou 720p/540p.
-- Si le rendu natif se comporte mal (écran noir, défaut d'affichage, plantage), décoche-le
-  et utilise le rendu normal. Le rendu normal choisit tout seul un mode plus léger sur les cartes AMD.
+- Le rendu natif est activé par défaut depuis la version 0.3 (GRAPHISMES > « Rendu natif » est coché).
+  Il est bien plus léger sur les PC faibles, portables et cartes graphiques intégrées (Intel UHD,
+  AMD Vega...) : sur un GPU intégré AMD on passe de 15-40 fps à 60 fps stables. Laisse la résolution
+  sur AUTO, ou 720p/540p/480p/360p sur un PC très faible. Le premier lancement convertit les shaders
+  du jeu (quelques secondes). S'il ne peut pas démarrer sur ton PC, le lanceur passe tout seul au
+  rendu normal.
+- Pour revenir toi-même au rendu normal (émulation du GPU Xbox), par exemple après un défaut
+  (écran noir, mauvaises textures, plantage), décoche GRAPHISMES > « Rendu natif ». Recoche-le pour
+  réessayer. Le rendu normal choisit tout seul un mode plus léger sur les cartes AMD.
 - Préréglage PERFORMANCE = coût minimal pour le rendu normal.
 - Clavier : tu peux taper les noms dans les écrans de texte du jeu avec ton clavier. Pour jouer,
   une manette (Xbox) est conseillée ; le clavier marche aussi (voir les touches dans RÉGLAGES).
@@ -47,8 +51,9 @@ c'est normal.
 - Le lanceur affiche une note rouge sur la page JOUER : suis-la (souvent la TU4 manque).
 - Message « Failed to load XEX ... C0000001/C0000002 » : ta Title Update 4 manque ou n'est pas celle
   de ta copie du jeu, ou les fichiers du jeu sont incomplets / abîmés.
-- Le jeu s'ouvre et se ferme aussitôt : mets à jour le pilote de ta carte graphique, puis essaie
-  le rendu natif (ou décoche-le). Envoie-nous logs\wwe2k15_*.log et le crash_*.txt.
+- Le jeu s'ouvre et se ferme aussitôt : mets à jour le pilote de ta carte graphique (le rendu natif
+  demande Vulkan 1.2 ; s'il ne peut pas démarrer, le lanceur passe tout seul au rendu normal).
+  Envoie-nous logs\wwe2k15_*.log et le crash_*.txt.
 - Rien ne se passe en cliquant sur JOUER : l'antivirus bloque peut-être ; ajoute le dossier en exception.
 - Ne lance PAS le jeu depuis le zip, et pas deux copies en même temps.
 

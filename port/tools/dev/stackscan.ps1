@@ -11,8 +11,8 @@ public static class SS {
   [DllImport("kernel32", CharSet=CharSet.Unicode)] public static extern int GetThreadDescription(IntPtr h, out IntPtr d);
 }
 "@
-$p = Get-Process wwe2k15
-$m = $p.Modules | Where-Object { $_.ModuleName -eq "wwe2k15.exe" }
+$p = Get-Process $(if ($env:SCAN_PROC) { $env:SCAN_PROC } else { "wwe2k15" })
+$m = $p.Modules | Where-Object { $_.ModuleName -eq ($(if ($env:SCAN_PROC) { $env:SCAN_PROC } else { "wwe2k15" }) + ".exe") }
 $base = [uint64]$m.BaseAddress.ToInt64(); $end = $base + [uint64]$m.ModuleMemorySize
 $ph = [SS]::OpenProcess(0x0010 -bor 0x0400, $false, $p.Id)
 $raw = [Runtime.InteropServices.Marshal]::AllocHGlobal(1232 + 16); $buf = [IntPtr](([int64]$raw + 15) -band -16)
@@ -27,7 +27,7 @@ foreach ($t in $p.Threads) {
   [void][SS]::ReadProcessMemory($ph, [IntPtr]$rsp, $stack, 65536, [ref]$r)
   [void][SS]::ResumeThread($h)
   $hits = @()
-  for ($i = 0; $i -lt 8192 -and $hits.Count -lt 6; $i++) { $v = [BitConverter]::ToUInt64($stack, $i*8); if ($v -ge $base -and $v -lt $end) { $hits += ("0x{0:X}" -f ($v - $base + 0x140000000)) } }
+  for ($i = 0; $i -lt 8192 -and $hits.Count -lt $(if ($env:SCAN_HITS) { [int]$env:SCAN_HITS } else { 6 }); $i++) { $v = [BitConverter]::ToUInt64($stack, $i*8); if ($v -ge $base -and $v -lt $end) { $hits += ("0x{0:X}" -f ($v - $base + 0x140000000)) } }
   if ($hits.Count) { $lines += "T $($t.Id) $n"; $lines += $hits }
 }
 $lines | Set-Content $out

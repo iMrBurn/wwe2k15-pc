@@ -1,6 +1,6 @@
 # WWE 2K15 PC
 
-Unofficial Windows PC port of **WWE 2K15 (Xbox 360)**, made by statically recompiling the game's PowerPC code with [ReXGlue](https://github.com/rexglue/rexglue-sdk). Two renderers are included: the Xbox GPU emulation (Vulkan) and an **experimental native renderer** (Vulkan, based on the work of the WWE '12 PC port, re:Blue and plume) that makes weak PCs and integrated GPUs run the game at 60 fps.
+Unofficial Windows PC port of **WWE 2K15 (Xbox 360)**, made by statically recompiling the game's PowerPC code with [ReXGlue](https://github.com/rexglue/rexglue-sdk). Two renderers are included: the Xbox GPU emulation (Vulkan) and a **native renderer** (Vulkan, based on the work of the WWE '12 PC port, re:Blue and plume), now the default, that makes weak PCs and integrated GPUs run the game at 60 fps.
 
 **This repository contains project code and documentation only. No game data is included or linked.** You need your own copy of the Xbox 360 game and its Title Update 4. Please do not ask for game files in the issues.
 
@@ -18,13 +18,13 @@ Get the latest release (a `.zip`) from the **[releases page](https://github.com/
 4. `SETTINGS > ADD TU / DLC...`: pick the **Title Update 4** package (`tu00000004_00000000`). Add your DLC if you have them.
 5. On the `PLAY` page, *Game* and *Title Update* must be green (a red note tells you what is missing), then click `PLAY`. The first start takes longer: that is normal.
 
-**Weak PC, laptop or integrated GPU?** Tick `GRAPHICS > "Rendu natif (expérimental)"`. On an AMD integrated GPU a match goes from 15-40 fps to a steady 60. If it misbehaves, untick it.
+**Native renderer (default since 0.3).** The launcher starts the native renderer, which is much lighter on weak PCs, laptops and integrated GPUs (on an AMD integrated GPU a match goes from 15-40 fps to a steady 60). The first start converts your game's shaders (a few seconds). If it cannot start on your PC, the launcher falls back to the normal renderer by itself. To go back to the normal (Xbox GPU emulation) renderer yourself, untick `GRAPHICS > "Rendu natif"`; tick it again to retry.
 
 ### It does not start?
 
 - A red note on the `PLAY` page: follow it (usually the Title Update 4 is missing).
 - `Failed to load XEX ... C0000001`: the Title Update 4 is missing or does not match your copy of the game, or the game files are incomplete.
-- The game closes at once: update your graphics driver and try the native renderer (or untick it).
+- The game closes at once: update your graphics driver (the native renderer needs Vulkan 1.2); the launcher then switches to the normal renderer by itself.
 - Read the full guide in [`port/dist/README.txt`](port/dist/README.txt) ([français](port/dist/LISEZMOI.txt)).
 
 ## Requirements

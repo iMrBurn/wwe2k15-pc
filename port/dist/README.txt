@@ -32,11 +32,14 @@ The first start is longer (installing the DLC, preparing shaders): wait, it is n
 
 3. GRAPHICS: WHAT TO TICK
 - Normal PC: leave the defaults (720p is a good start; raise it if your PC is strong).
-- Weak PC, laptop, integrated graphics (Intel UHD, AMD Vega...): tick
-  GRAPHICS > "Rendu natif (expérimental)". On an AMD integrated GPU it goes from 15-40 fps
-  to a steady 60. Keep the resolution on AUTO or 720p/540p.
-- If the native renderer does something wrong (black screen, glitch, crash), untick it
-  and use the normal renderer. The normal renderer on AMD cards picks a lighter mode by itself.
+- The native renderer is the default since version 0.3 (GRAPHICS > "Rendu natif" is ticked). It is much
+  lighter on weak PCs, laptops and integrated graphics (Intel UHD, AMD Vega...): on an AMD
+  integrated GPU it goes from 15-40 fps to a steady 60. Keep the resolution on AUTO, or
+  720p/540p/480p/360p on a very weak PC. The first start converts the game's shaders (a few seconds).
+  If it cannot start on your PC, the launcher switches to the normal renderer by itself.
+- To go back to the normal renderer (Xbox GPU emulation) yourself, for example after a glitch
+  (black screen, wrong textures, crash), untick GRAPHICS > "Rendu natif". Tick it again to retry.
+  The normal renderer on AMD cards picks a lighter mode by itself.
 - PERFORMANCE preset = lowest cost for the normal renderer.
 - Keyboard: you can type names in the game's text screens with your keyboard. To play,
   a controller is recommended (Xbox pad); the keyboard works too (see the Controls in SETTINGS).
@@ -46,8 +49,9 @@ The first start is longer (installing the DLC, preparing shaders): wait, it is n
 - The launcher shows a red note on the PLAY page: follow it (usually TU4 missing).
 - Message "Failed to load XEX ... C0000001/C0000002": your Title Update 4 is missing or is not
   the one for your copy of the game, or the game files are incomplete/corrupted.
-- The game opens and closes at once: update your graphics driver, then try the native
-  renderer (or untick it). Send us logs\wwe2k15_*.log and the crash_*.txt.
+- The game opens and closes at once: update your graphics driver (the native renderer needs
+  Vulkan 1.2; if it cannot start, the launcher switches to the normal renderer by itself).
+  Send us logs\wwe2k15_*.log and the crash_*.txt.
 - Nothing happens when you click PLAY: antivirus may block it; add the folder as an exception.
 - Do NOT start the game from inside the zip, and do not run two copies at the same time.
 

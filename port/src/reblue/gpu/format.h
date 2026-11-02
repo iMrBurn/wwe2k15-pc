@@ -108,7 +108,8 @@ enum class D3DDeclType : u32 {
 // D3DFMT / Xenos dword -> plume format. UNKNOWN (logged) for unmapped values.
 // Takes the raw guest word: the value is untrusted, so the D3DFormat cast
 // happens inside, past the point where an unmapped word is caught.
-plume::RenderFormat ConvertGuestFormat(u32 guest_format);
+// log_unknown = false: a probe whose caller has its own fallback (no error line).
+plume::RenderFormat ConvertGuestFormat(u32 guest_format, bool log_unknown = true);
 
 // Whitelist of RT-capable formats ConvertGuestFormat emits.
 bool IsRenderTargetCapable(plume::RenderFormat format);

@@ -204,7 +204,7 @@ bool BCFormatFromGuestByte(u32 guest_format, plume::RenderFormat &out) {
   }
 }
 
-plume::RenderFormat ConvertGuestFormat(u32 guest_format) {
+plume::RenderFormat ConvertGuestFormat(u32 guest_format, bool log_unknown) {
   switch (static_cast<D3DFormat>(guest_format)) {
   case D3DFormat::kA16B16G16R16F:
   case D3DFormat::kA16B16G16R16FAlt:
@@ -285,9 +285,10 @@ plume::RenderFormat ConvertGuestFormat(u32 guest_format) {
 #endif
     // Never invent a format: callers make RT capability decisions off the
     // result. UNKNOWN forces a clean failure at the actual problem site.
-    BD_ERROR(
-        "ConvertGuestFormat: unknown guest format 0x{:08X}, returning UNKNOWN",
-        guest_format);
+    if (log_unknown)
+      BD_ERROR(
+          "ConvertGuestFormat: unknown guest format 0x{:08X}, returning UNKNOWN",
+          guest_format);
     return plume::RenderFormat::UNKNOWN;
   }
 }

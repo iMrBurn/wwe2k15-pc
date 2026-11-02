@@ -54,6 +54,11 @@ REXCVAR_DEFINE_BOOL(svr_seed_gpu_textures, true, "SvR",
 REXCVAR_DEFINE_BOOL(svr_resolve_readback, true, "SvR",
                     "Copy the first resolves of each work texture back to the game's memory, as "
                     "the Xbox does (custom attires are built from it).");
+REXCVAR_DEFINE_INT32(svr_readback_streak, 32, "SvR",
+                     "Resolves of one work texture copied back in a row before the copies pause "
+                     "until it rests (then it is copied once more). Was 6: attires the game builds "
+                     "over more resolves stayed white")
+    .range(1, 1000);
 REXCVAR_DEFINE_BOOL(svr_rebuild_target_mips, true, "SvR",
                     "Rebuild the smaller mip levels of GPU-painted textures (wrestler skins: eyes, "
                     "teeth, blood) from their first level after each update.");
@@ -467,7 +472,7 @@ GuestTexture *SvrResolveTarget(u32 texture_va, float scale) {
   u32 host_format = 0xC0000000u | u32(fetch.format);
   // That includes the 1x1 ones each wrestler gets at match load (one pixel drawn into a 1x1
   // surface, then resolved), sampled by every 3D draw: without them skin turns flat red.
-  if (ConvertGuestFormat(host_format) == plume::RenderFormat::UNKNOWN)
+  if (ConvertGuestFormat(host_format, false) == plume::RenderFormat::UNKNOWN)
     host_format = 0xC0000000u | u32(rex::graphics::xenos::TextureFormat::k_8_8_8_8);
   // Cube targets (the environment map WWE '12 renders each frame for wrestlers' reflections,
   // resolved face by face) need host cubes: as 2D textures the faces were lost and skin and eyes
@@ -536,8 +541,12 @@ void SvrAfterResolve(u32 texture_va, GuestTexture *dst, u32 level, u32 face) {
     return;
   // Per-frame targets (shadows, lighting, the scene) are resolved on every frame; the composites
   // the CPU reads are built at load, or now and then in a match. Only those are worth the GPU
-  // wait: a target resolved on more than kMaxStreak frames in a row is skipped until it rests.
-  constexpr u64 kMaxStreak = 6;
+  // wait: a target resolved on more than svr_readback_streak frames in a row is skipped until it
+  // rests, then read back once (its final content). Issue #27: attires resolved part by part
+  // (a 2048x1024 one every ~8 frames on a Radeon 610M) went past the old limit of 6, the later
+  // parts never reached the game's memory and the CPU-compressed attire came out white. Same
+  // bug and fix as Jarrod's WWE 2K14 port (v0.2.10: 4 -> 32 frames).
+  const u64 max_streak = u64(std::max(1, REXCVAR_GET(svr_readback_streak)));
   constexpr u64 kRestFrames = 30;
   {
     std::lock_guard lock(g_mutex);
@@ -559,8 +568,15 @@ void SvrAfterResolve(u32 texture_va, GuestTexture *dst, u32 level, u32 face) {
     else if (frame != st.last_frame)
       ++st.frames;
     st.last_frame = frame;
-    if (st.frames > kMaxStreak)
+    if (st.frames > max_streak) {
+      // Read the final content back once the target rests (SvrProcessDeferredReadbacks).
+      g_deferred_readbacks[texture_va] = DeferredReadback{dst, frame};
+      static u32 s_logged = 0;
+      if (s_logged < 16 && st.frames == max_streak + 1 && ++s_logged)
+        BD_INFO("SvR target 0x{:08X}: {}x{} resolved on {} frames in a row, read back when it "
+                "rests", texture_va, dst->width, dst->height, st.frames);
       return;
+    }
   }
   ReadBackTarget(texture_va, dst);
 }

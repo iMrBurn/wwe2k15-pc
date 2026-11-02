@@ -61,15 +61,17 @@ Updater updater;
 fs::file_time_type launch_time{};
 std::chrono::steady_clock::time_point launch_start{};
 bool launched_native = false;  // the running (or last) game is the native renderer
+bool migration_note = false;   // this launch moved an install to the native renderer (shown once)
 std::string fallback_note;     // shown when the native renderer failed to start and the normal one was launched
 SDL_Gamepad* pad = nullptr;  // the connected gamepad (SDL), if any
 std::string start_failure;  // plain-language reason the game stopped right after starting
 bool disable_obs_vulkan_hook = true;
 
 // Game options passed to wwe2k15.exe as cvars (saved in launcher-options.ini).
-// Whether a launcher without a saved choice starts on the native renderer. Off until the native
-// renderer is validated as the default; the saved option (native=0/1) always wins.
-constexpr bool kNativeByDefault = false;
+// Whether a launcher without a saved choice starts on the native renderer. Launchers from before
+// 0.3 saved native=0 as a default, not a choice: LoadOptions moves those installs over once
+// (native_default_migrated=1), after which the saved option always wins.
+constexpr bool kNativeByDefault = true;
 
 struct Options {
   bool fullscreen = true;
@@ -334,7 +336,7 @@ void SaveOptions() {
   if (!out) return;
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
-      << "\nnative=" << opt.native << "\nnative_resolution=" << opt.native_resolution << "\ngpu=" << opt.gpu
+      << "\nnative_default_migrated=1\nnative=" << opt.native << "\nnative_resolution=" << opt.native_resolution << "\ngpu=" << opt.gpu
       << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
@@ -404,12 +406,16 @@ void SyncSavedKeys() {
 std::wstring KeybindArgs();  // defined with the other launch arguments
 
 void LoadOptions() {
+  std::error_code exists_ec;
+  const bool ini_exists = fs::exists(root / L"launcher-options.ini", exists_ec);
+  bool migrated = false;
   std::ifstream in(root / L"launcher-options.ini");
   std::string line;
   while (std::getline(in, line)) {
     const size_t eq = line.find('=');
     if (eq == std::string::npos) continue;
     const std::string k = line.substr(0, eq);
+    if (k == "native_default_migrated") migrated = true;
     const int v = std::atoi(line.c_str() + eq + 1);
     if (k == "gpu") {
       opt.gpu = line.substr(eq + 1);
@@ -447,6 +453,15 @@ void LoadOptions() {
       case LANG_ITALIAN: opt.language = 6; break;
       default: opt.language = 1; break;
     }
+  }
+  // One-time move to the native renderer for installs that predate it being the default. A later
+  // untick, or an automatic fallback (both save native=0 with the key present), is respected.
+  if (!migrated) {
+    if (ini_exists && !opt.native) {
+      opt.native = true;
+      migration_note = true;
+    }
+    SaveOptions();
   }
   LoadSavedKeys();
   SyncSavedKeys();
@@ -861,9 +876,13 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
                  tr("Premier lancement du rendu natif : préparation des shaders, quelques secondes."));
   }
   if (!status.empty()) d->AddText(ui_font, 19, {o.x + 48, o.y + 416}, kWhite, status.c_str());
+  if (migration_note && UseNative())
+    d->AddText(ui_font, 17, {o.x + 48, o.y + 470 + (fallback_note.empty() ? 0.0f : 40.0f)}, kGold,
+               tr("Le rendu natif est maintenant activé par défaut (plus fluide sur la plupart des PC). Si quelque chose va mal : GRAPHISMES > décoche Rendu natif."),
+               nullptr, area.x - 96);
   if (!fallback_note.empty()) {
     const float wrap = area.x - 96;
-    d->AddText(ui_font, 17, {o.x + 48, o.y + 500}, kGold, fallback_note.c_str(), nullptr, wrap);
+    d->AddText(ui_font, 17, {o.x + 48, o.y + 470}, kGold, fallback_note.c_str(), nullptr, wrap);
   }
   if (running && keyboard_forced)
     d->AddText(ui_font, 17, {o.x + 48, o.y + 446}, kGold,
@@ -1078,7 +1097,7 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   ImGui::SetCursorScreenPos({col2, y});
   const bool native_present = NativeAvailable();
   ImGui::BeginDisabled(!native_present);
-  if (ImGui::Checkbox(tr("Rendu natif (expérimental)"), &opt.native)) {
+  if (ImGui::Checkbox(tr("Rendu natif"), &opt.native)) {
     SaveOptions();
   }
   ImGui::EndDisabled();

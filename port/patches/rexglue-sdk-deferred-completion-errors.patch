@@ -1,0 +1,56 @@
+diff --git a/include/rex/system/xam/content_manager.h b/include/rex/system/xam/content_manager.h
+--- a/include/rex/system/xam/content_manager.h
++++ b/include/rex/system/xam/content_manager.h
+@@ -69,7 +69,25 @@ struct XCONTENT_DATA {
+ 
+   std::string file_name() const {
+     std::string value;
+-    value.assign(file_name_raw, std::min(strlen(file_name_raw), countof(file_name_raw)));
++    value.assign(file_name_raw, strnlen(file_name_raw, countof(file_name_raw)));
++    // The name becomes a host path, and the UTF-8 path helpers throw on invalid bytes (a crash
++    // in the deferred completion of XamContentCreate). Bytes that do not form valid UTF-8 (stale
++    // buffer bytes, a sequence cut at 42 chars) become '_', so the same raw name always maps to
++    // the same folder.
++    for (size_t i = 0; i < value.size();) {
++      const auto c = static_cast<unsigned char>(value[i]);
++      const size_t n = c < 0x80 ? 1 : (c & 0xE0) == 0xC0 ? 2 : (c & 0xF0) == 0xE0 ? 3
++                                     : (c & 0xF8) == 0xF0 ? 4 : 0;
++      bool ok = n != 0 && i + n <= value.size() && (n != 2 || c >= 0xC2);
++      for (size_t k = 1; ok && k < n; ++k) {
++        ok = (static_cast<unsigned char>(value[i + k]) & 0xC0) == 0x80;
++      }
++      if (!ok) {
++        value[i++] = '_';
++        continue;
++      }
++      i += n;
++    }
+     return value;
+   }
+ 
+diff --git a/src/system/kernel_state.cpp b/src/system/kernel_state.cpp
+--- a/src/system/kernel_state.cpp
++++ b/src/system/kernel_state.cpp
+@@ -1230,9 +1230,20 @@ void KernelState::CompleteOverlappedDeferredEx(
+         REXSYS_DEBUG("Deferred overlapped {:08X}: sleeping {}ms", overlapped_ptr,
+                      kDeferredOverlappedDelayMillis);
+         rex::thread::Sleep(std::chrono::milliseconds(kDeferredOverlappedDelayMillis));
+-        uint32_t extended_error, length;
++        uint32_t extended_error = 0, length = 0;
+         REXSYS_DEBUG("Deferred overlapped {:08X}: running completion", overlapped_ptr);
+-        auto result = completion_callback(extended_error, length);
++        X_RESULT result;
++        try {
++          result = completion_callback(extended_error, length);
++        } catch (const std::exception& e) {
++          // The title gets a failed call it can handle (as on a console when a save or content
++          // operation fails) instead of the whole game closing.
++          REXSYS_ERROR("Deferred overlapped {:08X}: completion threw '{}', failing the call",
++                       overlapped_ptr, e.what());
++          result = X_ERROR_FUNCTION_FAILED;
++          extended_error = X_HRESULT_FROM_WIN32(result);
++          length = 0;
++        }
+         REXSYS_DEBUG("Deferred overlapped {:08X}: completing with result {:08X}", overlapped_ptr,
+                      result);
+         CompleteOverlappedEx(overlapped_ptr, result, extended_error, length);

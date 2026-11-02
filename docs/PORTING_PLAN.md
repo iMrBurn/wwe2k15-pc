@@ -712,3 +712,53 @@ The native renderer holds 60 fps on this iGPU even at 1080p (GPU not the limit: 
 Same day, Elimination Chamber 6-man, native, AMD iGPU (default render size, `chamber.sh ig_ch_n ... --svr_gpu_device="AMD Radeon(TM) Graphics"`):
 loading screen about 10-13 s after PLAY, then 59.9 fps, worst gap 35-38 ms, CPU 85 % of one core, work 4.0-4.4 ms/frame, gpu wait 0, 1 hitch
 over 25 ms per 10 s. The iGPU is not a limit for the native renderer in the heaviest mode either.
+
+## 2026-11-01 (Perf) Chamber loading screen profile, native renderer (`chamber.sh` with `LOADPROF=cpu|samp|stack`)
+- 14 s after PLAY: busiest game thread 14 % of a core, GPU thread 8 %, whole process under 50 % of a core: the load is NOT CPU bound.
+- RIP samples (6 busiest threads, 5352 samples): 96.7 % in ntdll (waits), 2.4 % game code, 0.5 % NVIDIA driver.
+- Stack scan: the main game thread and most helper threads sit in the guest wait wrapper `sub_82263CA0` (event waits through
+  `sub_82262300` / `sub_82B36418`), i.e. they move in step with frames: same behaviour as WWE '12, where the loader works only a
+  few ms per 16.7 ms frame (WWE '12 fix: raise the loader's per-frame budget, float at this+196, hook of `sub_82819258`,
+  load 12 s -> 6 s; see wwe12-pc `src/native/wwe12_loading.cpp`).
+- Not found yet: the 2K15 loader's budget function. A shape search of the generated code (functions with a timebase read, `+196` and
+  `+200` offsets, float compare) gives no clear candidate: only 3 functions (`sub_83128258`, `sub_83127FE8`, `sub_83127E50`, library
+  area) have `+196` and a timebase read and they look unrelated. Next step would be to find which thread is the loader (thread
+  names in the stack scan are generic `XThread...`) by logging calls of candidate wait functions during the loading screen.
+`stackscan.ps1` now takes the process from `SCAN_PROC` (native exe).
+
+## 2026-11-01 (Perf) Chamber loading: state of the loader-budget work (stopped for the day, nothing shipped)
+Tested (native, Chamber 6-man, loading ~10-13 s at 60 fps):
+- `--vsync=false --bd_vsync=false` (SDK guest vblank 1 kHz, swap chain vsync off): loading unchanged, game still 60 fps.
+- plus a dev cvar `svr_fps_limit=0` (removes `PaceFrame`'s 60 fps sleep in `reblue/gpu/present.cpp`): still exactly 60 fps, same loading.
+  So neither the SDK vblank nor the native present cap is what holds the game at 60: the guest game paces itself (its timing struct
+  at 0x838DC7A8, ms per frame at +40, `sub_82AB14C8` SetFrameRate; swap `sub_82BADF20` runs on thread F8000058 which was the busiest
+  game thread during the load, 14 %). The experiment patch is `work/dev/exp_svr_fps_limit.patch` (not committed, source reverted).
+- A shape search for the WWE '12 loader-budget function (float at this+196, timebase at +200) found no match in the TU4 code.
+Remaining ideas: (1) find where the game waits for its frame time (probably in the swap/begin-frame code near `sub_82BADF20`,
+sub_82BA* / sub_82BB*, comparing against the +40 ms value) and shorten that wait only during loading screens, with the WWE '12
+"turbo" detection (loading-screen classes, `Wwe12LoadTurboSkipPresent()` stub already exists in `wwe2k15_native_stubs.cpp`);
+(2) find the loader thread by logging guest wait calls (`sub_82263CA0`) per thread during the load. Needs the PC for runs; start from
+`chamber.sh` with `LOADPROF=samp|cpu|stack`. Build state: tu4 builds fine, no uncommitted source changes.
+
+## 2026-11-02 (Rendu): #24 "Invalid UTF-8" crash, #27 log reading
+1) #24 (Intel, 2 cores, native, 0.2.5): "[FATAL] Dispatch thread: deferred completion threw 'Invalid UTF-8'" about 24 s after start (title / save load, not in a match). The SDK's kernel dispatch thread runs overlapped XAM completions (XamContentCreate, XamEnumerate, XamShow*UI); an exception there was made fatal on purpose. 'Invalid UTF-8' is utfcpp's exception from the rex UTF-8 path helpers. The only guest-provided text on that path is the content file name (`XCONTENT_DATA::file_name_raw`, 42 chars, not always NUL-terminated per the SDK's own comment) turned into a host path. The reporter's host paths are plain ASCII. Exact trigger not proven (no stack). SDK patch `rexglue-sdk-deferred-completion-errors.patch`: (a) `XCONTENT_DATA::file_name()` stops at 42 chars with strnlen and turns bytes that are not valid UTF-8 into '_' (same raw name -> same folder); (b) an exception in a deferred completion is logged ("Deferred overlapped ...: completion threw '...', failing the call") and the call completes with X_ERROR_FUNCTION_FAILED instead of closing the game. Checked: native 1v1 from title with the save load, 60 fps, no error.
+2) #27 (Radeon 610M, native, white wrestlers still): the log's "ConvertGuestFormat: unknown guest format 0xC000000F" lines are not a failure: `SvrResolveTexture` probes the raw format of a GPU-written texture (0xC0000000 tag | k_4_4_4_4 = 15, the wrestler skin composites) and falls back to 8:8:8:8 on purpose. The probe no longer logs (`ConvertGuestFormat(fmt, false)`). The same lines and the same 21-24 "native texture rejected ... dim=3 fmt=0x6 64x64" (a 64x64 cube) appear in my own native AMD iGPU runs, where Cena / Reigns are fully textured. The reporter's log: 609 shaders all from the cache (no conversion, so the shader-wait fix had nothing to wait for), 3 "pso: render-thread compile (miss)" lines (a one-off hitch each, not a missing draw), R16G16_UNORM supported, 2.6 GB VRAM. Cause of the white models not found from the log alone: needs the screenshots (which wrestlers, which parts).
+
+3) #27 second look (with Main's reading of the screenshot: skin and tattoos textured, only the ATTIRE plain white). Native copies a work texture back to the game's memory (the CPU then compresses attires from it) only for the first 6 resolves "in a row", where a streak also counts resolves up to 30 frames apart. In the reporter's log EVERY write-back burst stops at exactly 6 (the 512x512 0xAF22A880 at each wrestler load, 6 each time), and the 2048x1024 attire target 0xAF3B3F50 is resolved every ~8 frames (about 140 ms apart on a Radeon 610M), so its later resolves count toward the limit and never reach memory: a half-built or empty attire is compressed. Same bug as Jarrod's WWE 2K14 v0.2.10 (limit 4 -> 32). Fix: cvar `svr_readback_streak` (default 32, was a fixed 6), and a target that passes the limit is read back once more when it rests (`g_deferred_readbacks`, 2 frames after its last resolve), so its final content always reaches memory. Log: "SvR target ...: WxH resolved on 33 frames in a row, read back when it rests" (first 16). Test (AMD iGPU here, native, 1v1): fps and hitches as before (60 fps in the match, one 260 ms window at load as before, 30 fps scenes unchanged), picture normal. The white attire itself was never reproduced here, so the fix is not confirmed on #27.
+
+## 2026-11-02 (Perf) Chamber loading: what it is NOT (all measured on native, Chamber 6-man, ~12 s PLAY -> match, CPU idle)
+Wait-time probe (hooks of `sub_82263CA0` = NtWaitForSingleObjectEx wrapper, `sub_82261FE0` = Sleep, `sub_82261BE0` = timebase read,
+per guest caller every 5 s) and stack scans (`chamber.sh` with `LOADPROF=samp|cpu|stack|stackm|dump|draw|ts`):
+- Threads: 97 % of samples in ntdll waits; per-frame barrier `sub_82B36418` (5 threads wait about one frame each); idle pollers
+  `sub_82875860` (Sleep 16), `8299CB78` (Sleep 10), `827729B0` (Sleep 3), same rate before/during/after the load.
+- No effect on the load time: `--vsync=false --bd_vsync=false`, `svr_fps_limit=0` (native present cap off), Sleep(16) of the
+  `sub_82875860` poller shortened to 1 ms, and the SDK guest clock (`Clock::set_guest_time_scalar`) at 400 % for the first 6 s of
+  the load (started by the game's loading-screen chooser `sub_82777320`, ended by a 3D scene of more than 400 draws or 6 s).
+  An earlier "400 % makes the load 4x shorter" result was an artefact of my script (the match was already starting).
+- Useful facts: `sub_82777320` is called exactly once per load, at PLAY (a clean START marker; strings /LOAD/IG%02d, GN, UN, NB, NX, ST...
+  at 0x8202FF34-0x82030610); the draw log (F9, `SVR_DRAW_LOG`) shows a loading frame = 150-200 draws (shaders
+  vs D4FEAC171E45DC84 ps 03F86C8911C6C750 x157, also used by menus) vs 750-950 in a match; the guest render thread loop is
+  `sub_82AB05D8`, the swap `sub_82BADF20`.
+- The WWE '12 recipe (loader budget, turbo with presents skipped) has no obvious equivalent: not found. Experiment code is kept
+  outside Git in `work/dev/exp_loadturbo/` (wait_probe.cpp, load_turbo.cpp, hooks.patch), source reverted.
+Dev tool changes committed: `chamber.sh` LOADPROF modes, `stackscan.ps1` (SCAN_PROC, SCAN_HITS), `nav.ps1` F9 key.
