@@ -90,6 +90,7 @@ struct Options {
   bool cpu_yield = true;      // wwe2k15_render_wait_yield
   bool vsync = true;          // no tearing (vulkan_allow_present_mode_immediate = false)
   bool show_fps = false;      // wwe2k15_show_fps
+  bool fps60 = true;          // wwe2k15_60fps: entrances and victory scenes at 60 fps instead of the console's 30
   bool native = kNativeByDefault;  // native renderer: wwe2k15_native.exe
   int native_resolution = 0;  // native renderer: svr_render_scale, 0 = automatic (GPU and screen)
   std::string gpu;            // native renderer only: Vulkan name of the GPU ("" = automatic)
@@ -337,7 +338,7 @@ void SaveOptions() {
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
       << "\nnative_default_migrated=1\nnative=" << opt.native << "\nnative_resolution=" << opt.native_resolution << "\ngpu=" << opt.gpu
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nentrances_60fps=" << opt.fps60 << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
 // ---- Key bindings remapped in the game (F4 > "Save to config") ----
@@ -439,6 +440,7 @@ void LoadOptions() {
     else if (k == "language") opt.language = v;
     else if (k == "gpu_wait_yield") opt.cpu_yield = v != 0;  // (the old cpu_yield key defaulted to off)
     else if (k == "show_fps") opt.show_fps = v != 0;
+    else if (k == "entrances_60fps") opt.fps60 = v != 0;
     else if (k == "vsync") opt.vsync = v != 0;
     else if (k == "native") opt.native = v != 0;
     else if (k == "native_resolution")
@@ -503,6 +505,7 @@ std::wstring OptionArgs() {
            L" --user_language=" + std::to_wstring(opt.language) +
            L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
            L" --wwe2k15_show_fps=" + b(opt.show_fps) +
+           (opt.fps60 ? std::wstring() : std::wstring(L" --wwe2k15_60fps=false")) +
            L" --window_width=" + std::to_wstring((opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) * 16 / 9) +
            L" --window_height=" + std::to_wstring(opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) +
            L" --monitor=" + std::to_wstring(opt.monitor) +
@@ -517,6 +520,7 @@ std::wstring OptionArgs() {
          L" --user_language=" + std::to_wstring(opt.language) +
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
          L" --wwe2k15_show_fps=" + b(opt.show_fps) +
+         (opt.fps60 ? std::wstring() : std::wstring(L" --wwe2k15_60fps=false")) +
          L" --vulkan_allow_present_mode_immediate=" + b(!opt.vsync) +
          L" --window_width=" + std::to_wstring(std::max(opt.resolution, 720) * 16 / 9) +
          L" --window_height=" + std::to_wstring(std::max(opt.resolution, 720)) +
@@ -1028,7 +1032,7 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
     int preset = CurrentPreset();
     if (Choice("preset", {o.x + 48, y + 46}, l, v, 3, preset, 170)) { ApplyPreset(preset); SaveOptions(); }
   }
-  y += 106;
+  y += 94;
   label(o.x + 48, y, tr("RÉSOLUTION"), UseNative()
         ? tr("AUTO : le rendu natif choisit selon la carte graphique et l'écran.")
         : tr("720p : l'image d'origine du jeu. Au-dessus : plus net, plus lourd pour la carte graphique."));
@@ -1045,20 +1049,25 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
       if (Choice("res", {o.x + 48, y + 46}, l, v, 4, opt.resolution, 110)) SaveOptions();
     }
   }
-  y += 106;
+  y += 94;
   label(o.x + 48, y, tr("FILTRAGE DES TEXTURES"), tr("Rend le sol et le public plus nets de loin."));
   {
     const char* l[] = {tr("AUCUN"), "2x", "4x", "8x", "16x"};
     static const int v[] = {0, 2, 3, 4, 5};
     if (Choice("aniso", {o.x + 48, y + 46}, l, v, 5, opt.anisotropic, 98)) SaveOptions();
   }
-  y += 106;
+  y += 94;
   label(o.x + 48, y, tr("ANTICRÉNELAGE"), tr("Adoucit les bords en escalier (FXAA)."));
   {
     const char* l[] = {tr("AUCUN"), "FXAA", "FXAA +"};
     static const int v[] = {0, 1, 2};
     if (Choice("aa", {o.x + 48, y + 46}, l, v, 3, opt.aa, 150)) SaveOptions();
   }
+  ImGui::SetCursorScreenPos({o.x + 48, y + 100});
+  if (ImGui::Checkbox(tr("Entrées et scènes de victoire à 60 fps"), &opt.fps60)) SaveOptions();
+  d->AddText(ui_font, 14, {o.x + 76, y + 127}, kMuted,
+             tr("Les entrées et scènes de victoire tournent à 60 images/s au lieu des 30 de la console. Décoche pour retrouver l'original."),
+             nullptr, area.x * 0.5f - 60);
   // Right column: display.
   y = o.y + 104;
   label(col2, y, tr("AFFICHAGE"), nullptr);
