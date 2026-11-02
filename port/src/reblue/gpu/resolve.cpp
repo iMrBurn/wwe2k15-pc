@@ -18,6 +18,9 @@
 #include <vector>
 
 #include <plume_render_interface.h>
+#if !defined(REBLUE_D3D12)
+#include <plume_vulkan.h>
+#endif
 #include <rex/cvar.h>
 
 #include "core/profiling.h"
@@ -515,6 +518,20 @@ bool Video::ReadbackTextureLevel(GuestTexture *src, u32 level, u32 face,
       plume::RenderTextureCopyLocation::PlacedFootprint(buffer.get(), src->format, w, h, 1,
                                                         row_pitch / 4u),
       plume::RenderTextureCopyLocation::Subresource(src->texture, level, face));
+#if !defined(REBLUE_D3D12)
+  // Make the copy visible to the CPU (a fence wait alone does not): a transfer -> host barrier,
+  // then invalidate the mapped memory below. Without them AMD integrated GPUs (shared memory)
+  // handed back stale bytes: Superstar Threads attires, compressed by the game from this
+  // read-back, came out white on a Radeon 610M / 780M (issue #27), fine on NVIDIA.
+  {
+    VkMemoryBarrier to_host{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    to_host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    to_host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    vkCmdPipelineBarrier(static_cast<plume::VulkanCommandList *>(s.command_list)->vk,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1,
+                         &to_host, 0, nullptr, 0, nullptr);
+  }
+#endif
   // The game reads the resolved memory right away (it waits for the GPU first): finish this
   // frame's work so far, then reopen the same list for the rest of the frame.
   const u32 cur = s.frame.load(std::memory_order_relaxed);
@@ -524,6 +541,12 @@ bool Video::ReadbackTextureLevel(GuestTexture *src, u32 level, u32 face,
   const void *mapped = buffer->map();
   if (!mapped)
     return false;
+#if !defined(REBLUE_D3D12)
+  {
+    auto *vk_buffer = static_cast<plume::VulkanBuffer *>(buffer.get());
+    vmaInvalidateAllocation(vk_buffer->device->allocator, vk_buffer->allocation, 0, VK_WHOLE_SIZE);
+  }
+#endif
   out.assign(static_cast<const u8 *>(mapped), static_cast<const u8 *>(mapped) + size_t(row_pitch) * h);
   buffer->unmap();
   return true;

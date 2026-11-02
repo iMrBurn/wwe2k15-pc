@@ -10,6 +10,7 @@
  */
 #include "gpu/frame.h"
 
+#include <atomic>
 #include <mutex>
 #include <utility>
 
@@ -97,6 +98,18 @@ void ResolveEffectiveTargets(VideoState &s, GuestTexture *&rt,
     rt = nullptr;
   if (ds && !ds->texture)
     ds = nullptr;
+  // A depth buffer smaller than the colour target would shrink the framebuffer (its size is the
+  // smallest attachment's) and cut every draw to it. WWE 2K15 builds Superstar Threads attires
+  // in a 2048x1024 target with the 1280x720 scene depth still bound (EDRAM on the Xbox): at 1x
+  // (integrated GPUs, 720p) only the top-left 1280x720 of the attire was drawn and the rest stayed
+  // white (#27); at 2x the scaled depth was large enough. Leave such a depth buffer out.
+  if (rt && ds && (ds->width < rt->width || ds->height < rt->height)) {
+    static std::atomic<u32> s_logged{0};
+    if (s_logged.fetch_add(1, std::memory_order_relaxed) < 8)
+      BD_INFO("Native: {}x{} depth smaller than the {}x{} colour target, drawn without it",
+              ds->width, ds->height, rt->width, rt->height);
+    ds = nullptr;
+  }
   if (!rt && !ds && s.back_buffer_surface && s.back_buffer_surface->texture) {
     rt = s.back_buffer_surface;
   }

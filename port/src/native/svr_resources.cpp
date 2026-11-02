@@ -17,6 +17,7 @@
 #include <xxhash.h>
 
 #include <rex/cvar.h>
+#include <rex/filesystem.h>
 #include <rex/graphics/xenos.h>
 
 #include "core/logging.h"
@@ -54,6 +55,9 @@ REXCVAR_DEFINE_BOOL(svr_seed_gpu_textures, true, "SvR",
 REXCVAR_DEFINE_BOOL(svr_resolve_readback, true, "SvR",
                     "Copy the first resolves of each work texture back to the game's memory, as "
                     "the Xbox does (custom attires are built from it).");
+REXCVAR_DEFINE_BOOL(svr_dump_readbacks, false, "SvR",
+                    "Debug: save each read-back of a work texture 1024 px wide or more to "
+                    "logs\readback_*.rgba (16-byte header: width, height, row pitch, va)");
 REXCVAR_DEFINE_INT32(svr_readback_streak, 32, "SvR",
                      "Resolves of one work texture copied back in a row before the copies pause "
                      "until it rests (then it is copied once more). Was 6: attires the game builds "
@@ -607,6 +611,28 @@ void ReadBackTarget(u32 texture_va, GuestTexture *dst) {
   u32 row_pitch = 0;
   if (!Video::ReadbackTextureLevel(dst, 0, 0, pixels, row_pitch))
     return;
+  if (REXCVAR_GET(svr_dump_readbacks) && dst->width >= 1024) {
+    static std::atomic<u32> s_dumps{0};
+    static std::mutex s_dump_mutex;
+    static std::unordered_map<u32, u32> s_dumps_per_target;
+    bool dump = false;
+    {
+      std::lock_guard dump_lock(s_dump_mutex);
+      dump = s_dumps_per_target[texture_va]++ < 4;  // a few per target, not 64 of the first
+    }
+    const u32 n = dump ? s_dumps.fetch_add(1) : 0;
+    if (dump && n < 64) {
+      const auto path = rex::filesystem::GetExecutableFolder() / "logs" /
+                        fmt::format("readback_{:02}_{:08X}_{}x{}.rgba", n, texture_va, dst->width,
+                                    dst->height);
+      if (FILE *f = _wfopen(path.c_str(), L"wb")) {
+        const u32 header[4] = {dst->width, dst->height, row_pitch, texture_va};
+        std::fwrite(header, 4, 4, f);
+        std::fwrite(pixels.data(), 1, pixels.size(), f);
+        std::fclose(f);
+      }
+    }
+  }
   const bool written = WriteGuestTextureBase(texture_va, pixels.data(), row_pitch, dst->width,
                                              dst->height);
   if (written) {
