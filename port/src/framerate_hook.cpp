@@ -23,8 +23,8 @@
 REXCVAR_DEFINE_BOOL(wwe2k15_show_fps, false, "WWE2K15", "Show an FPS counter in the game");
 REXCVAR_DEFINE_BOOL(wwe2k15_mods, true, "WWE2K15", "Load replacement files from the mods folder");
 
-REXCVAR_DEFINE_BOOL(wwe2k15_60fps, false, "WWE2K15",
-                    "Keep the game at 60 FPS (50 on PAL) when it asks for 30 (25)");
+REXCVAR_DEFINE_BOOL(wwe2k15_60fps, true, "WWE2K15",
+                    "Entrances and victory scenes at 60 FPS (50 on PAL) instead of the console's 30 (25); false = original 30");
 
 REX_EXTERN(__imp__sub_82AB14C8);
 REX_EXTERN(__imp__sub_82BADF20);
