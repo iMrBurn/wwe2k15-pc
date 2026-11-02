@@ -745,3 +745,20 @@ sub_82BA* / sub_82BB*, comparing against the +40 ms value) and shorten that wait
 2) #27 (Radeon 610M, native, white wrestlers still): the log's "ConvertGuestFormat: unknown guest format 0xC000000F" lines are not a failure: `SvrResolveTexture` probes the raw format of a GPU-written texture (0xC0000000 tag | k_4_4_4_4 = 15, the wrestler skin composites) and falls back to 8:8:8:8 on purpose. The probe no longer logs (`ConvertGuestFormat(fmt, false)`). The same lines and the same 21-24 "native texture rejected ... dim=3 fmt=0x6 64x64" (a 64x64 cube) appear in my own native AMD iGPU runs, where Cena / Reigns are fully textured. The reporter's log: 609 shaders all from the cache (no conversion, so the shader-wait fix had nothing to wait for), 3 "pso: render-thread compile (miss)" lines (a one-off hitch each, not a missing draw), R16G16_UNORM supported, 2.6 GB VRAM. Cause of the white models not found from the log alone: needs the screenshots (which wrestlers, which parts).
 
 3) #27 second look (with Main's reading of the screenshot: skin and tattoos textured, only the ATTIRE plain white). Native copies a work texture back to the game's memory (the CPU then compresses attires from it) only for the first 6 resolves "in a row", where a streak also counts resolves up to 30 frames apart. In the reporter's log EVERY write-back burst stops at exactly 6 (the 512x512 0xAF22A880 at each wrestler load, 6 each time), and the 2048x1024 attire target 0xAF3B3F50 is resolved every ~8 frames (about 140 ms apart on a Radeon 610M), so its later resolves count toward the limit and never reach memory: a half-built or empty attire is compressed. Same bug as Jarrod's WWE 2K14 v0.2.10 (limit 4 -> 32). Fix: cvar `svr_readback_streak` (default 32, was a fixed 6), and a target that passes the limit is read back once more when it rests (`g_deferred_readbacks`, 2 frames after its last resolve), so its final content always reaches memory. Log: "SvR target ...: WxH resolved on 33 frames in a row, read back when it rests" (first 16). Test (AMD iGPU here, native, 1v1): fps and hitches as before (60 fps in the match, one 260 ms window at load as before, 30 fps scenes unchanged), picture normal. The white attire itself was never reproduced here, so the fix is not confirmed on #27.
+
+## 2026-11-02 (Perf) Chamber loading: what it is NOT (all measured on native, Chamber 6-man, ~12 s PLAY -> match, CPU idle)
+Wait-time probe (hooks of `sub_82263CA0` = NtWaitForSingleObjectEx wrapper, `sub_82261FE0` = Sleep, `sub_82261BE0` = timebase read,
+per guest caller every 5 s) and stack scans (`chamber.sh` with `LOADPROF=samp|cpu|stack|stackm|dump|draw|ts`):
+- Threads: 97 % of samples in ntdll waits; per-frame barrier `sub_82B36418` (5 threads wait about one frame each); idle pollers
+  `sub_82875860` (Sleep 16), `8299CB78` (Sleep 10), `827729B0` (Sleep 3), same rate before/during/after the load.
+- No effect on the load time: `--vsync=false --bd_vsync=false`, `svr_fps_limit=0` (native present cap off), Sleep(16) of the
+  `sub_82875860` poller shortened to 1 ms, and the SDK guest clock (`Clock::set_guest_time_scalar`) at 400 % for the first 6 s of
+  the load (started by the game's loading-screen chooser `sub_82777320`, ended by a 3D scene of more than 400 draws or 6 s).
+  An earlier "400 % makes the load 4x shorter" result was an artefact of my script (the match was already starting).
+- Useful facts: `sub_82777320` is called exactly once per load, at PLAY (a clean START marker; strings /LOAD/IG%02d, GN, UN, NB, NX, ST...
+  at 0x8202FF34-0x82030610); the draw log (F9, `SVR_DRAW_LOG`) shows a loading frame = 150-200 draws (shaders
+  vs D4FEAC171E45DC84 ps 03F86C8911C6C750 x157, also used by menus) vs 750-950 in a match; the guest render thread loop is
+  `sub_82AB05D8`, the swap `sub_82BADF20`.
+- The WWE '12 recipe (loader budget, turbo with presents skipped) has no obvious equivalent: not found. Experiment code is kept
+  outside Git in `work/dev/exp_loadturbo/` (wait_probe.cpp, load_turbo.cpp, hooks.patch), source reverted.
+Dev tool changes committed: `chamber.sh` LOADPROF modes, `stackscan.ps1` (SCAN_PROC, SCAN_HITS), `nav.ps1` F9 key.
