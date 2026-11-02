@@ -789,3 +789,7 @@ Dev tool changes committed: `chamber.sh` LOADPROF modes, `stackscan.ps1` (SCAN_P
   samplers); not checked by the user with a title match (Cena's belt). TU4 equivalents of WWE '12's sub_8248B898 / 8248B458 / 8248CE10 to find.
 - Automated comparison 30 vs 60 (`port/tools/dev/entrance.sh`, screenshots every 5 s) is unreliable while someone works on the PC (keys refused
   without game focus, captures show the chat window).
+
+Same day, later: the user checked a match with a champion's belt at 60 fps ("no bug, everything perfect"), so `wwe2k15_60fps` is now true by default
+(separate commit, `--wwe2k15_60fps=false` restores the original 30). WWE '12's bone-sampler fix (odd animation keys) was not needed here: not looked for further.
+The launcher chat is asked for an "Entrances at 60 fps" box (ticked by default, passes `--wwe2k15_60fps=false` when unticked).
