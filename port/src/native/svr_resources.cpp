@@ -467,7 +467,7 @@ GuestTexture *SvrResolveTarget(u32 texture_va, float scale) {
   u32 host_format = 0xC0000000u | u32(fetch.format);
   // That includes the 1x1 ones each wrestler gets at match load (one pixel drawn into a 1x1
   // surface, then resolved), sampled by every 3D draw: without them skin turns flat red.
-  if (ConvertGuestFormat(host_format) == plume::RenderFormat::UNKNOWN)
+  if (ConvertGuestFormat(host_format, false) == plume::RenderFormat::UNKNOWN)
     host_format = 0xC0000000u | u32(rex::graphics::xenos::TextureFormat::k_8_8_8_8);
   // Cube targets (the environment map WWE '12 renders each frame for wrestlers' reflections,
   // resolved face by face) need host cubes: as 2D textures the faces were lost and skin and eyes
