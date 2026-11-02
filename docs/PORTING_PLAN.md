@@ -762,3 +762,14 @@ per guest caller every 5 s) and stack scans (`chamber.sh` with `LOADPROF=samp|cp
 - The WWE '12 recipe (loader budget, turbo with presents skipped) has no obvious equivalent: not found. Experiment code is kept
   outside Git in `work/dev/exp_loadturbo/` (wait_probe.cpp, load_turbo.cpp, hooks.patch), source reverted.
 Dev tool changes committed: `chamber.sh` LOADPROF modes, `stackscan.ps1` (SCAN_PROC, SCAN_HITS), `nav.ps1` F9 key.
+
+## 2026-11-02 (Perf) Native first launch on 2 cores (empty cache, scratch copy, affinity 0x3, `--wwe2k15_shader_threads=1` = what 0 gives on 2 cores)
+- Shader conversion at boot (609 shaders): 16 s with 1 thread (2 s with 14 threads); the game starts at once, draws that need a shader
+  wait (a few 13-34 ms waits only, 151 ms in total), the rest is skipped until ready.
+- First Chamber after an empty cache: 17 s at about 30 fps (worst gap 35-57 ms) during the match load, then 60 fps. The same run with
+  the cache filled (`ch2_n`, 2 cores) has 0 s under 45 fps: the cost is the driver building its pipelines at first use
+  (`<cache>/*.vk.pcache` is saved for later launches). `[load] ... pipelines 0` does not count them.
+- Memory: working set 1.19 GB, private 1.78 GB (Xenos exe 1.35 GB WS); no cheap win found.
+- Not changed: only the very first match of a new install pays, later launches do not; a shipped cache is impossible (game/GPU
+  dependent). Idea if it matters: prioritise shaders a waiting draw needs, and pre-create the pipelines recorded during the first
+  match in the background after it.
