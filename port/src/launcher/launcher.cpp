@@ -90,6 +90,7 @@ struct Options {
   bool cpu_yield = true;      // wwe2k15_render_wait_yield
   bool vsync = true;          // no tearing (vulkan_allow_present_mode_immediate = false)
   bool show_fps = false;      // wwe2k15_show_fps
+  bool fps60 = true;          // wwe2k15_60fps: entrances and victory scenes at 60 fps instead of the console's 30
   bool native = kNativeByDefault;  // native renderer: wwe2k15_native.exe
   int native_resolution = 0;  // native renderer: svr_render_scale, 0 = automatic (GPU and screen)
   std::string gpu;            // native renderer only: Vulkan name of the GPU ("" = automatic)
@@ -337,7 +338,7 @@ void SaveOptions() {
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
       << "\nnative_default_migrated=1\nnative=" << opt.native << "\nnative_resolution=" << opt.native_resolution << "\ngpu=" << opt.gpu
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nentrances_60fps=" << opt.fps60 << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
 // ---- Key bindings remapped in the game (F4 > "Save to config") ----
@@ -439,6 +440,7 @@ void LoadOptions() {
     else if (k == "language") opt.language = v;
     else if (k == "gpu_wait_yield") opt.cpu_yield = v != 0;  // (the old cpu_yield key defaulted to off)
     else if (k == "show_fps") opt.show_fps = v != 0;
+    else if (k == "entrances_60fps") opt.fps60 = v != 0;
     else if (k == "vsync") opt.vsync = v != 0;
     else if (k == "native") opt.native = v != 0;
     else if (k == "native_resolution")
@@ -503,6 +505,7 @@ std::wstring OptionArgs() {
            L" --user_language=" + std::to_wstring(opt.language) +
            L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
            L" --wwe2k15_show_fps=" + b(opt.show_fps) +
+           (opt.fps60 ? std::wstring() : std::wstring(L" --wwe2k15_60fps=false")) +
            L" --window_width=" + std::to_wstring((opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) * 16 / 9) +
            L" --window_height=" + std::to_wstring(opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) +
            L" --monitor=" + std::to_wstring(opt.monitor) +
@@ -517,6 +520,7 @@ std::wstring OptionArgs() {
          L" --user_language=" + std::to_wstring(opt.language) +
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
          L" --wwe2k15_show_fps=" + b(opt.show_fps) +
+         (opt.fps60 ? std::wstring() : std::wstring(L" --wwe2k15_60fps=false")) +
          L" --vulkan_allow_present_mode_immediate=" + b(!opt.vsync) +
          L" --window_width=" + std::to_wstring(std::max(opt.resolution, 720) * 16 / 9) +
          L" --window_height=" + std::to_wstring(std::max(opt.resolution, 720)) +
@@ -1028,7 +1032,7 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
     int preset = CurrentPreset();
     if (Choice("preset", {o.x + 48, y + 46}, l, v, 3, preset, 170)) { ApplyPreset(preset); SaveOptions(); }
   }
-  y += 106;
+  y += 94;
   label(o.x + 48, y, tr("RÉSOLUTION"), UseNative()
         ? tr("AUTO : le rendu natif choisit selon la carte graphique et l'écran.")
         : tr("720p : l'image d'origine du jeu. Au-dessus : plus net, plus lourd pour la carte graphique."));
@@ -1045,20 +1049,25 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
       if (Choice("res", {o.x + 48, y + 46}, l, v, 4, opt.resolution, 110)) SaveOptions();
     }
   }
-  y += 106;
+  y += 94;
   label(o.x + 48, y, tr("FILTRAGE DES TEXTURES"), tr("Rend le sol et le public plus nets de loin."));
   {
     const char* l[] = {tr("AUCUN"), "2x", "4x", "8x", "16x"};
     static const int v[] = {0, 2, 3, 4, 5};
     if (Choice("aniso", {o.x + 48, y + 46}, l, v, 5, opt.anisotropic, 98)) SaveOptions();
   }
-  y += 106;
+  y += 94;
   label(o.x + 48, y, tr("ANTICRÉNELAGE"), tr("Adoucit les bords en escalier (FXAA)."));
   {
     const char* l[] = {tr("AUCUN"), "FXAA", "FXAA +"};
     static const int v[] = {0, 1, 2};
     if (Choice("aa", {o.x + 48, y + 46}, l, v, 3, opt.aa, 150)) SaveOptions();
   }
+  ImGui::SetCursorScreenPos({o.x + 48, y + 100});
+  if (ImGui::Checkbox(tr("Entrées et scènes de victoire à 60 fps"), &opt.fps60)) SaveOptions();
+  d->AddText(ui_font, 14, {o.x + 76, y + 127}, kMuted,
+             tr("Les entrées et scènes de victoire tournent à 60 images/s au lieu des 30 de la console. Décoche pour retrouver l'original."),
+             nullptr, area.x * 0.5f - 60);
   // Right column: display.
   y = o.y + 104;
   label(col2, y, tr("AFFICHAGE"), nullptr);
@@ -1120,6 +1129,208 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   }
 }
 
+// ---- Key mapping screen (CONTROLS tab) ----
+// Each action is one SDK keybind cvar. The player's choices live in saved_keys (launcher-keybinds.ini,
+// also fed by the in-game F4 save); an action without an entry uses the QWERTY default or, with the
+// AZERTY option, the AZERTY one.
+struct KeyAction { const char* cvar; const char* label; const char* def; };
+const KeyAction kKeyActions[] = {
+    {"keybind_lstick_up", "Stick gauche haut", "W"},
+    {"keybind_lstick_down", "Stick gauche bas", "S"},
+    {"keybind_lstick_left", "Stick gauche gauche", "A"},
+    {"keybind_lstick_right", "Stick gauche droite", "D"},
+    {"keybind_a", "A", "Semicolon,Space"},
+    {"keybind_b", "B", "Quote,Backspace"},
+    {"keybind_x", "X", "L"},
+    {"keybind_y", "Y", "P"},
+    {"keybind_rstick_up", "Stick droit haut", "Up"},
+    {"keybind_rstick_down", "Stick droit bas", "Down"},
+    {"keybind_rstick_left", "Stick droit gauche", "Left"},
+    {"keybind_rstick_right", "Stick droit droite", "Right"},
+    {"keybind_left_shoulder", "LB", "1"},
+    {"keybind_right_shoulder", "RB", "3"},
+    {"keybind_left_trigger", "LT", "Q,I"},
+    {"keybind_right_trigger", "RT", "E,O"},
+    {"keybind_dpad_up", "Croix haut", "Shift+Up"},
+    {"keybind_dpad_down", "Croix bas", "Shift+Down"},
+    {"keybind_dpad_left", "Croix gauche", "Shift+Left"},
+    {"keybind_dpad_right", "Croix droite", "Shift+Right"},
+    {"keybind_start", "Start", "X,Return"},
+    {"keybind_back", "Back", "Z,Tab"},
+    {"keybind_lstick_press", "Clic stick gauche", "F"},
+    {"keybind_rstick_press", "Clic stick droit", "K"},
+};
+constexpr int kKeyActionCount = (int)(sizeof(kKeyActions) / sizeof(kKeyActions[0]));
+int capturing_key = -1;  // index of the action waiting for a key press, -1 = none
+
+std::string BaseKey(const KeyAction& a) {
+  if (opt.azerty) {
+    const auto it = AzertyKeys().find(a.cvar);
+    if (it != AzertyKeys().end()) return it->second;
+  }
+  return a.def;
+}
+
+std::string CurrentKey(const KeyAction& a) {
+  const auto it = saved_keys.find(a.cvar);
+  return it != saved_keys.end() ? it->second : BaseKey(a);
+}
+
+void WriteSavedKeys() {
+  std::ofstream out(KeysFile(), std::ios::trunc);
+  for (const auto& [n, v] : saved_keys) out << n << "=" << v << "\n";
+}
+
+void SetKey(const KeyAction& a, const std::string& value) {
+  if (value == BaseKey(a)) saved_keys.erase(a.cvar);
+  else saved_keys[a.cvar] = value;
+  WriteSavedKeys();
+}
+
+// Layout presets: 0 QWERTY, 1 AZERTY, 2 arrows + numpad (everything on the right of the keyboard).
+const KeyMap& ArrowsPadKeys() {
+  static const KeyMap k = {
+      {"keybind_lstick_up", "Up"},      {"keybind_lstick_down", "Down"},   {"keybind_lstick_left", "Left"},
+      {"keybind_lstick_right", "Right"}, {"keybind_rstick_up", "Numpad8"}, {"keybind_rstick_down", "Numpad5"},
+      {"keybind_rstick_left", "Numpad4"}, {"keybind_rstick_right", "Numpad6"}, {"keybind_a", "Numpad1"},
+      {"keybind_b", "Numpad2"},         {"keybind_x", "Numpad3"},          {"keybind_y", "Numpad0"},
+      {"keybind_left_shoulder", "Numpad7"}, {"keybind_right_shoulder", "Numpad9"},
+      {"keybind_left_trigger", "NumpadSlash"}, {"keybind_right_trigger", "NumpadStar"},
+      {"keybind_start", "Return,NumpadEnter"}, {"keybind_back", "Tab"}};
+  return k;
+}
+
+int CurrentKeyPreset() {
+  if (saved_keys.empty()) return opt.azerty ? 1 : 0;
+  return saved_keys == ArrowsPadKeys() ? 2 : -1;
+}
+
+void ApplyKeyPreset(int preset) {
+  saved_keys.clear();
+  if (preset == 0) opt.azerty = false;
+  else if (preset == 1) opt.azerty = true;
+  else saved_keys = ArrowsPadKeys();
+  WriteSavedKeys();
+  SaveOptions();
+}
+
+// ImGui key -> SDK key name (the SDK reads Windows virtual keys by these names).
+const char* SdkKeyName(ImGuiKey k) {
+  struct M { ImGuiKey k; const char* n; };
+  static const M table[] = {
+    {ImGuiKey_Space, "Space"}, {ImGuiKey_Enter, "Return"}, {ImGuiKey_Tab, "Tab"}, {ImGuiKey_Backspace, "Backspace"},
+    {ImGuiKey_Delete, "Delete"}, {ImGuiKey_Insert, "Insert"}, {ImGuiKey_Home, "Home"}, {ImGuiKey_End, "End"},
+    {ImGuiKey_PageUp, "PageUp"}, {ImGuiKey_PageDown, "PageDown"}, {ImGuiKey_UpArrow, "Up"}, {ImGuiKey_DownArrow, "Down"},
+    {ImGuiKey_LeftArrow, "Left"}, {ImGuiKey_RightArrow, "Right"}, {ImGuiKey_Semicolon, "Semicolon"},
+    {ImGuiKey_Comma, "Comma"}, {ImGuiKey_Period, "Period"}, {ImGuiKey_Slash, "Slash"}, {ImGuiKey_Backslash, "Backslash"},
+    {ImGuiKey_LeftBracket, "LBracket"}, {ImGuiKey_RightBracket, "RBracket"}, {ImGuiKey_Apostrophe, "Quote"},
+    {ImGuiKey_GraveAccent, "Backtick"}, {ImGuiKey_Minus, "Minus"}, {ImGuiKey_Equal, "Plus"},
+    {ImGuiKey_Keypad0, "Numpad0"}, {ImGuiKey_Keypad1, "Numpad1"}, {ImGuiKey_Keypad2, "Numpad2"},
+    {ImGuiKey_Keypad3, "Numpad3"}, {ImGuiKey_Keypad4, "Numpad4"}, {ImGuiKey_Keypad5, "Numpad5"},
+    {ImGuiKey_Keypad6, "Numpad6"}, {ImGuiKey_Keypad7, "Numpad7"}, {ImGuiKey_Keypad8, "Numpad8"},
+    {ImGuiKey_Keypad9, "Numpad9"}, {ImGuiKey_KeypadEnter, "NumpadEnter"}, {ImGuiKey_KeypadAdd, "NumpadPlus"},
+    {ImGuiKey_KeypadSubtract, "NumpadMinus"}, {ImGuiKey_KeypadMultiply, "NumpadStar"},
+    {ImGuiKey_KeypadDivide, "NumpadSlash"},
+  };
+  static char buf[8];
+  if (k >= ImGuiKey_A && k <= ImGuiKey_Z) { buf[0] = char('A' + (k - ImGuiKey_A)); buf[1] = 0; return buf; }
+  if (k >= ImGuiKey_0 && k <= ImGuiKey_9) { buf[0] = char('0' + (k - ImGuiKey_0)); buf[1] = 0; return buf; }
+  if (k >= ImGuiKey_F1 && k <= ImGuiKey_F12) { snprintf(buf, sizeof(buf), "F%d", int(k - ImGuiKey_F1) + 1); return buf; }
+  for (const M& m : table) if (m.k == k) return m.n;
+  return nullptr;
+}
+
+// The key pressed this frame (with Shift/Ctrl/Alt prefixes), "" if none, "\x1b" for Escape.
+std::string PressedSdkKey() {
+  for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; ++k) {
+    const ImGuiKey key = (ImGuiKey)k;
+    if (!ImGui::IsKeyPressed(key, false)) continue;
+    if (key == ImGuiKey_Escape) return "\x1b";
+    const char* name = SdkKeyName(key);
+    if (!name) continue;
+    ImGuiIO& io = ImGui::GetIO();
+    return std::string(io.KeyShift ? "Shift+" : "") + (io.KeyCtrl ? "Control+" : "") + (io.KeyAlt ? "Alt+" : "") + name;
+  }
+  return {};
+}
+
+void DrawKeyMapping(ImDrawList* d, ImVec2 o, ImVec2 area) {
+  // Layout presets and reset, next to the options.
+  const float px = o.x + 560;
+  d->AddText(ui_font, 15, {px, o.y + 150}, kMuted, tr("DISPOSITION"));
+  const int preset = CurrentKeyPreset();
+  struct P { const char* label; int id; float w; };
+  const P presets[] = {{"QWERTY", 0, 96}, {"AZERTY", 1, 96}, {tr("Flèches + pavé"), 2, 190}};
+  float x = px;
+  for (const P& p : presets) {
+    ImGui::SetCursorScreenPos({x, o.y + 172});
+    if (Tile(p.label, p.label, {p.w, 34}, preset == p.id, false, 16)) ApplyKeyPreset(p.id);
+    x += p.w + 12;
+  }
+  ImGui::SetCursorScreenPos({x, o.y + 172});
+  if (Tile("reset_keys", tr("RÉINITIALISER"), {150, 34}, false, false, 16)) { saved_keys.clear(); WriteSavedKeys(); }
+
+  // Same key used twice: shown in red.
+  std::map<std::string, int> uses;
+  std::vector<std::string> current(kKeyActionCount);
+  for (int i = 0; i < kKeyActionCount; ++i) {
+    current[i] = CurrentKey(kKeyActions[i]);
+    size_t start = 0;
+    while (start <= current[i].size()) {
+      size_t comma = current[i].find(',', start);
+      if (comma == std::string::npos) comma = current[i].size();
+      ++uses[current[i].substr(start, comma - start)];
+      start = comma + 1;
+    }
+  }
+  auto conflicts = [&](const std::string& value) {
+    size_t start = 0;
+    while (start <= value.size()) {
+      size_t comma = value.find(',', start);
+      if (comma == std::string::npos) comma = value.size();
+      if (uses[value.substr(start, comma - start)] > 1) return true;
+      start = comma + 1;
+    }
+    return false;
+  };
+
+  const float top = o.y + 304;
+  d->AddText(ui_font, 18, {o.x + 48, top - 4}, kWhite, tr("ASSIGNATION DES TOUCHES"));
+  bool any_conflict = false;
+  const float col_w = (area.x - 96) / 3;
+  const float row_h = 27;
+  const std::string pressed = capturing_key >= 0 ? PressedSdkKey() : std::string();
+  for (int i = 0; i < kKeyActionCount; ++i) {
+    const KeyAction& a = kKeyActions[i];
+    const float cx = o.x + 48 + (i / 8) * col_w, cy = top + 28 + (i % 8) * row_h;
+    d->AddText(ui_font, 16, {cx, cy + 3}, kWhite, tr(a.label));
+    const bool waiting = capturing_key == i;
+    const bool clash = conflicts(current[i]);
+    any_conflict |= clash;
+    const std::string shown = waiting ? std::string(tr("Appuie sur une touche…")) : current[i];
+    ImGui::SetCursorScreenPos({cx + 172, cy});
+    ImGui::PushID(i);
+    const ImVec2 p = ImGui::GetCursorScreenPos(), size{col_w - 190, row_h - 3};
+    ImGui::InvisibleButton("key", size);
+    const bool hovered = ImGui::IsItemHovered();
+    // Mouse only: the Space/Enter keys that navigate ImGui must not re-open the capture.
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) capturing_key = waiting ? -1 : i;
+    ImGui::PopID();
+    const ImU32 fill = waiting ? kGold : hovered ? kWhite : IM_COL32(34, 35, 40, 255);
+    const ImU32 text = waiting || hovered ? kInk : clash ? IM_COL32(255, 96, 96, 255) : kWhite;
+    d->AddRectFilled(p, {p.x + size.x, p.y + size.y}, fill);
+    const ImVec2 t = ui_font->CalcTextSizeA(14, FLT_MAX, 0, shown.c_str());
+    d->AddText(ui_font, 14, {p.x + (size.x - t.x) * 0.5f, p.y + (size.y - t.y) * 0.5f}, text, shown.c_str());
+    if (waiting && !pressed.empty()) {
+      if (pressed != "\x1b") SetKey(a, pressed);
+      capturing_key = -1;
+    }
+  }
+  d->AddText(ui_font, 14, {o.x + 48 + 300, top + 2}, any_conflict ? IM_COL32(255, 96, 96, 255) : kMuted,
+             any_conflict ? tr("En rouge : la même touche sert à deux actions.")
+                          : tr("Clique sur une action, puis appuie sur la touche voulue (Échap annule)."));
+}
+
 void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
   Panel(d, o, {o.x + area.x, o.y + area.y});
   SectionTitle(d, {o.x + 40, o.y + 26}, tr("CONTRÔLES"), tr("Manette ou clavier"));
@@ -1129,7 +1340,6 @@ void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (ImGui::Checkbox(tr("Jouer au clavier (manette virtuelle)"), &opt.keyboard)) SaveOptions();
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 196});
   if (ImGui::Checkbox(tr("Clavier AZERTY (français)"), &opt.azerty)) SaveOptions();
-  float help_y = o.y + 246;
   // With a pad plugged in, the keyboard can be a second player instead of sharing player one.
   if (pad || opt.separate_player) {
     ImGui::SetCursorScreenPos({o.x + 48, o.y + 232});
@@ -1138,10 +1348,8 @@ void DrawControls(ImDrawList* d, ImVec2 o, ImVec2 area) {
     ImGui::EndDisabled();
     d->AddText(ui_font, 15, {o.x + 76, o.y + 264}, kMuted,
                tr("Appuie sur START avec la manette (joueur 1 = profil et sauvegardes) ; le clavier est le joueur 2."));
-    help_y = o.y + 306;
   }
-  d->AddText(ui_font, 16, {o.x + 48, help_y}, opt.keyboard ? kWhite : kMuted,
-             tr(opt.azerty ? i18n::kKeysAzerty : i18n::kKeysQwerty));
+  DrawKeyMapping(d, o, area);
 }
 
 std::string FormatSize(uint64_t bytes) {
@@ -1297,9 +1505,12 @@ void DrawUi() {
   const ImVec2 size = io.DisplaySize;
 
   int idx = TabIndex();
-  if (ImGui::IsKeyPressed(ImGuiKey_Q) || ImGui::IsKeyPressed(ImGuiKey_GamepadL1)) idx = (idx + kTabCount - 1) % kTabCount;
-  if (ImGui::IsKeyPressed(ImGuiKey_E) || ImGui::IsKeyPressed(ImGuiKey_GamepadR1)) idx = (idx + 1) % kTabCount;
-  if (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) idx = 0;
+  if (page != "CONTRÔLES") capturing_key = -1;
+  // While a key is being captured, Q/E/Escape are the player's key choice, not tab navigation.
+  const bool keys_for_tabs = capturing_key < 0;
+  if ((keys_for_tabs && ImGui::IsKeyPressed(ImGuiKey_Q)) || ImGui::IsKeyPressed(ImGuiKey_GamepadL1)) idx = (idx + kTabCount - 1) % kTabCount;
+  if ((keys_for_tabs && ImGui::IsKeyPressed(ImGuiKey_E)) || ImGui::IsKeyPressed(ImGuiKey_GamepadR1)) idx = (idx + 1) % kTabCount;
+  if ((keys_for_tabs && ImGui::IsKeyPressed(ImGuiKey_Escape)) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) idx = 0;
   page = kTabs[idx];
 
   DrawBackground(d, size, (float)ImGui::GetTime());

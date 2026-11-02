@@ -23,8 +23,8 @@
 REXCVAR_DEFINE_BOOL(wwe2k15_show_fps, false, "WWE2K15", "Show an FPS counter in the game");
 REXCVAR_DEFINE_BOOL(wwe2k15_mods, true, "WWE2K15", "Load replacement files from the mods folder");
 
-REXCVAR_DEFINE_BOOL(wwe2k15_60fps, false, "WWE2K15",
-                    "Keep the game at 60 FPS (50 on PAL) when it asks for 30 (25)");
+REXCVAR_DEFINE_BOOL(wwe2k15_60fps, true, "WWE2K15",
+                    "Entrances and victory scenes at 60 FPS (50 on PAL) instead of the console's 30 (25); false = original 30");
 
 REX_EXTERN(__imp__sub_82AB14C8);
 REX_EXTERN(__imp__sub_82BADF20);
@@ -57,6 +57,47 @@ extern "C" REX_FUNC(sub_82AB14C8) {
   __imp__sub_82AB14C8(ctx, base);
 }
 
+
+// "Drop to 30 (25) fps" (sub_82AB1668, TU4) and "back to 60 (50)" (sub_82AB1708): the game drops to 30
+// for entrances and victory scenes by rewriting its timing struct (0x838DC7A8: +8 fps, +28/+32/+36/+60/+64
+// per-frame steps, +40 ms per frame; same design as WWE '12's sub_82827AB8/B58). With wwe2k15_60fps the drop
+// is skipped, so game logic and presents both stay at 60 and the scene plays at the right speed.
+REX_EXTERN(__imp__sub_82AB1668);
+REX_EXTERN(__imp__sub_82AB1708);
+
+namespace {
+std::atomic<bool> g_scene_at60{false};
+std::atomic<uint64_t> g_scene_start_us{0};
+uint64_t NowUsEarly() {
+  LARGE_INTEGER f, c;
+  QueryPerformanceFrequency(&f);
+  QueryPerformanceCounter(&c);
+  return static_cast<uint64_t>(c.QuadPart * 1000000.0 / f.QuadPart);
+}
+}  // namespace
+
+// True while an entrance/victory scene that the game wants at 30 runs at 60 instead.
+bool Wwe2k15SceneAt60() { return g_scene_at60.load(std::memory_order_relaxed); }
+
+extern "C" REX_FUNC(sub_82AB1668) {
+  const uint64_t mode = REX_LOAD_U32(0x838DC7B0);
+  if (REXCVAR_GET(wwe2k15_60fps)) {
+    g_scene_at60.store(true, std::memory_order_relaxed);
+    g_scene_start_us.store(NowUsEarly(), std::memory_order_relaxed);
+    REXLOG_INFO("[fps] game drops to 30 (mode {}): kept at 60", mode);
+    return;
+  }
+  g_scene_start_us.store(NowUsEarly(), std::memory_order_relaxed);
+  REXLOG_INFO("[fps] game drops to 30 (mode {})", mode);
+  __imp__sub_82AB1668(ctx, base);
+}
+
+extern "C" REX_FUNC(sub_82AB1708) {
+  const uint64_t start = g_scene_start_us.exchange(0, std::memory_order_relaxed);
+  if (start) REXLOG_INFO("[fps] back to 60 after {:.2f} s", (NowUsEarly() - start) / 1e6);
+  g_scene_at60.store(false, std::memory_order_relaxed);
+  __imp__sub_82AB1708(ctx, base);
+}
 // D3D present (sub_82BADF20, base sub_82BA5FA8). Every 5 s, log the guest frame pacing:
 // frames, mean/max time between presents, share of it spent waiting for the GPU ring, and
 // the fps the title's timing struct asks for.

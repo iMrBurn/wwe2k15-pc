@@ -36,6 +36,7 @@ Get the latest release (a `.zip`) from the **[releases page](https://github.com/
 - The whole game with Title Update 4 and DLC, 60 fps in matches.
 - Launcher in five languages, with automatic updates from GitHub, save backups, a mods folder ([docs/MODS.md](docs/MODS.md)), ISO support, crash and freeze reports.
 - Keyboard text entry in the game's text screens, resolution choice (540p to 4K), FPS counter, replay.
+- Play with the keyboard: the `CONTROLS` tab remaps every key (click an action, press the key you want; QWERTY / AZERTY / arrows + numpad presets, reset button), with an optional separate keyboard player next to a controller.
 - "Xbox 360" texts shown as "PC".
 
 ### Linux and Steam Deck
