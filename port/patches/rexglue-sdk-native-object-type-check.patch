@@ -1,0 +1,96 @@
+diff --git a/include/rex/system/xobject.h b/include/rex/system/xobject.h
+--- a/include/rex/system/xobject.h
++++ b/include/rex/system/xobject.h
+@@ -15,6 +15,7 @@
+ #include <concepts>
+ #include <cstddef>
+ #include <string>
++#include <type_traits>
+ #include <vector>
+ 
+ #include <fmt/format.h>
+@@ -202,6 +203,9 @@ class XObject {
+   template <typename T>
+   static object_ref<T> GetNativeObject(KernelState* kernel_state, void* native_ptr,
+                                        int32_t as_type = -1);
++  // GetNativeObject, but the object must be of `expected` type (see the template).
++  static object_ref<XObject> GetNativeObjectOfType(KernelState* kernel_state, void* native_ptr,
++                                                   int32_t as_type, Type expected);
+ 
+  protected:
+   bool SaveObject(stream::ByteStream* stream);
+@@ -373,8 +377,14 @@ object_ref<T> retain_object(T* ptr) {
+ template <typename T>
+ object_ref<T> XObject::GetNativeObject(KernelState* kernel_state, void* native_ptr,
+                                        int32_t as_type) {
+-  return object_ref<T>(
+-      reinterpret_cast<T*>(GetNativeObject(kernel_state, native_ptr, as_type).release()));
++  if constexpr (std::is_same_v<T, XObject>) {
++    return GetNativeObject(kernel_state, native_ptr, as_type);
++  } else {
++    // Checked: a guest struct whose memory was reused for another kernel object keeps the old
++    // handle, and reading that object as T crashed (an "event" Set on a semaphore, WWE 2K15 #24).
++    return object_ref<T>(reinterpret_cast<T*>(
++        GetNativeObjectOfType(kernel_state, native_ptr, as_type, T::kObjectType).release()));
++  }
+ }
+ 
+ }  // namespace rex::system
+diff --git a/src/system/xobject.cpp b/src/system/xobject.cpp
+--- a/src/system/xobject.cpp
++++ b/src/system/xobject.cpp
+@@ -9,6 +9,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <atomic>
+ #include <vector>
+ 
+ #include <rex/chrono/clock.h>
+@@ -395,8 +396,14 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state, void* na
+     auto object = kernel_state->object_table()->LookupObject<XObject>(handle);
+ 
+     // TODO(benvanik): assert nothing has been changed in the struct.
+-    return object;
+-  } else {
++    if (object) {
++      return object;
++    }
++    // The handle is gone (object released while the guest struct lives on): make a new one.
++    REXSYS_WARN("GetNativeObject: stale handle {:08X} in guest object, re-creating it", handle);
++    header->wait_list_flink = 0;
++  }
++  {
+     // First use, create new.
+     // https://www.nirsoft.net/kernel_struct/vista/KOBJECTS.html
+     XObject* object = nullptr;
+@@ -448,4 +455,29 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state, void* na
+   }
+ }
+ 
++object_ref<XObject> XObject::GetNativeObjectOfType(KernelState* kernel_state, void* native_ptr,
++                                                   int32_t as_type, Type expected) {
++  auto object = GetNativeObject(kernel_state, native_ptr, as_type);
++  if (!object || object->type() == expected) {
++    return object;
++  }
++  auto header = reinterpret_cast<X_DISPATCH_HEADER*>(native_ptr);
++  static std::atomic<uint32_t> logged{0};
++  if (logged.fetch_add(1, std::memory_order_relaxed) < 16) {
++    REXSYS_WARN("GetNativeObject: guest object (dispatch type {}) holds a {} where a {} was "
++                "expected, re-creating it",
++                uint32_t(header->type), object->type(), expected);
++  }
++  // Only the dispatcher objects GetNativeObject creates can be re-made from the guest struct.
++  if (expected != Type::Event && expected != Type::Semaphore && expected != Type::Mutant) {
++    return nullptr;
++  }
++  {
++    auto global_lock = rex::thread::global_critical_region::AcquireDirect();
++    header->wait_list_flink = 0;
++  }
++  object = GetNativeObject(kernel_state, native_ptr, as_type);
++  return object && object->type() == expected ? object : nullptr;
++}
++
+ }  // namespace rex::system
