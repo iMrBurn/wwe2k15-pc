@@ -806,3 +806,14 @@ Test (native, this PC, threshold lowered to 14 ms to force it): triggers 3 s int
 unchanged), the next scene starts at 30 too, "back to 60" after each, no crash. With the default 26 ms and 1 core (affinity) this PC still holds 60 in scenes (no trigger).
 Pipelines (#24, 6 fps in the first match load): `pipelines.bin` (pso_recorder) already persists and replays them; only the very first match of an install stalls
 (45-120 ms per pipeline on Intel); not changed.
+
+## 2026-11-03 (Perf) Fatal 4-way on 2 cores, native (profile for #27 Radeon 610M / #28 / #24)
+Fatal 4-Way (4 wrestlers in the ring), this PC limited to 2 logical cores (affinity 0x3, set after start), 60 fps scenes on:
+- Entrances (4 in a row, 70-100 s each): 60.0 fps, work 8.6-9.7 ms/frame, 128 % of one core (render thread 42 %, game logic 27 %, GPU Commands 20 %).
+- Match: 60.0 fps (max gap 18-20 ms), work 8-9 ms, 105 % of one core (render thread 29 %, 17.7 %, 15.4 %, 14 %): no stutter. #27's stutters are not reproducible here:
+  their CPU is several times slower, so the same work (about 1 core here) does not fit.
+- RIP samples (4 busiest threads, 40 s): 81 % ntdll waits; of the 10 % in game code, the largest native items are `UploadPixelShaderConstants` 7 %, `UploadVertexShaderConstants` 3.6 %,
+  `UploadSharedConstants` 2.9 % (constants about 13 % of the game-code samples), `XXH3_64bits` 3.6 % (texture/geometry change hashing), `FlushRenderStateLocked` 1.4 %;
+  the rest is a flat spread of recompiled game functions (none above 3.6 %). So a CPU-bound PC cannot be fixed by one hot function; at best a few %
+  from the constants upload (already deduplicated: "constant blocks uploaded/reused" in the [perf] cpu line).
+- The re:Blue render-thread split line ("draws / constants / textures / geometry") exists only in Android builds (`present.cpp`).
