@@ -77,6 +77,12 @@ $sym = Join-Path $dist "symbols-v$version"
 New-Item -ItemType Directory -Force $sym | Out-Null
 Get-ChildItem $buildDir -File | Where-Object { $_.Extension -in ".pdb", ".map" -or $_.Name -eq "wwe2k15.exe" } |
   Copy-Item -Destination $sym
+# The SDK DLLs' PDBs stay in the SDK build tree; keep them too (crash reports point into rexruntime.dll).
+$sdkPdb = "C:\Dev\rexglue-sdk\out\win-amd64\Release"
+foreach ($n in "rexruntime.pdb", "rexgpu-xenos.pdb") {
+  $p = Join-Path $sdkPdb $n
+  if (Test-Path $p) { Copy-Item $p $sym -Force }
+}
 
 "Package: $zip"
 "SHA-256: $hash"
