@@ -65,9 +65,20 @@ extern "C" REX_FUNC(sub_82AB14C8) {
 REX_EXTERN(__imp__sub_82AB1668);
 REX_EXTERN(__imp__sub_82AB1708);
 
+REXCVAR_DEFINE_INT32(wwe2k15_60fps_auto_ms, 26, "WWE2K15",
+                     "Average frame time (ms) above which a scene at 60 fps is given up (wwe2k15_60fps_auto)")
+    .range(10, 60);
+
+REXCVAR_DEFINE_BOOL(wwe2k15_60fps_auto, true, "WWE2K15",
+                    "If an entrance/victory scene cannot hold 60 fps (slow GPU or CPU: the scene would run in slow motion), "
+                    "go back to the game's 30 fps for it and the rest of the session");
+
 namespace {
 std::atomic<bool> g_scene_at60{false};
 std::atomic<uint64_t> g_scene_start_us{0};
+std::atomic<bool> g_auto_off{false};  // a PC that cannot hold 60 in scenes: they stay at the game's 30
+PPCContext g_drop_ctx;                 // registers at the last "drop to 30" call (to run it later)
+uint8_t* g_drop_base = nullptr;
 uint64_t NowUsEarly() {
   LARGE_INTEGER f, c;
   QueryPerformanceFrequency(&f);
@@ -81,7 +92,9 @@ bool Wwe2k15SceneAt60() { return g_scene_at60.load(std::memory_order_relaxed); }
 
 extern "C" REX_FUNC(sub_82AB1668) {
   const uint64_t mode = REX_LOAD_U32(0x838DC7B0);
-  if (REXCVAR_GET(wwe2k15_60fps)) {
+  if (REXCVAR_GET(wwe2k15_60fps) && !g_auto_off.load(std::memory_order_relaxed)) {
+    g_drop_ctx = ctx;
+    g_drop_base = base;
     g_scene_at60.store(true, std::memory_order_relaxed);
     g_scene_start_us.store(NowUsEarly(), std::memory_order_relaxed);
     REXLOG_INFO("[fps] game drops to 30 (mode {}): kept at 60", mode);
@@ -108,6 +121,33 @@ uint64_t NowUs() {
   QueryPerformanceCounter(&c);
   return static_cast<uint64_t>(c.QuadPart * 1000000.0 / f.QuadPart);
 }
+// Called once per present. While a scene runs at 60 instead of the game's 30, if the average frame time stays
+// above 26 ms for two windows of 90 frames the PC cannot hold it (the game's logic follows the frame rate, so
+// the scene would play in slow motion): run the game's own "drop to 30" now and keep it for the session.
+void SceneWatch(uint64_t now) {
+  static uint64_t last = 0, sum = 0;
+  static uint32_t frames = 0, slow = 0;
+  if (!g_scene_at60.load(std::memory_order_relaxed)) {
+    last = 0, sum = 0, frames = 0, slow = 0;
+    return;
+  }
+  if (last) {
+    sum += now - last;
+    ++frames;
+  }
+  last = now;
+  if (frames < 90) return;
+  const double avg_ms = sum / 1000.0 / frames;
+  sum = 0, frames = 0;
+  slow = avg_ms > REXCVAR_GET(wwe2k15_60fps_auto_ms) ? slow + 1 : 0;
+  if (slow < 2 || !REXCVAR_GET(wwe2k15_60fps_auto) || !g_drop_base) return;
+  g_scene_at60.store(false, std::memory_order_relaxed);
+  g_auto_off.store(true, std::memory_order_relaxed);
+  PPCContext c = g_drop_ctx;
+  __imp__sub_82AB1668(c, g_drop_base);
+  REXLOG_INFO("[fps] scene cannot hold 60 fps ({:.1f} ms per frame): the game's 30 fps is used for scenes from now on",
+              avg_ms);
+}
 struct PaceStats {
   uint64_t window_start = 0, last = 0, max_gap = 0, wait_at_start = 0;
   uint32_t frames = 0;
@@ -124,6 +164,7 @@ struct Counter {
 void Wwe2k15OnGuestPresent(uint8_t* base) {
   g_wwe2k15_present_count.fetch_add(1, std::memory_order_relaxed);
   const uint64_t now = NowUs();
+  SceneWatch(now);
   Counter& c = g_counter;
   if (!c.start) {
     c.start = now;
