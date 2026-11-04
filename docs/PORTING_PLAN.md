@@ -901,3 +901,15 @@ Diagnostic build (cvars `wwe2k15_camera_cuts_diag`, `wwe2k15_camera_cuts_on_fini
 - Moves answered 1 (cut): about 40-57 distinct ids per run (ids < 500, 10xxx, 29xxx, 38xxx-40xxx), never a 50xxx id.
 - The "cut allowed by the cvar" case was not reached in the cvar-on run (no slot-test hit in 5 minutes), so the effect of
   `wwe2k15_camera_cuts_on_finishers` is not yet seen on screen. Neither build crashed; 60 fps throughout.
+
+### Update 2026-11-05: the early gate is "actor and partner both in a hold" (Mods)
+
+Diagnostic run with state dump (work\dev\camcut_early.log / camcut_early2.log, not in Git). Every move refused before the slot test and the
+end of the opponent loop had: settings bytes +41/+6 = 0, `sub_824C28C8` = 0, `sub_824C3DE0` = 0, actor state +3752 = 0, 3 actors / 2 active,
+so none of the counting tests fired. What they all had in common was a linked partner (`actor+836` != 0) and `vfunc[128]` of both actor
+and partner = `sub_824AE850` (TU4). `sub_824AE850(x)` = x's "is in a hold" answer: virtual 144 true, then 1 if state +3752 is 4/6,
+otherwise the hold flag `[holdobj+100]`. In `sub_824BB130` (0x824BB1D0-0x824BB21C): "actor in a hold AND partner in a hold -> no cut"
+(call sites: actor `lr 0x824BB1EC`, partner `lr 0x824BB214`). Grapples (ids 100-104, 800-810, ...) and grapple finishers (50xxx) are all in that state,
+which explains players seeing no cuts on grapples and finishers; the 16-slot test is only reached by a move whose actor is not flagged "in a hold".
+Smallest patch candidate: answer 0 from `sub_824AE850` when called with `lr == 0x824BB214` (partner check) so that test E can never refuse;
+the slot test stays handled by `wwe2k15_camera_cuts_on_finishers`. Not tried in game.
