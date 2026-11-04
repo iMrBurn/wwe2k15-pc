@@ -35,6 +35,9 @@ struct ShaderCacheEntry {
 // player's own shaders are converted at run time and kept beside the exe
 // (src/native/wwe2k15_shader_cache.cpp); these replace the generated tables below.
 ShaderCacheEntry *Wwe2k15FindShaderEntry(uint64_t hash);
+// True when dxcompiler.dll loads and gives a compiler instance (checked at startup: without it
+// the game's shaders can't be converted and the picture stays black).
+bool Wwe2k15DxcUsable();
 // The smol-v SPIR-V of an entry (entry->spirvSize bytes).
 const uint8_t *Wwe2k15ShaderSpirv(const ShaderCacheEntry *entry);
 // A container the cache doesn't have yet: converted in the background; when it is ready, `shader`

@@ -214,15 +214,17 @@ fs::path NewestLog(fs::file_time_type since) {
   return best;
 }
 
-// The native renderer writes this line before its message box (Vulkan 1.2 features missing, no
-// usable GPU) and only exits once the player clicks OK, however long that takes.
+// The native renderer writes one of these lines before its message box (no usable GPU / Vulkan 1.2
+// features, or dxcompiler.dll unusable) and only exits once the player clicks OK, however long that takes.
 bool NativeDeviceFailureInLog(fs::file_time_type since) {
   const fs::path log = NewestLog(since);
   if (log.empty()) return false;
   std::ifstream in(log);
   std::string line;
   while (std::getline(in, line))
-    if (line.find("could not create the host device") != std::string::npos) return true;
+    if (line.find("could not create the host device") != std::string::npos ||
+        line.find("shader compiler (dxcompiler.dll) missing or unusable") != std::string::npos)
+      return true;
   return false;
 }
 

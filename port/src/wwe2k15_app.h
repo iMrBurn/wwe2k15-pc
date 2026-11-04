@@ -36,6 +36,7 @@
 #include <rex/system/gpu_plugin.h>
 #include "gpu/device.h"
 #include "gpu/imgui_overlay_drawer.h"
+#include "gpu/shaders/shader_cache.h"
 #endif
 
 #include <rex/cvar.h>
@@ -120,15 +121,38 @@ class Wwe2k15App : public rex::ReXApp {
       MessageBoxW(nullptr,
                   L"The native renderer could not start: this graphics card or its driver lacks "
                   L"the Vulkan 1.2 features it needs.\n\nUpdate the graphics driver, or untick "
-                  L"\"Rendu natif (exp\u00e9rimental)\" in the launcher to play with the normal "
+                  L"\"Rendu natif\" in the launcher to play with the normal "
                   L"renderer.\n\nLe rendu natif n\u2019a pas pu d\u00e9marrer : cette carte graphique ou "
                   L"son pilote n\u2019a pas les fonctions Vulkan 1.2 n\u00e9cessaires.\n\nMets \u00e0 jour le "
-                  L"pilote graphique, ou d\u00e9coche \"Rendu natif (exp\u00e9rimental)\" dans le "
+                  L"pilote graphique, ou d\u00e9coche \"Rendu natif\" dans le "
                   L"launcher pour jouer avec le rendu normal.",
                   L"WWE 2K15 PC", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
 #endif
       std::_Exit(1);
     }
+#if defined(WWE2K15_RUNTIME_SHADERS)
+    // Without a usable dxcompiler.dll (broken install, Wine/Proton without it) no shader can be
+    // converted and the window stays black: fail cleanly so the launcher falls back to the normal
+    // renderer. The launcher looks for "shader compiler (dxcompiler.dll) missing or unusable" in
+    // the log: keep it.
+    if (!Wwe2k15DxcUsable()) {
+      REXLOG_ERROR("Native renderer: shader compiler (dxcompiler.dll) missing or unusable; use the "
+                   "normal renderer (untick \"Rendu natif\" in the launcher)");
+      rex::FlushLogging();
+#if defined(_WIN32)
+      MessageBoxW(nullptr,
+                  L"The native renderer could not start: dxcompiler.dll is missing or unusable "
+                  L"(it must sit next to the program).\n\nReinstall the port, or untick "
+                  L"\"Rendu natif\" in the launcher to play with the normal renderer.\n\n"
+                  L"Le rendu natif n\u2019a pas pu d\u00e9marrer : dxcompiler.dll est absent ou "
+                  L"inutilisable (il doit \u00eatre \u00e0 c\u00f4t\u00e9 du programme).\n\nR\u00e9installe le "
+                  L"portage, ou d\u00e9coche \"Rendu natif\" dans le lanceur pour jouer avec le rendu "
+                  L"normal.",
+                  L"WWE 2K15 PC", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+#endif
+      std::_Exit(1);
+    }
+#endif
     // Present runs on the game thread and ImGui on the UI thread: draw the overlay
     // synchronously on the UI thread into the presented image.
     bd::gpu::Video::SetOverlayDrawHook([this](plume::RenderCommandList* cmd,
