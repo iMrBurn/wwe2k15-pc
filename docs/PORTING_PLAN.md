@@ -858,3 +858,29 @@ Found with `memdump`/`memdiff` and `memtrap` (game muted, windowed, monitor 2, c
   memtrap output; use rip - "image base" line + 0x140000000 for llvm-symbolizer.
 - The grapple/finisher exclusion (if it exists) is therefore in `sub_824BB130` or the callers, not in the flag itself; the flag
   read is not what blocks them (forcing it to 1 changes nothing if it is already 1).
+
+### Update 2026-11-04 (late): static reading of sub_824BB130 (camera "may cut now?" predicate) (Mods)
+
+`sub_824BB130(this)` returns 1 = a camera cut is allowed, 0 = not. `this` = the wrestler/actor whose move is playing
+(`*(this+28)` -> u16 current move id at +0). Order of the tests (TU4 addresses, `port/generated/default/wwe2k15_recomp.323.cpp`):
+1. move id 56194 + a linked actor (+836 / +2712) whose virtual +128 says no -> 0; global at 0x83xx3F70 (`lis -31896` +16240) == 2 or 4
+   -> 0 (game-mode values); `this+70` and `sub_824C28C8(moveid)` -> 0; options byte +14 -> 0.
+2. count of active wrestlers (up to 7, table at 0x82xx3F00): per-actor state `+3752` in {1,4,6,2}; several early-outs with
+   options bytes +41/+6/+60 (+60 and move id 1386 -> return 1), `sub_824CEB70`, `sub_824C3DE0` (move id in [11500, 11600)).
+3. loop over the other wrestlers (checks `sub_824C7B18`, `sub_824C1B60`, `sub_824CBF20`, `sub_824C3B10`, `sub_824CFCB8`, ...): any
+   hit -> keep going, a final miss -> 0.
+4. **Tail (0x824BB53C-0x824BB6E4)**: `sub_82340660(this+1872)` (= [this+1876] != 0) -> return 1. Otherwise the current move id is
+   compared against `sub_824DB0F8(this, k)` for k in {112,113,114,115, 91,92,93,94, 98,99,100,101, 105,106,107,108}; any equal
+   -> return 0 (NO cut). `sub_824DB0F8(this,k)` = u16 at `moveset_ptr + (k+222)*2` (moveset ptr = `sub_82452B30(this)`): these
+   are 4 groups of 4 move slots (each group = 7 slots apart), i.e. almost certainly the signature/finisher (and their ground/
+   variant) slots. This is the finisher/signature exclusion players describe. 16 call sites, LR 0x824BB570..0x824BB6xx.
+- The grapple (non-finisher) case is not confirmed: nothing else in the function is keyed on a move-id list except 56194, 1386,
+  [11500,11600). If grapples are also locked it is either one of those, an earlier early-out, or data (camera tables).
+- SvR 2010's generated code has no function with the same slot list (searched), so no like-for-like comparison is possible.
+
+**Smallest patch (not written, waiting for Main)**: a hook `extern "C" REX_FUNC(sub_824DB0F8)` (framerate_hook.cpp pattern) behind
+a cvar (e.g. `wwe2k15_camera_cuts_on_finishers`, default false until tested) that, when `ctx.lr` is in 0x824BB570..0x824BB6E4,
+sets `ctx.r3.u64 = 0xFFFF` (never equal to a move id) and returns without calling the original; all other callers pass through.
+Only the 16 finisher/signature compares are neutralised; the rest of the predicate and the option flag stay as they are.
+Test plan: pause menu camera cuts ON, do a finisher and a signature in 1v1 with the cvar on/off (cut or no cut), then a
+normal grapple, an entrance/replay and a 6-man for crashes; log (once) the move id and k when the hook fires.
