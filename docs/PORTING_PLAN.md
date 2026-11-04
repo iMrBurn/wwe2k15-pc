@@ -953,3 +953,11 @@ Code review only (no Linux machine here); the launcher and updater changes build
     start its UI), `DwmSetWindowAttribute` (stub), `IFileDialog` (Wine implements it; paths come back as `Z:\home\...`), `SHGetFolderPath`,
     DXGI adapter names for the native GPU choice (DXVK reports the Vulkan names).
   - Not testable here: `JOURNAUX` / `OUVRIR LE RAPPORT` use `ShellExecuteW("open")` on a folder / .txt (Wine hands it to xdg-open: may do nothing on a Deck).
+
+## 2026-11-05 (Perf) The last ~5 s of the Chamber load: idle, not the port's work
+RIP samples of the 30 busiest threads over PLAY+6 s .. PLAY+12 s (`chamber.sh` with `LOADPROF=samp SDELAY=6 SSEC=6 STOP=30`): 4 cores 98.4 % in ntdll waits, 1.3 % game code
+(of which UploadPixel/VertexShaderConstants, texture mirrors: the loading screen's own frames); 2 cores 96.9 % waits, 1.9 % game; 4 cores with `pipelines.bin` removed (pipelines rebuilt) 93.9 % waits,
+2.1 % game, 3.4 % win32u. No pipeline/shader/upload work in that window, no GPU wait. The [load] lines (2-core run) show the shape of a load: reads of 14-35 MB/s in exactly ~30 calls per second
+(one request every 2 frames, same on every machine) for several seconds, then no reads and 1 core of CPU once the match runs. So the port does nothing slow there; the tail is the game waiting.
+Lead not followed (time box): the 30 calls/s cadence looks like one job per 2 frames from the job dispatcher (`sub_8261E230` hook in `job_dispatch_fix.cpp`, 6 call sites); making it
+dispatch more often during loading would shorten the read phase (about 6 s here), but the call sites/semantics are unknown. `chamber.sh` samp mode now takes SDELAY/SSEC/STOP.
