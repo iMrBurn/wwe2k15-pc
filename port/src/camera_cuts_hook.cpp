@@ -19,19 +19,25 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 
 #include <rex/cvar.h>
 #include <rex/logging/macros.h>
 
 REXCVAR_DEFINE_BOOL(wwe2k15_camera_cuts_on_finishers, false, "WWE2K15",
                     "Let the Camera Cuts option also cut on signature and finisher moves (the TU4 game never does)");
+REXCVAR_DEFINE_BOOL(wwe2k15_camera_cuts_on_holds, false, "WWE2K15",
+                    "Let the Camera Cuts option also cut while two wrestlers are locked in a grapple/hold (the TU4 game never does)");
 REXCVAR_DEFINE_BOOL(wwe2k15_camera_cuts_diag, false, "WWE2K15",
                     "Debug: log the camera cut predicate's answers per move id (see camera_cuts_hook.cpp)");
 
 REX_EXTERN(__imp__sub_824DB0F8);
 REX_EXTERN(__imp__sub_824BB130);
+REX_EXTERN(__imp__sub_824AE850);
 REX_EXTERN(__imp__sub_824CC060);
 REX_EXTERN(__imp__sub_827409F0);
+REX_EXTERN(__imp__sub_824C28C8);
+REX_EXTERN(__imp__sub_824C3DE0);
 
 namespace {
 constexpr uint32_t kTailFirstReturn = 0x824BB570;
@@ -95,6 +101,20 @@ extern "C" REX_FUNC(sub_824CC060) {
   }
 }
 
+// sub_824AE850(x) = "x is in a hold" (virtual 128 of the wrestler class). The predicate refuses a cut when the actor AND its
+// partner (actor+836) are both in a hold: actor call at lr 0x824BB1EC, partner call at lr 0x824BB214. With
+// wwe2k15_camera_cuts_on_holds the partner answers "not in a hold" there, so that test can never refuse; every other call
+// of sub_824AE850 is passed through.
+extern "C" REX_FUNC(sub_824AE850) {
+  if (uint32_t(ctx.lr) == 0x824BB214 && REXCVAR_GET(wwe2k15_camera_cuts_on_holds)) {
+    static std::atomic<bool> logged{false};
+    if (!logged.exchange(true)) REXLOG_INFO("camera cuts on holds enabled (partner hold test skipped)");
+    ctx.r3.u64 = 0;
+    return;
+  }
+  __imp__sub_824AE850(ctx, base);
+}
+
 // Diagnostic wrapper around the predicate itself (pass-through unless wwe2k15_camera_cuts_diag).
 extern "C" REX_FUNC(sub_824BB130) {
   if (!REXCVAR_GET(wwe2k15_camera_cuts_diag)) {
@@ -113,7 +133,7 @@ extern "C" REX_FUNC(sub_824BB130) {
   // Reason codes: 0 cut, 1 cut (slot match let through), 2 refused in the slot test, 3 refused at the end of the
   // opponent loop, 4 refused by the game-mode global, 5 refused by settings byte +14, 6 refused elsewhere.
   uint32_t code;
-  char detail[48] = "";
+  char detail[240] = "";
   if (result) {
     code = slot_match ? 1 : 0;
   } else if (slot_match) {
@@ -130,6 +150,36 @@ extern "C" REX_FUNC(sub_824BB130) {
     if (mode == 2 || mode == 4) code = 4;
     else if (settings && *(base + settings + 14)) code = 5;
     else code = 6;
+    if (code == 6 && settings) {
+      // State the early tests read (see sub_824BB130): settings bytes, the actor's own flags, the number of
+      // wrestlers in play (r29) and of "active" ones (r27), as the predicate counts them.
+      uint32_t r27 = 0, r29 = 0;
+      for (int i = 0; i < 7; ++i) {
+        const uint32_t a = Ld32(base, 0x83683F00u + 4u * i);
+        if (!a) continue;
+        const uint32_t st = Ld32(base, a + 3752);
+        if (Ld32(base, a + 224) && !*(base + a + 70) && st != 1 && st != 6) ++r27;
+        if (st != 4 && st != 6) ++r29;
+      }
+      PPCContext c1 = ctx;
+      c1.lr = 0;
+      c1.r3.u64 = move;
+      __imp__sub_824C28C8(c1, base);
+      PPCContext c2 = ctx;
+      c2.lr = 0;
+      c2.r3.u64 = actor;
+      __imp__sub_824C3DE0(c2, base);
+      // Test E of the predicate: actor->vfunc128() && partner(+836) && partner->vfunc128() -> no cut.
+      const uint32_t partner = Ld32(base, actor + 836);
+      const uint32_t vf = Ld32(base, Ld32(base, actor) + 128);
+      const uint32_t pvf = partner ? Ld32(base, Ld32(base, partner) + 128) : 0;
+      char ex[64];
+      snprintf(ex, sizeof ex, " partner %08X vf %08X pvf %08X", partner, vf, pvf);
+      snprintf(detail, sizeof detail, " [s+41 %u s+6 %u s+33 %u s+60 %u a+70 %u c28c8 %u c3de0 %u st %u n %u/%u]",
+               *(base + settings + 41), *(base + settings + 6), *(base + settings + 33), *(base + settings + 60),
+               *(base + actor + 70), c1.r3.u32, c2.r3.u32, Ld32(base, actor + 3752), r29, r27);
+      strncat(detail, ex, sizeof detail - strlen(detail) - 1);
+    }
   }
   const uint8_t bit = uint8_t(1u << code);
   if (g_seen[move].fetch_or(bit) & bit) return;
