@@ -38,13 +38,6 @@ void Wwe12QuitEntryTick(uint64_t) {}
 // WWE '12 PC's hang watchdog (native/crash_trace.cpp there); 2K15 has its own crash_report.cpp.
 void SvrWatchdogHeartbeat() {}
 
-// WWE '12 PC's SDK patch rexglue-sdk-iostats.patch counts file reads for the [load] log line;
-// 2K15's SDK has no such counter yet: report nothing.
-namespace rex::kernel::xboxkrnl {
-void GetFileIoStats(uint64_t* bytes, uint64_t* calls, uint64_t* nanoseconds) {
-  *bytes = *calls = *nanoseconds = 0;
-}
-}  // namespace rex::kernel::xboxkrnl
 
 bool Wwe12LoadTurboSkipPresent() { return false; }
 

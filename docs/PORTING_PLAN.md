@@ -913,3 +913,10 @@ otherwise the hold flag `[holdobj+100]`. In `sub_824BB130` (0x824BB1D0-0x824BB21
 which explains players seeing no cuts on grapples and finishers; the 16-slot test is only reached by a move whose actor is not flagged "in a hold".
 Smallest patch candidate: answer 0 from `sub_824AE850` when called with `lr == 0x824BB214` (partner check) so that test E can never refuse;
 the slot test stays handled by `wwe2k15_camera_cuts_on_finishers`. Not tried in game.
+
+## 2026-11-05 (Perf) [load] line now reports file reads and CPU (SDK patch rexglue-sdk-iostats.patch)
+`[load] 1.0 s: read X MB in N calls (T ms) | textures ... | pipelines ... | cpu C ms | F fps`: NtReadFile totals (same counters as WWE '12 PC) and the process's CPU time per second.
+First reading, Chamber 6-man load on this PC (SSD, warm caches): reads are tiny and slow-paced: 0.1-3.5 MB/s, 1-43 calls/s (about 15 MB for the whole 12 s load), read time 0-4 ms/s,
+process CPU only 78-250 ms per second, 60 fps. So the load is neither disk-bound nor CPU-bound here: the game waits between small reads (one step per frame group), which is the lever
+still to find. Players' logs will now show whether a slow load has long read times (HDD) or low CPU (waiting). NOTE: "textures N" in [load] = texture mirrors rebuilt when a draw binds a
+changed texture, i.e. mostly the loading screen's own animated textures (~120/s), not loader work.
