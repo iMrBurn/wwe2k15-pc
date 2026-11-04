@@ -829,3 +829,16 @@ Analysis only, game not launched, no code changed.
 - Therefore the gate has to be found dynamically (see the test plan sent to Main): toggle the option in the Options
   menu and diff the options struct in guest memory, then put a read trap on the flag (`memtrap.cpp` pattern) and take the
   reader's caller with `stackscan.ps1`; compare against a grapple/finisher where players say it is ignored.
+
+## 2026-11-04 (Perf) "Steam Deck" stand-in profile and small-PC numbers (native; muted, windowed on screen 2)
+Stand-in = this PC's AMD Radeon iGPU (`--svr_gpu_device`), window 1280x800, `--svr_render_scale=720`, affinity 0xFF (8 logical processors), `--audio_mute=true --fullscreen=false --monitor=2`:
+| case | fps | worst gap | CPU | memory |
+|---|---|---|---|---|
+| 1v1 demo | 60.0 | 18 ms | 72 % of a core | WS 1.13 GB, private 1.71 GB |
+| Chamber 6-man | 59.5-59.8 | 32-38 ms | 111 % | peak WS 1.40 GB, private 1.65 GB |
+| 1v1 entrances (60 fps on) | 58-60, scenes 81 s | | | peak WS 1.25 GB, private 1.53 GB |
+Work per frame 6-8 ms of 16.7, GPU wait 0 (the iGPU is not the limit at 720p). The Deck's GPU (RDNA2, 8 CU) is stronger than this iGPU; its CPU is the unknown.
+First launch on 2 cores (affinity 0x3, empty cache): "609 / 609 done" is 2 s with 1 or 2 shader threads (4 draw waits, 70-80 ms in all); the 16 s seen earlier is how long the game takes to
+create its shaders on a throttled CPU, not conversion time. Memory fits a 4 GB machine (peak private 1.8 GB).
+Wine/Proton code review and run guide: `docs/LINUX_STEAM_DECK.md` (untested on Linux: no machine). `port/tools/dev/memlog.ps1` samples WS/private memory.
+Note: the Windows focus rule applies in windowed mode too: `nav.ps1` sends nothing when another window is active (first deck entrance run aborted that way).
