@@ -884,3 +884,20 @@ sets `ctx.r3.u64 = 0xFFFF` (never equal to a move id) and returns without callin
 Only the 16 finisher/signature compares are neutralised; the rest of the predicate and the option flag stay as they are.
 Test plan: pause menu camera cuts ON, do a finisher and a signature in 1v1 with the cvar on/off (cut or no cut), then a
 normal grapple, an entrance/replay and a 6-man for crashes; log (once) the move id and k when the hook fires.
+
+### Update 2026-11-04 (night): camera cut predicate measured in a running match (Mods)
+
+Diagnostic build (cvars `wwe2k15_camera_cuts_diag`, `wwe2k15_camera_cuts_on_finishers`, not committed; logs kept in work\dev\camcut_off.log
+/ camcut_on.log, ignored by Git), 1P mashing keys against the AI, option CAMERA CUTS = ON. Answers of `sub_824BB130` by move id
+(first occurrence of each id/answer, ~80 lines per run):
+- Moves of the actor are the ids in the slot table: signature/finisher ids are in the 50000-51400 range (examples of one wrestler's slots:
+  112-115 = 51091 51058 51091 51058, 91-94 = 50206 50389 50206 50298, 98-101 = 50531 50052 50464 50463, 105-108 = 50442 50034 50389 50034).
+- **Confirmed**: with the cvar off the slot test refuses (answer 0, reason "REFUSED in the slot test") 50463 (slot 101), 50464 (slot 100),
+  50052 (slot 99), 50531 (slot 98): moves of the 98-101 group (4 hits in about 10 minutes of play).
+- Most other 5xxxx moves (50034, 50140, 50206, 50393, 51036, 51052, 51329...) and the plain ids 100-104, 800-810, 10280, 40116... are refused
+  by an earlier test ("other early test", about 20 distinct ids per run), so the slot test is not the only gate; the early tests
+  depend on state (the same id 50463 was refused early in one run and in the slot test in another).
+- Two answers 0 came from the end of the opponent loop (`sub_824CC060` on the opponent's move: opponent 29002 / 20600 while the actor played 210 / 218).
+- Moves answered 1 (cut): about 40-57 distinct ids per run (ids < 500, 10xxx, 29xxx, 38xxx-40xxx), never a 50xxx id.
+- The "cut allowed by the cvar" case was not reached in the cvar-on run (no slot-test hit in 5 minutes), so the effect of
+  `wwe2k15_camera_cuts_on_finishers` is not yet seen on screen. Neither build crashed; 60 fps throughout.
