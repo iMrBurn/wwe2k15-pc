@@ -842,3 +842,19 @@ First launch on 2 cores (affinity 0x3, empty cache): "609 / 609 done" is 2 s wit
 create its shaders on a throttled CPU, not conversion time. Memory fits a 4 GB machine (peak private 1.8 GB).
 Wine/Proton code review and run guide: `docs/LINUX_STEAM_DECK.md` (untested on Linux: no machine). `port/tools/dev/memlog.ps1` samples WS/private memory.
 Note: the Windows focus rule applies in windowed mode too: `nav.ps1` sends nothing when another window is active (first deck entrance run aborted that way).
+
+### Update 2026-11-04 (evening): camera cuts option located (Mods, #19 / #32)
+
+Found with `memdump`/`memdiff` and `memtrap` (game muted, windowed, monitor 2, closed afterwards; option left ON).
+- The option is in the pause menu: PAUSED -> VISUAL PRESENTATION -> CAMERA CUTS (ON/OFF dialog; the highlighted line is the
+  current value). Keys: the arrow keys do not move the cursor with nav.ps1 (no extended-key flag); use S / Z (stick) for
+  down / up, SPACE = A, ENTER = pause and "back one level".
+- Flag = **one byte at guest 0x836FECE4** (1 = ON, 0 = OFF; toggled three times, only this byte differs from the noise). The
+  game object holding it is returned by `sub_827409F0` (options/settings singleton): flag = `lbz rX,15204(r3)` (+0x3B64).
+- Readers seen at run time (TU4): `sub_824BB6F0` (predicate: flag 0 -> returns 0, else tail to `sub_824BB130`, which holds the
+  real "may the camera cut now?" logic with move/state tests, `sub_824C28C8`, option bytes +14/+41/+60/+6 and a loop over the
+  wrestlers); `sub_8244DB60` (copies the flag into object+644, a camera object); `sub_824BB870` (large camera function, uses
+  flag == 1). `sub_824BB6F0` has 9 callers (recomp.1/103/119/129/205/276/288/299). Host ASLR: image base is not 0x140000000 in
+  memtrap output; use rip - "image base" line + 0x140000000 for llvm-symbolizer.
+- The grapple/finisher exclusion (if it exists) is therefore in `sub_824BB130` or the callers, not in the flag itself; the flag
+  read is not what blocks them (forcing it to 1 changes nothing if it is already 1).
