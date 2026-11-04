@@ -961,3 +961,37 @@ RIP samples of the 30 busiest threads over PLAY+6 s .. PLAY+12 s (`chamber.sh` w
 (one request every 2 frames, same on every machine) for several seconds, then no reads and 1 core of CPU once the match runs. So the port does nothing slow there; the tail is the game waiting.
 Lead not followed (time box): the 30 calls/s cadence looks like one job per 2 frames from the job dispatcher (`sub_8261E230` hook in `job_dispatch_fix.cpp`, 6 call sites); making it
 dispatch more often during loading would shorten the read phase (about 6 s here), but the call sites/semantics are unknown. `chamber.sh` samp mode now takes SDELAY/SSEC/STOP.
+
+## (Mods) Custom logo import (#21, #29): study (2026-11-05)
+
+Analysis only, no game run, no code.
+
+**How WWE 2K14 recomp (Jarrod / promethendev) does it** (read from its public source, `src/logo_import.h`, `src/launcher/logo_save.h`, and its CHANGELOG):
+- Mods -> Logos in the launcher. A PNG is handed to the game by cvar (`wwe2k14_logo_import`, `..._file`, default `mods/logos/import.png`); the
+  launcher never decodes it. The game hooks one function (`sub_833A8730`, "editor image -> canvas") while Create-a-Logo is open, resizes the PNG
+  (WIC, exact 256x256 or 128x128, no aspect ratio kept) and writes ARGB big-endian words into the editor's three image copies
+  (`P+96`, `P+0x40068`, `P+0x80070`, 8-byte header then w*h words), then sets the update flag (`P+92`).
+- The launcher then drives the game with an input script (state asserts on game memory at each screen, quits without saving on any mismatch) to
+  press ACCEPT so that the GAME writes its own save. It backs up the save folder first (10 backups kept), fills the next free slot (20 slots
+  per page layout) and re-reads the save to verify. 2K14 save facts: `545408B2\00000001\00PaintTool.pt\SaveData.Dat`, 4 `ZLIB` blocks, 20 slots of
+  0x50468 bytes (used flag, w, h at +0x40/+0x44, ARGB pixels at +0x48). No checksum handled by the importer: the game writes the save.
+
+**What 2K15 has (from our own files):**
+- No `PaintTool` string anywhere in the decoded pacs; the save is one `SaveData.Dat` (not a separate paint-tool file); the stats table in
+  `menu.pac` has `BASIC_CREATE_{SUPERSTAR_CAS,DIVA_CAS,ENTRANCE,FINISHER,STORY,ARENA,CHAMPIONSHIP}_COUNT` and `BASIC_EDIT_SUPERSTAR_THREADS_COUNT`
+  but no create-logo counter. So a standalone Create-a-Logo may not exist in 2K15: not confirmed (needs a look at CREATIONS in game).
+- Logo-related pieces that do exist: `edit.pac` shader samplers `g_mSampLogo0/1` and `CapLogo` (logo layers of the attire compositor used by Superstar
+  Threads), `CAALogo` in `_startup.pac` / `cab\CAB.pac` (Create-an-Arena logo parameter), stock logo meshes in `car/*`, `parts_*`.
+- The user's current save is nearly empty (17 non-zero 4 KB pages, one ZLIB block of 1.89 MB inflated); it cannot be used to read the logo layout.
+
+**What mods\ does today** (docs/MODS.md): replaces whole files by relative path (pac, movies, sound, TU files) read-only, GAME: and UPDATE:, mods win over game_update.
+It has no logo-specific feature; replacing a stock logo means replacing a whole .pac (tens of MB) and a repacker.
+
+**Feasibility (preliminary):**
+1. Static replacement of stock logos (arena/ring/attire textures) by mods\pac\...: needs a pac repacker/texture injector (WWE '12's `svrfmt` pac/archive/texture
+   code is a model; licence: Kaiko's code, ideas only). Unknown: whether the game accepts a repacked, uncompressed EPK8 (menu.pac is an uncompressed EPAC and works).
+   Effort: days to a week. Risk: medium (format details, XCTD queries).
+2. 2K14-style live import: only if 2K15 has an editor with a PNG-sized canvas. Needs: confirm the menu, find the editor's image-to-canvas function (read trap /
+   memdiff as done for camera cuts, ~1 day), a hook like `logo_import.h`, plus a save-writing path (input script) and backups. Effort: 1-2 weeks. Risk: medium-high.
+3. Smallest prototype after confirmation: a cvar + hook that overwrites the editor canvas from `mods\logos\import.png` while the editor is open (no UI automation), user presses ACCEPT.
+Needed from the player: PNG (square, 256x256 or 128x128 if it matches), a save backup (we make it), and for step 1 a look at CREATIONS to say which editor holds logos.
