@@ -995,3 +995,13 @@ It has no logo-specific feature; replacing a stock logo means replacing a whole 
    memdiff as done for camera cuts, ~1 day), a hook like `logo_import.h`, plus a save-writing path (input script) and backups. Effort: 1-2 weeks. Risk: medium-high.
 3. Smallest prototype after confirmation: a cvar + hook that overwrites the editor canvas from `mods\logos\import.png` while the editor is open (no UI automation), user presses ACCEPT.
 Needed from the player: PNG (square, 256x256 or 128x128 if it matches), a save backup (we make it), and for step 1 a look at CREATIONS to say which editor holds logos.
+
+## 2026-11-05 (Perf) "Light mode" for slow CPUs: no lever found in the draw calls
+Slow-CPU stand-ins (`port/tools/dev/jobcap.ps1`: Windows job-object hard CPU cap on the game process; affinity masks): with 1 logical core uncapped, the Fatal 4-Way match still holds 60 fps (75 % of a
+core) but the 60 fps entrances exceed the limit (29.7 ms per frame) and the automatic fallback to 30 fps triggers (as intended, #28). Capped at 0.35-0.5 of a core the Chamber falls to 30-46 fps with
+frame gaps of 170-350 ms (artefact of the cap's 300 ms periods, so fps is noisy; use CPU totals instead).
+Equal-footing CPU test (Chamber, 4 cores, 30 s `thread_cpu` total, noise about +-10 %): base 93 % and 103 % of one core; `--wwe12_shadows=false` (skips draws into R32_FLOAT targets with depth) 106 %;
+`--svr_skip_shaders` (new dev cvar: draws using the listed vertex/pixel shader hashes are skipped) on the three biggest draw groups of a match frame (63EC47B29CD9DB33: 144 draws into the main target,
+BDFF9625124636EE: 121 draws into 512x256, C35DF1151DFFDA5A: 91 draws into 512x512) 98 %, 97 %, 102 %. None is measurably cheaper than the base: skipping up to ~30 % of a frame's draws does not
+reduce the CPU, so the render thread's draw submission is not what makes slow CPUs struggle; the CPU goes to the game's recompiled code (flat profile, see 2026-11-03 notes).
+Conclusion: no safe "light" setting from skipping passes; the remaining CPU lever on slow PCs is the automatic 60 -> 30 fps fallback of scenes (already in). Dev tools kept: `fatal4.sh`, `jobcap.ps1`, `svr_skip_shaders`.

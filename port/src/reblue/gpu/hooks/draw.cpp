@@ -17,6 +17,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <fmt/format.h>
 
@@ -56,6 +57,10 @@ REXCVAR_DEFINE_BOOL(wwe12_crowd, true, "WWE12",
 // shadow) and the CPU and GPU save the pass.
 REXCVAR_DEFINE_BOOL(wwe12_shadows, true, "WWE12",
                     "Draw the shadows. Off = no shadows, faster on small PCs.");
+
+REXCVAR_DEFINE_STRING(svr_skip_shaders, "", "SvR",
+                      "Dev: comma list of 16-digit hex shader hashes (vertex or pixel): draws using one are skipped "
+                      "(finds which passes the crowd or the shadows are made of)");
 
 REXCVAR_DEFINE_BOOL(svr_edge_blur, false, "SvR",
                     "SvR 2010's own edge-blur filter (the console's anti-aliasing): off keeps the image "
@@ -206,6 +211,26 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const char *name,
     if (vs == 0x5B5BA6E0BD55C5A2ull || vs == 0x89B81CEC1095FF3Bull || vs == 0xF578E8C06A67CD09ull ||
         vs == 0xB2F2C29A78FFD857ull || vs == 0x826B5DD16C1147DCull)
       return;
+  }
+  if (const std::string& skip = REXCVAR_GET(svr_skip_shaders); !skip.empty()) {
+    static std::string parsed_from;
+    static std::vector<u64> hashes;
+    if (parsed_from != skip) {
+      parsed_from = skip;
+      hashes.clear();
+      size_t pos = 0;
+      while (pos < skip.size()) {
+        const size_t end = skip.find(',', pos);
+        const std::string item = skip.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+        if (!item.empty()) hashes.push_back(std::strtoull(item.c_str(), nullptr, 16));
+        if (end == std::string::npos) break;
+        pos = end + 1;
+      }
+    }
+    const u64 vs = (s.vertex_shader && s.vertex_shader->shaderCacheEntry) ? s.vertex_shader->shaderCacheEntry->hash : 0;
+    const u64 ps = (s.pixel_shader && s.pixel_shader->shaderCacheEntry) ? s.pixel_shader->shaderCacheEntry->hash : 0;
+    for (u64 h : hashes)
+      if (h && (h == vs || h == ps)) return;
   }
   if (!REXCVAR_GET(svr_edge_blur) && s.pixel_shader && s.pixel_shader->shaderCacheEntry &&
       s.pixel_shader->shaderCacheEntry->hash == 0x73413A409D5E296Bull)
