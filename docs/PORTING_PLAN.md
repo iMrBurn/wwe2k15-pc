@@ -817,3 +817,15 @@ Fatal 4-Way (4 wrestlers in the ring), this PC limited to 2 logical cores (affin
   the rest is a flat spread of recompiled game functions (none above 3.6 %). So a CPU-bound PC cannot be fixed by one hot function; at best a few %
   from the constants upload (already deduplicated: "constant blocks uploaded/reused" in the [perf] cpu line).
 - The re:Blue render-thread split line ("draws / constants / textures / geometry") exists only in Android builds (`present.cpp`).
+
+## (Mods) Camera cuts gate (#19, #32): static search, not found (2026-11-04)
+
+Analysis only, game not launched, no code changed.
+- Nothing in the repo, in WWE '12's docs/CLAUDE.md or in Jarrod's changelog mentions a camera-cut option or its gate.
+- The generated C++ has no strings (only `sub_8xxxxxxx`), `default.xex` is still packed and the localisation text
+  (`string.pac`, `string_pf.pac`) is scrambled (no readable ASCII/UTF-16), so the option cannot be located by name.
+  Decoded pacs (all 337) contain no "camera cut" text; `com.pac` "Cut*" names (CSCut, FallCut, SelectCut...) are
+  AI/motion state names, not camera settings; `pac\cab` is arena models, not cameras.
+- Therefore the gate has to be found dynamically (see the test plan sent to Main): toggle the option in the Options
+  menu and diff the options struct in guest memory, then put a read trap on the flag (`memtrap.cpp` pattern) and take the
+  reader's caller with `stackscan.ps1`; compare against a grapple/finisher where players say it is ignored.
