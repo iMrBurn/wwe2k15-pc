@@ -19,6 +19,21 @@ You need your own copy of the game (and Title Update 4); nothing here links to g
    (about 16 s on one CPU thread) and the very first match may hitch while the driver builds its pipelines. Both caches are saved in
    `cache/` (shaders) and the user data folder (`pipelines.bin`) and reused afterwards. Do not copy a cache from another PC.
 
+## Controller setup (Steam Input) and the launcher on the Deck
+
+- Whichever exe you add as a non-Steam game (`WWE 2K15 Launcher.exe` or `wwe2k15_native.exe`), set its controller layout to a **Gamepad**
+  one: Steam → game → *Controller* (gear icon) → *Controller Settings* → pick the **Gamepad** template (or *Gamepad with Mouse Trackpad*).
+  Do **not** keep the default *Desktop* / *Keyboard (WASD) and Mouse* layout: it turns the Deck's buttons into keyboard keys and mouse
+  clicks, so the game sees no controller and the launcher cannot be driven with the pad. The game and the launcher read the pad as an
+  XInput controller (SDL), which is what the Gamepad layout provides.
+- The launcher is made to be used with the pad: left stick or D-pad moves the (gold) focus, A validates, B goes back to PLAY, L1 / R1 change tab.
+  The touch screen works as a mouse.
+- The launcher detects Wine/Proton (and `SteamDeck=1` in game mode): its window starts maximised, it looks for the fonts a Proton prefix really has
+  (arial / tahoma), and on a Deck's **first start** (no saved options) it picks the native renderer, 720p, full screen, vsync, 60 fps entrances and
+  no keyboard mode. Saved options are never overwritten. If the native renderer cannot start (Vulkan 1.2 or `dxcompiler.dll` missing) the launcher
+  falls back to the normal renderer by itself.
+- The text of the launcher is small on the 7" screen (14-17 px); a "large text" mode needs a responsive layout and is not done yet.
+
 ## Numbers measured on a stand-in (Windows 11, AMD Radeon iGPU, 8 logical processors, window 1280x800, render height 720, audio muted)
 
 | Case | fps | worst frame gap | CPU (share of one core) | Memory (working set / private) |
