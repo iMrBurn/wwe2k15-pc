@@ -932,3 +932,24 @@ Dev probes (kept outside Git in `work/dev/exp_ioprobe/`: a log of every NtReadFi
 - Per-frame waits seen: 5 game threads at the frame barrier `sub_82B36418`, the job helper at `sub_82B2A240`; none of them is the loader.
 Conclusion: STOP here (time box of the task). Ideas not tried: trace the callers of `sub_82B9D6D0`/`DBA0`/`DE28` with the guest-stack walk (backchain `[r1]`, saved LR at `[prev-8]`) from the NtReadFile entry
 to find which game code issues the requests and how many per frame.
+
+## 2026-11-04 (Launcher): Steam Deck / Proton audit of the launcher
+Code review only (no Linux machine here); the launcher and updater changes build and were checked on Windows.
+- **Gamepad navigation**: `NavEnableGamepad` was already on and SDL3 feeds D-pad / A / B / LB / RB. Missing: the left stick
+  (added: mapped to the ImGui LStick keys), a visible focus (the angled tiles are invisible buttons, so ImGui drew nothing: tiles
+  now get a gold outline when focused) and activation of a focused tile by A / Enter (a tile only reacted to the mouse). The JOUER
+  tile is the default focus. Needs a Steam Input *gamepad* layout for the non-Steam shortcut (the desktop layout turns the pad into a mouse).
+- **Detection**: `RunningUnderWine()` (ntdll exports `wine_get_version`) and `OnSteamDeck()` (env `SteamDeck=1`, set by Steam in game
+  mode). Under Wine the window starts at 0,0 maximised (it used to open at 100,100 and overflow a 1280x800 screen). On a Deck with no
+  saved options (first start) the defaults are: native renderer, 720p internal, full screen, vsync, 60 fps entrances, CPU yield, keyboard off.
+  Saved options are never touched.
+- **What may break under Wine, and what was hardened**:
+  - Fonts: `C:/Windows/Fonts/bahnschrift|segoeui|impact.ttf` do not exist in a Proton prefix, so the UI used ImGui's tiny default font.
+    Now `GetWindowsDirectory()` + a chain (bahnschrift, segoeui, arial, tahoma, verdana, calibri; impact, arialbd, tahomabd, verdanab).
+  - Starting the game: `ShellExecuteExW` may fail or return no process handle on unix-style paths: under Wine it falls back to `CreateProcessW`.
+  - Updater: `WinHttpOpen(AUTOMATIC_PROXY)` can be refused: falls back to DEFAULT_PROXY then NO_PROXY. TLS goes through Wine's winhttp
+    (gnutls); if certificates fail the update check just reports "failed" in ABOUT (nothing else depends on it).
+  - Left alone because they are fine under Wine/DXVK: D3D11 device (DXVK; the WARP fallback does not exist, the launcher then says it cannot
+    start its UI), `DwmSetWindowAttribute` (stub), `IFileDialog` (Wine implements it; paths come back as `Z:\home\...`), `SHGetFolderPath`,
+    DXGI adapter names for the native GPU choice (DXVK reports the Vulkan names).
+  - Not testable here: `JOURNAUX` / `OUVRIR LE RAPPORT` use `ShellExecuteW("open")` on a folder / .txt (Wine hands it to xdg-open: may do nothing on a Deck).

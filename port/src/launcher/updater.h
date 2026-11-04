@@ -345,6 +345,13 @@ class Updater {
       return fail("url");
     HINTERNET session = WinHttpOpen(L"WWE2K15-PC-Launcher", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    // Wine / Proton: the automatic-proxy mode (Windows 8.1+) may be refused; try the plainer ones.
+    if (!session)
+      session = WinHttpOpen(L"WWE2K15-PC-Launcher", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                            WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session)
+      session = WinHttpOpen(L"WWE2K15-PC-Launcher", WINHTTP_ACCESS_TYPE_NO_PROXY,
+                            WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session)
       return fail("open");
     WinHttpSetTimeouts(session, 15000, 15000, 30000, 60000);  // resolve, connect, send, receive (ms)
