@@ -920,3 +920,15 @@ First reading, Chamber 6-man load on this PC (SSD, warm caches): reads are tiny 
 process CPU only 78-250 ms per second, 60 fps. So the load is neither disk-bound nor CPU-bound here: the game waits between small reads (one step per frame group), which is the lever
 still to find. Players' logs will now show whether a slow load has long read times (HDD) or low CPU (waiting). NOTE: "textures N" in [load] = texture mirrors rebuilt when a draw binds a
 changed texture, i.e. mostly the loading screen's own animated textures (~120/s), not loader work.
+
+## 2026-11-05 (Perf) What paces the load: the I/O threads are idle, requests come from the game's frame-driven scheduler (stopped: no small hook)
+Dev probes (kept outside Git in `work/dev/exp_ioprobe/`: a log of every NtReadFile with host thread id + path, per-thread wait/sleep probe, stack scan with thread names), Chamber 6-man load (~12 s):
+- Reads come from 3-4 threads: the pac loader (`XThread ... F8000720`, entry `sub_82B99770`, reads `pac\ch\*.pac`, `mot*.pac`, `menu*.pac` in 128 KB blocks), the job helper (the one `job_dispatch_fix.cpp` serves,
+  `sub_8261E8B8` loop; it also reads big `mot*.pac` chunks: 11-29 MB each), Wwise `AK::IOThread` (`sound\*.pck`) and the Bink IO threads (`movies\wwe15logo_title.bk2`).
+- Reads happen in bursts in the first ~6 s (30-95 calls/s), then nothing for the last ~5 s of the load: the end of the load waits on something else.
+- The pac loader thread sits in a request-queue pop (`sub_82B9C5B8`: NtWaitForSingleObjectEx on a semaphore at this+40); the producer `sub_82B9C4D0` (push) only sleeps (KeDelayExecutionThread) when the queue is full.
+  So the loader is not paced by a timer, Sleep or vblank of its own: its requests arrive from the game's frame-driven resource code above (`sub_82B9D6D0`, `sub_82B9DBA0`, `sub_82B9DE28`/`DED8`,
+  a layer of file API wrappers used from many places). No single "N per frame" budget variable was found; the nearest equivalent of WWE '12's loader budget is not reachable with a small hook.
+- Per-frame waits seen: 5 game threads at the frame barrier `sub_82B36418`, the job helper at `sub_82B2A240`; none of them is the loader.
+Conclusion: STOP here (time box of the task). Ideas not tried: trace the callers of `sub_82B9D6D0`/`DBA0`/`DE28` with the guest-stack walk (backchain `[r1]`, saved LR at `[prev-8]`) from the NtReadFile entry
+to find which game code issues the requests and how many per frame.
