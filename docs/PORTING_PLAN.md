@@ -1019,3 +1019,18 @@ Checked in game (muted, windowed, monitor 2, closed afterwards; save backed up t
   `--keybind_dpad_left=L --keybind_dpad_right=J` and send L/J. The first ENTER after launch is lost (send it twice); the main menu needs ~35 s after START.
 Consequence: the 2K14 recipe (hook the editor's image->canvas function, ARGB big-endian words, script ACCEPT, game writes its own save) applies; what is missing is the 2K15 address
 of that function and the editor object layout (find with memdump/memdiff on a blank vs a drawn canvas, then a read trap on the canvas page).
+
+### Update 2026-11-05 (later): the Create-a-Logo editor image function found in 2K15 TU4 (Mods)
+
+Method (game muted, windowed, monitor 2, closed afterwards, save untouched): in the 256x256 editor draw a black line (200 pixels), scan guest memory for runs of
+`FF000000` words (work\dev scratch script `runs.py`): the editor image copies sit at 0xA4F6C51C+/0xA4FAC524 (spacing 0x40008 = P+96 vs P+0x40068), more
+copies elsewhere (undo/canvas). Write/read trap (memtrap with a deeper stack walk) on those pages, then llvm-symbolizer on the return addresses.
+- **`sub_83277F00(P)` (TU4) is the editor's "image -> canvas" update** (the 2K14 recomp's `sub_833A8730` equivalent): reads the update flag `[P+92]`, the canvas
+  `O = [P+16]`, uses the image at `P+96` (8-byte header + w*h ARGB words) and the backup copies at `P+0x40068` and `P+0x80070` (chosen by flags `[P+24]`/`[P+28]`),
+  copies them to the canvas buffers with memcpy (`sub_82B2A180`, 0x10000 words for a 256 canvas, 0x4000 for 128; `sub_831F6848(O)` returns the width).
+  Callers: `sub_83278CC8(P)` (`[P+20]` state 1 -> sub_83277F00; state 2 counts `[P+32]` down) <- `sub_829AAF20`.
+  Identical layout to Jarrod's 2K14 notes (P+92 flag, P+96 image, P+0x40068, P+0x80070, O = [P+16]).
+- Canvas size menu: first entry 128x128, second 256x256; the editor opened on an empty slot for 256x256 shows X/Y coordinates 0..255.
+- Prototype plan (not written): hook `sub_83277F00` (REX_FUNC + `__imp__`), when `wwe2k15_logo_import` is on and the file `mods\logos\import.png` changed, decode it
+  (WIC), resize to the canvas size read from the canvas object, write ARGB big-endian words into the three image buffers (after the 8-byte header), set `[P+92]=1`, call the original.
+  Then ACCEPT in the editor saves it as a real logo (the game writes its own save). A launcher button + input script can come later.
