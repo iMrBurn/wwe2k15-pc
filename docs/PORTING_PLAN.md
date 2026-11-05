@@ -1034,3 +1034,20 @@ copies elsewhere (undo/canvas). Write/read trap (memtrap with a deeper stack wal
 - Prototype plan (not written): hook `sub_83277F00` (REX_FUNC + `__imp__`), when `wwe2k15_logo_import` is on and the file `mods\logos\import.png` changed, decode it
   (WIC), resize to the canvas size read from the canvas object, write ARGB big-endian words into the three image buffers (after the 8-byte header), set `[P+92]=1`, call the original.
   Then ACCEPT in the editor saves it as a real logo (the game writes its own save). A launcher button + input script can come later.
+
+### Update 2026-11-05 (evening): logo import prototype tested (Mods)
+
+`port/src/logo_import.cpp` (cvar `wwe2k15_logo_import`, default false; hook `sub_83277F00`; PNG `mods\logos\import.png`) built and tested in game (muted, windowed, monitor 2):
+- 512x512 PNG with transparency imported on a 256x256 canvas: colours and alpha correct (screenshots li_6c.png, li_10c.png in work\dev), ACCEPT -> the logo shows in slot 2 of the
+  LOGOS grid; after killing and restarting the game it is still there (persisted by the game's own save, no write by the hook).
+- 100x60 PNG on a 128x128 canvas: imported (stretched to the square, aspect ratio not kept, as in Jarrod's 2K14 importer; a "fit with transparent margins" option is possible later).
+- A text file renamed import.png: one WARN line ("not a readable image"), empty editor, no crash. Missing file: nothing happens.
+- Logs: "logo import: ... loaded (512x512)" and "picture written into the editor (256x256 canvas, editor A4F5E7D0)".
+Facts learned:
+- **The real save folder on this PC is `C:\Users\Melvin\Documents\WWE2K15\B13EBABEBABEBABE\545408B6\`** (not %LOCALAPPDATA%\WWE2K15: the older runs used that one). Logos are
+  `00000001\00PaintTool.pt\SaveData.Dat` (53,834 bytes with the default logo + one import) and `Headers\00000001\00PaintTool.pt.header`, same name as 2K14. The main save is `SaveData.dat\SaveData.Dat`.
+  My first backup copied the wrong folder; the logo files created by the tests were copied to work\dev\logo_save_made_by_tests and removed (the first test, 16:41, had created them: the game then
+  asks "Custom Logo save data must first be created" again, as at the start).
+- Input quirks (mnk defaults): X button = L (so L on the logo grid opens "delete this logo?", answer NO), Y = P, LT = Q or I (I worked, Q did not), RB/LB = 3/1, D-pad = Shift+arrows, B = Backspace.
+  ACCEPT in the editor: LT (I) to the tools window, stick down x3 (pen -> eraser -> fill -> ACCEPT), A.
+Not done: automatic ACCEPT/launcher button, aspect-ratio-preserving import, 2K14-style slot picker; nothing is exposed to players.
