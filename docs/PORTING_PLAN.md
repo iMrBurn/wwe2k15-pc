@@ -1005,3 +1005,17 @@ Equal-footing CPU test (Chamber, 4 cores, 30 s `thread_cpu` total, noise about +
 BDFF9625124636EE: 121 draws into 512x256, C35DF1151DFFDA5A: 91 draws into 512x512) 98 %, 97 %, 102 %. None is measurably cheaper than the base: skipping up to ~30 % of a frame's draws does not
 reduce the CPU, so the render thread's draw submission is not what makes slow CPUs struggle; the CPU goes to the game's recompiled code (flat profile, see 2026-11-03 notes).
 Conclusion: no safe "light" setting from skipping passes; the remaining CPU lever on slow PCs is the automatic 60 -> 30 fps fallback of scenes (already in). Dev tools kept: `fatal4.sh`, `jobcap.ps1`, `svr_skip_shaders`.
+
+### Update 2026-11-05: Create-a-Logo EXISTS in 2K15 and is the same design as 2K14 (Mods)
+
+Checked in game (muted, windowed, monitor 2, closed afterwards; save backed up to work\dev\save_backup_before_logo and found identical afterwards).
+- Path: main menu -> CREATIONS (4th entry down from PLAY) -> submenu SUPERSTAR / SUPERSTAR THREADS / ENTRANCE / MOVE-SET / ARENA / CHAMPIONSHIP / **LOGO**.
+- First entry: "In order to use custom logo, a Custom Logo save data must first be created. Would you like to create one now?" (YES / NO; NO ->
+  "You can't start custom logo without creating the save data...", back to the menu). Same flow as 2K14's `00PaintTool.pt`.
+- Then the LOGOS grid: 2 pages x 10 slots (1/2), slot 1 holds a default 256x256 "YES!" logo (as in 2K14), the others EMPTY; Y = COPY/PASTE, X = DELETE.
+- Opening an empty slot: SELECT CANVAS SIZE = 128x128 or 256x256 pixels, then the editor (TOOLS: pen, shape, line, eraser, rotate, flip, fill...; checkerboard canvas).
+- No file was written by merely opening it (the logo save is only written on ACCEPT), the user's SaveData.Dat is untouched.
+- Input quirks: arrow keys do not reach the menus; stick keys do (S down, Z up, A left, D right). The YES/NO dialog only answers to the D-pad: launch with
+  `--keybind_dpad_left=L --keybind_dpad_right=J` and send L/J. The first ENTER after launch is lost (send it twice); the main menu needs ~35 s after START.
+Consequence: the 2K14 recipe (hook the editor's image->canvas function, ARGB big-endian words, script ACCEPT, game writes its own save) applies; what is missing is the 2K15 address
+of that function and the editor object layout (find with memdump/memdiff on a blank vs a drawn canvas, then a read trap on the canvas page).
