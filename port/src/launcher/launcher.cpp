@@ -90,6 +90,7 @@ struct Options {
   bool cpu_yield = true;      // wwe2k15_render_wait_yield
   bool vsync = true;          // no tearing (vulkan_allow_present_mode_immediate = false)
   bool show_fps = false;      // wwe2k15_show_fps
+  bool logo_import = false;   // wwe2k15_logo_import: Create-a-Logo editor takes mods\\logos\\import.png
   bool fps60 = true;          // wwe2k15_60fps: entrances and victory scenes at 60 fps instead of the console's 30
   bool native = kNativeByDefault;  // native renderer: wwe2k15_native.exe
   int native_resolution = 0;  // native renderer: svr_render_scale, 0 = automatic (GPU and screen)
@@ -359,7 +360,7 @@ void SaveOptions() {
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
       << "\nnative_default_migrated=1\nnative=" << opt.native << "\nnative_resolution=" << opt.native_resolution << "\ngpu=" << opt.gpu
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nentrances_60fps=" << opt.fps60 << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nentrances_60fps=" << opt.fps60 << "\nlogo_import=" << opt.logo_import << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
 // ---- Key bindings remapped in the game (F4 > "Save to config") ----
@@ -462,6 +463,7 @@ void LoadOptions() {
     else if (k == "gpu_wait_yield") opt.cpu_yield = v != 0;  // (the old cpu_yield key defaulted to off)
     else if (k == "show_fps") opt.show_fps = v != 0;
     else if (k == "entrances_60fps") opt.fps60 = v != 0;
+    else if (k == "logo_import") opt.logo_import = v != 0;
     else if (k == "vsync") opt.vsync = v != 0;
     else if (k == "native") opt.native = v != 0;
     else if (k == "native_resolution")
@@ -539,6 +541,7 @@ std::wstring OptionArgs() {
            L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
            L" --wwe2k15_show_fps=" + b(opt.show_fps) +
            (opt.fps60 ? std::wstring() : std::wstring(L" --wwe2k15_60fps=false")) +
+           (opt.logo_import ? std::wstring(L" --wwe2k15_logo_import=true") : std::wstring()) +
            L" --window_width=" + std::to_wstring((opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) * 16 / 9) +
            L" --window_height=" + std::to_wstring(opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) +
            L" --monitor=" + std::to_wstring(opt.monitor) +
@@ -554,6 +557,7 @@ std::wstring OptionArgs() {
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
          L" --wwe2k15_show_fps=" + b(opt.show_fps) +
          (opt.fps60 ? std::wstring() : std::wstring(L" --wwe2k15_60fps=false")) +
+         (opt.logo_import ? std::wstring(L" --wwe2k15_logo_import=true") : std::wstring()) +
          L" --vulkan_allow_present_mode_immediate=" + b(!opt.vsync) +
          L" --window_width=" + std::to_wstring(std::max(opt.resolution, 720) * 16 / 9) +
          L" --window_height=" + std::to_wstring(std::max(opt.resolution, 720)) +
@@ -1500,6 +1504,86 @@ fs::path NewestReport() {
   return best;
 }
 
+// ---- Custom logo import (MODS tab) ----
+// The game side (src/logo_import.cpp) reads mods\logos\import.png beside the executables when
+// --wwe2k15_logo_import=true and puts it in the Create-a-Logo editor; the player then presses ACCEPT in
+// game. The launcher only copies the chosen picture there and never touches the game's save.
+fs::path LogoImportFile() { return root / L"mods" / L"logos" / L"import.png"; }
+std::string logo_message;  // result of the last import / removal, shown under the buttons
+
+void ImportLogo() {
+  IFileDialog* dialog = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return;
+  DWORD options = 0;
+  dialog->GetOptions(&options);
+  dialog->SetOptions(options | FOS_FILEMUSTEXIST);
+  const std::wstring pictures = Widen("Images (*.png, *.jpg, *.jpeg)");
+  const COMDLG_FILTERSPEC filter[] = {{pictures.c_str(), L"*.png;*.jpg;*.jpeg"}};
+  dialog->SetFileTypes(1, filter);
+  dialog->SetTitle(Widen(tr("Choisis une image (PNG ou JPG) pour ton logo")).c_str());
+  if (SUCCEEDED(dialog->Show(nullptr))) {
+    IShellItem* item = nullptr;
+    if (SUCCEEDED(dialog->GetResult(&item))) {
+      PWSTR path = nullptr;
+      if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+        const fs::path source(path);
+        std::wstring ext = source.extension().wstring();
+        for (auto& c : ext) c = towlower(c);
+        if (ext != L".png" && ext != L".jpg" && ext != L".jpeg") {
+          logo_message = tr("Ce fichier n'est pas une image PNG ou JPG.");
+        } else {
+          std::error_code ec;
+          const fs::path target = LogoImportFile();
+          fs::create_directories(target.parent_path(), ec);
+          // A copy, never a move: the player's own file stays where it is.
+          if (fs::equivalent(source, target, ec)) ec.clear();
+          else fs::copy_file(source, target, fs::copy_options::overwrite_existing, ec);
+          if (ec) logo_message = tr("Impossible de copier l'image.");
+          else {
+            opt.logo_import = true;  // importing a picture turns the import on
+            SaveOptions();
+            logo_message.clear();
+          }
+        }
+        CoTaskMemFree(path);
+      }
+      item->Release();
+    }
+  }
+  dialog->Release();
+}
+
+void DrawLogoImport(ImDrawList* d, ImVec2 o, ImVec2 area) {
+  const float x = o.x + 640, w = area.x - 640 - 48;
+  const fs::path file = LogoImportFile();
+  std::error_code ec;
+  const bool present = fs::is_regular_file(file, ec);
+  d->AddText(ui_font, 18, {x, o.y + 160}, kWhite, tr("LOGO PERSONNALISÉ"));
+  ImGui::SetCursorScreenPos({x, o.y + 190});
+  if (Tile("logo_import", tr("IMPORTER UN LOGO (PNG)"), {w - 168, 40}, false, true, 16)) ImportLogo();
+  ImGui::SetCursorScreenPos({x + w - 156, o.y + 190});
+  ImGui::BeginDisabled(!present);
+  if (Tile("logo_remove", tr("RETIRER L'IMAGE"), {156, 40}, false, false, 14)) {
+    fs::remove(file, ec);
+    logo_message.clear();
+  }
+  ImGui::EndDisabled();
+  ImGui::SetCursorScreenPos({x, o.y + 242});
+  if (ImGui::Checkbox(tr("Activer l'import de logo"), &opt.logo_import)) SaveOptions();
+  std::string state;
+  if (!logo_message.empty()) state = logo_message;
+  else if (present) {
+    const auto size = fs::file_size(file, ec);
+    state = std::string(tr("Image prête : ")) + "import.png (" + std::to_string(ec ? 0 : size / 1024) + " KB)";
+  } else state = tr("Aucune image importée.");
+  d->AddText(ui_font, 15, {x, o.y + 280}, logo_message.empty() ? (present ? kWhite : kMuted) : IM_COL32(255, 96, 96, 255), state.c_str(), nullptr, w);
+  d->AddText(ui_font, 14, {x, o.y + 306}, kMuted,
+             tr("Dans le jeu : CREATIONS > LOGO > emplacement vide > taille > ton image apparaît dans l'éditeur, puis ACCEPTER."), nullptr, w);
+  d->AddText(ui_font, 14, {x, o.y + 360}, kMuted,
+             tr("L'image est étirée en carré (128 ou 256 px) ; le PNG transparent est géré. Rien n'est écrit dans ta sauvegarde tant que tu n'acceptes pas."),
+             nullptr, w);
+}
+
 void DrawMods(ImDrawList* d, ImVec2 o, ImVec2 area) {
   static std::vector<std::string> files;
   static size_t total = 0;
@@ -1546,6 +1630,7 @@ void DrawMods(ImDrawList* d, ImVec2 o, ImVec2 area) {
     y += 22;
   }
   if (total > files.size()) d->AddText(ui_font, 15, {o.x + 64, y}, kMuted, "...");
+  DrawLogoImport(d, o, area);
   d->AddText(ui_font, 14, {o.x + 48, o.y + area.y - 36}, kMuted,
              tr("Ne partage pas de fichiers du jeu d'origine. Retire un mod en supprimant son fichier."));
 }
