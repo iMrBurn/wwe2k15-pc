@@ -132,6 +132,25 @@ bool MakeDevice(HWND hwnd) {
   return true;
 }
 
+// Wine / Proton (Linux, Steam Deck): ntdll exports wine_get_version there, and Steam sets SteamDeck=1
+// in game mode on the Deck. The launcher adapts its first-run defaults and its window to them.
+bool RunningUnderWine() {
+  static const bool wine = [] {
+    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    return ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+  }();
+  return wine;
+}
+
+bool OnSteamDeck() {
+  static const bool deck = [] {
+    wchar_t v[8]{};
+    const DWORD n = GetEnvironmentVariableW(L"SteamDeck", v, 8);
+    return n > 0 && n < 8 && v[0] == L'1';
+  }();
+  return deck;
+}
+
 fs::path ExeDir() {
   wchar_t path[MAX_PATH]{};
   GetModuleFileNameW(nullptr, path, MAX_PATH);
@@ -214,15 +233,17 @@ fs::path NewestLog(fs::file_time_type since) {
   return best;
 }
 
-// The native renderer writes this line before its message box (Vulkan 1.2 features missing, no
-// usable GPU) and only exits once the player clicks OK, however long that takes.
+// The native renderer writes one of these lines before its message box (no usable GPU / Vulkan 1.2
+// features, or dxcompiler.dll unusable) and only exits once the player clicks OK, however long that takes.
 bool NativeDeviceFailureInLog(fs::file_time_type since) {
   const fs::path log = NewestLog(since);
   if (log.empty()) return false;
   std::ifstream in(log);
   std::string line;
   while (std::getline(in, line))
-    if (line.find("could not create the host device") != std::string::npos) return true;
+    if (line.find("could not create the host device") != std::string::npos ||
+        line.find("shader compiler (dxcompiler.dll) missing or unusable") != std::string::npos)
+      return true;
   return false;
 }
 
@@ -463,6 +484,18 @@ void LoadOptions() {
       opt.native = true;
       migration_note = true;
     }
+    // First start on a Steam Deck (no saved choices yet): its 1280x800 screen and handheld GPU want
+    // the native renderer at 720p, full screen, vsync, and the pad rather than the keyboard.
+    if (!ini_exists && OnSteamDeck()) {
+      opt.native = true;
+      opt.native_resolution = 720;
+      opt.resolution = 720;
+      opt.fullscreen = true;
+      opt.vsync = true;
+      opt.fps60 = true;
+      opt.cpu_yield = true;
+      opt.keyboard = false;
+    }
     SaveOptions();
   }
   LoadSavedKeys();
@@ -635,7 +668,18 @@ void LaunchGame(bool automatic = false) {
   }
   const bool env_set = SetEnvironmentVariableW(
       obs_layer_disable_var, disable_obs_vulkan_hook ? L"1" : nullptr) != FALSE;
-  const BOOL launched = env_set && ShellExecuteExW(&info);
+  BOOL launched = env_set && ShellExecuteExW(&info);
+  if (env_set && (!launched || !info.hProcess) && RunningUnderWine()) {
+    // Wine/Proton: ShellExecute may not start a program on a unix-style path, or give no handle.
+    std::wstring cmd = L"\"" + exe.wstring() + L"\" " + args;
+    STARTUPINFOW si{sizeof(si)};
+    PROCESS_INFORMATION pi{};
+    if (CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, root.c_str(), &si, &pi)) {
+      CloseHandle(pi.hThread);
+      info.hProcess = pi.hProcess;
+      launched = TRUE;
+    }
+  }
   if (old_value_size > 0 && !old_value.empty()) {
     SetEnvironmentVariableW(obs_layer_disable_var, old_value.c_str());
   } else {
@@ -708,6 +752,16 @@ void PollPad() {
     {SDL_GAMEPAD_BUTTON_DPAD_LEFT, ImGuiKey_GamepadDpadLeft}, {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, ImGuiKey_GamepadDpadRight},
   };
   for (const Map& m : map) io.AddKeyEvent(m.k, SDL_GetGamepadButton(pad, m.b));
+  // The left stick moves the focus like the D-pad (the Steam Deck's D-pad is small).
+  auto stick = [&](SDL_GamepadAxis axis, bool negative, ImGuiKey key) {
+    const float raw = SDL_GetGamepadAxis(pad, axis) / 32767.0f;
+    const float v = negative ? -raw : raw;
+    io.AddKeyAnalogEvent(key, v > 0.35f, v > 0.35f ? v : 0.0f);
+  };
+  stick(SDL_GAMEPAD_AXIS_LEFTX, true, ImGuiKey_GamepadLStickLeft);
+  stick(SDL_GAMEPAD_AXIS_LEFTX, false, ImGuiKey_GamepadLStickRight);
+  stick(SDL_GAMEPAD_AXIS_LEFTY, true, ImGuiKey_GamepadLStickUp);
+  stick(SDL_GAMEPAD_AXIS_LEFTY, false, ImGuiKey_GamepadLStickDown);
 }
 
 // ---- UI: inspired by the WWE 2K15 menus (charcoal background, white highlight, angled tiles) ----
@@ -737,8 +791,10 @@ void Parallelogram(ImDrawList* d, ImVec2 a, ImVec2 b, float skew, ImU32 col) {
 // Angled tile button. Returns true when clicked.
 bool Tile(const char* id, const char* label, ImVec2 size, bool selected, bool primary = false, float font_size = 20) {
   ImVec2 p = ImGui::GetCursorScreenPos();
-  ImGui::InvisibleButton(id, size);
-  const bool hovered = ImGui::IsItemHovered();
+  const bool pressed = ImGui::InvisibleButton(id, size);
+  // Keyboard / gamepad focus looks like hover, with a gold outline.
+  const bool focused = ImGui::IsItemFocused() && ImGui::GetIO().NavVisible;
+  const bool hovered = ImGui::IsItemHovered() || focused;
   const bool held = ImGui::IsItemActive();
   ImDrawList* d = ImGui::GetWindowDrawList();
   const float skew = size.y * 0.28f;
@@ -750,7 +806,13 @@ bool Tile(const char* id, const char* label, ImVec2 size, bool selected, bool pr
   Parallelogram(d, p, {p.x + size.x, p.y + size.y}, skew, fill);
   const ImVec2 t = ui_font->CalcTextSizeA(font_size, FLT_MAX, 0, label);
   d->AddText(ui_font, font_size, {p.x + (size.x - t.x) * 0.5f, p.y + (size.y - t.y) * 0.5f}, text, label);
-  return ImGui::IsItemClicked();
+  if (focused) {
+    const ImVec2 pts[] = {{p.x + skew, p.y}, {p.x + size.x, p.y}, {p.x + size.x - skew, p.y + size.y}, {p.x, p.y + size.y}};
+    d->AddPolyline(pts, 4, kGold, ImDrawFlags_Closed, 3.0f);
+  }
+  // A mouse click (on press), or the gamepad A / Enter / Space activation of the focused tile.
+  return ImGui::IsItemClicked() ||
+         (pressed && focused && !ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseReleased(ImGuiMouseButton_Left));
 }
 
 void SectionTitle(ImDrawList* d, ImVec2 p, const char* title, const char* sub) {
@@ -865,7 +927,9 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   }
 
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 292});
-  if (Tile("play", running ? tr("EN COURS…") : (has ? tr("JOUER") : tr("CHOISIR LE JEU")), {400, 96}, false, true, 40) && !running) {
+  const bool play_clicked = Tile("play", running ? tr("EN COURS…") : (has ? tr("JOUER") : tr("CHOISIR LE JEU")), {400, 96}, false, true, 40);
+  ImGui::SetItemDefaultFocus();
+  if (play_clicked && !running) {
     if (has) LaunchGame(); else page = "RÉGLAGES";
   }
   if (!running && has && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) || ImGui::IsKeyPressed(ImGuiKey_Enter, false))) LaunchGame();
@@ -1570,11 +1634,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   WNDCLASSEXW wc{sizeof(wc), CS_CLASSDC, WndProc, 0, 0, instance, icon, nullptr, nullptr, nullptr,
                  L"WWE2K15Launcher", icon};
   RegisterClassExW(&wc);
+  // Under Wine / Proton (Steam Deck: 1280x800 screen) the window fills the screen instead of sitting at
+  // (100, 100), where part of it would be off screen.
+  const bool wine = RunningUnderWine();
   HWND hwnd = CreateWindowW(wc.lpszClassName, L"WWE 2K15 PC", WS_OVERLAPPEDWINDOW,
-      100, 100, 1280, 760, nullptr, nullptr, wc.hInstance, nullptr);
+      wine ? 0 : 100, wine ? 0 : 100, 1280, 760, nullptr, nullptr, wc.hInstance, nullptr);
   { BOOL dark = TRUE; DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark)); }
   if (!MakeDevice(hwnd)) { MessageBoxW(hwnd,L"Impossible d'initialiser l'interface graphique.",L"WWE 2K15 PC",MB_ICONERROR); return 1; }
-  ShowWindow(hwnd,SW_SHOWDEFAULT); UpdateWindow(hwnd);
+  ShowWindow(hwnd, wine ? SW_SHOWMAXIMIZED : SW_SHOWDEFAULT); UpdateWindow(hwnd);
   IMGUI_CHECKVERSION(); ImGui::CreateContext();
   ImGui::StyleColorsDark();
   ImGuiStyle& style = ImGui::GetStyle(); style.WindowRounding=0; style.FrameRounding=0; style.ChildRounding=0;
@@ -1585,10 +1652,25 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
   io.IniFilename = nullptr;
   ui_font = title_font = io.Fonts->AddFontDefault();
-  if (fs::exists(L"C:/Windows/Fonts/bahnschrift.ttf")) ui_font = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/bahnschrift.ttf", 20.0f);
-  else if (fs::exists(L"C:/Windows/Fonts/segoeui.ttf")) ui_font = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/segoeui.ttf", 20.0f);
-  title_font = ui_font;
-  if (fs::exists(L"C:/Windows/Fonts/impact.ttf")) title_font = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/impact.ttf", 40.0f);
+  {
+    // Windows fonts first; a Wine / Proton prefix only has a few (Liberation Sans as arial, tahoma...).
+    wchar_t windir[MAX_PATH]{};
+    GetWindowsDirectoryW(windir, MAX_PATH);
+    const fs::path fonts = fs::path(windir[0] ? windir : L"C:\\Windows") / L"Fonts";
+    auto first_existing = [&](std::initializer_list<const wchar_t*> names) -> std::string {
+      std::error_code ec;
+      for (const wchar_t* n : names)
+        if (fs::exists(fonts / n, ec)) return (fonts / n).string();
+      return {};
+    };
+    const std::string body = first_existing({L"bahnschrift.ttf", L"segoeui.ttf", L"arial.ttf", L"tahoma.ttf", L"verdana.ttf", L"calibri.ttf"});
+    if (!body.empty()) ui_font = io.Fonts->AddFontFromFileTTF(body.c_str(), 20.0f);
+    title_font = ui_font;
+    const std::string title = first_existing({L"impact.ttf", L"arialbd.ttf", L"tahomabd.ttf", L"verdanab.ttf"});
+    if (!title.empty()) title_font = io.Fonts->AddFontFromFileTTF(title.c_str(), 40.0f);
+    if (!ui_font) ui_font = io.Fonts->AddFontDefault();
+    if (!title_font) title_font = ui_font;
+  }
   logo_font = title_font;
   io.FontDefault = ui_font;
   InitPad();

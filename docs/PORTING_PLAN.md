@@ -817,3 +817,237 @@ Fatal 4-Way (4 wrestlers in the ring), this PC limited to 2 logical cores (affin
   the rest is a flat spread of recompiled game functions (none above 3.6 %). So a CPU-bound PC cannot be fixed by one hot function; at best a few %
   from the constants upload (already deduplicated: "constant blocks uploaded/reused" in the [perf] cpu line).
 - The re:Blue render-thread split line ("draws / constants / textures / geometry") exists only in Android builds (`present.cpp`).
+
+## (Mods) Camera cuts gate (#19, #32): static search, not found (2026-11-04)
+
+Analysis only, game not launched, no code changed.
+- Nothing in the repo, in WWE '12's docs/CLAUDE.md or in Jarrod's changelog mentions a camera-cut option or its gate.
+- The generated C++ has no strings (only `sub_8xxxxxxx`), `default.xex` is still packed and the localisation text
+  (`string.pac`, `string_pf.pac`) is scrambled (no readable ASCII/UTF-16), so the option cannot be located by name.
+  Decoded pacs (all 337) contain no "camera cut" text; `com.pac` "Cut*" names (CSCut, FallCut, SelectCut...) are
+  AI/motion state names, not camera settings; `pac\cab` is arena models, not cameras.
+- Therefore the gate has to be found dynamically (see the test plan sent to Main): toggle the option in the Options
+  menu and diff the options struct in guest memory, then put a read trap on the flag (`memtrap.cpp` pattern) and take the
+  reader's caller with `stackscan.ps1`; compare against a grapple/finisher where players say it is ignored.
+
+## 2026-11-04 (Perf) "Steam Deck" stand-in profile and small-PC numbers (native; muted, windowed on screen 2)
+Stand-in = this PC's AMD Radeon iGPU (`--svr_gpu_device`), window 1280x800, `--svr_render_scale=720`, affinity 0xFF (8 logical processors), `--audio_mute=true --fullscreen=false --monitor=2`:
+| case | fps | worst gap | CPU | memory |
+|---|---|---|---|---|
+| 1v1 demo | 60.0 | 18 ms | 72 % of a core | WS 1.13 GB, private 1.71 GB |
+| Chamber 6-man | 59.5-59.8 | 32-38 ms | 111 % | peak WS 1.40 GB, private 1.65 GB |
+| 1v1 entrances (60 fps on) | 58-60, scenes 81 s | | | peak WS 1.25 GB, private 1.53 GB |
+Work per frame 6-8 ms of 16.7, GPU wait 0 (the iGPU is not the limit at 720p). The Deck's GPU (RDNA2, 8 CU) is stronger than this iGPU; its CPU is the unknown.
+First launch on 2 cores (affinity 0x3, empty cache): "609 / 609 done" is 2 s with 1 or 2 shader threads (4 draw waits, 70-80 ms in all); the 16 s seen earlier is how long the game takes to
+create its shaders on a throttled CPU, not conversion time. Memory fits a 4 GB machine (peak private 1.8 GB).
+Wine/Proton code review and run guide: `docs/LINUX_STEAM_DECK.md` (untested on Linux: no machine). `port/tools/dev/memlog.ps1` samples WS/private memory.
+Note: the Windows focus rule applies in windowed mode too: `nav.ps1` sends nothing when another window is active (first deck entrance run aborted that way).
+
+### Update 2026-11-04 (evening): camera cuts option located (Mods, #19 / #32)
+
+Found with `memdump`/`memdiff` and `memtrap` (game muted, windowed, monitor 2, closed afterwards; option left ON).
+- The option is in the pause menu: PAUSED -> VISUAL PRESENTATION -> CAMERA CUTS (ON/OFF dialog; the highlighted line is the
+  current value). Keys: the arrow keys do not move the cursor with nav.ps1 (no extended-key flag); use S / Z (stick) for
+  down / up, SPACE = A, ENTER = pause and "back one level".
+- Flag = **one byte at guest 0x836FECE4** (1 = ON, 0 = OFF; toggled three times, only this byte differs from the noise). The
+  game object holding it is returned by `sub_827409F0` (options/settings singleton): flag = `lbz rX,15204(r3)` (+0x3B64).
+- Readers seen at run time (TU4): `sub_824BB6F0` (predicate: flag 0 -> returns 0, else tail to `sub_824BB130`, which holds the
+  real "may the camera cut now?" logic with move/state tests, `sub_824C28C8`, option bytes +14/+41/+60/+6 and a loop over the
+  wrestlers); `sub_8244DB60` (copies the flag into object+644, a camera object); `sub_824BB870` (large camera function, uses
+  flag == 1). `sub_824BB6F0` has 9 callers (recomp.1/103/119/129/205/276/288/299). Host ASLR: image base is not 0x140000000 in
+  memtrap output; use rip - "image base" line + 0x140000000 for llvm-symbolizer.
+- The grapple/finisher exclusion (if it exists) is therefore in `sub_824BB130` or the callers, not in the flag itself; the flag
+  read is not what blocks them (forcing it to 1 changes nothing if it is already 1).
+
+### Update 2026-11-04 (late): static reading of sub_824BB130 (camera "may cut now?" predicate) (Mods)
+
+`sub_824BB130(this)` returns 1 = a camera cut is allowed, 0 = not. `this` = the wrestler/actor whose move is playing
+(`*(this+28)` -> u16 current move id at +0). Order of the tests (TU4 addresses, `port/generated/default/wwe2k15_recomp.323.cpp`):
+1. move id 56194 + a linked actor (+836 / +2712) whose virtual +128 says no -> 0; global at 0x83xx3F70 (`lis -31896` +16240) == 2 or 4
+   -> 0 (game-mode values); `this+70` and `sub_824C28C8(moveid)` -> 0; options byte +14 -> 0.
+2. count of active wrestlers (up to 7, table at 0x82xx3F00): per-actor state `+3752` in {1,4,6,2}; several early-outs with
+   options bytes +41/+6/+60 (+60 and move id 1386 -> return 1), `sub_824CEB70`, `sub_824C3DE0` (move id in [11500, 11600)).
+3. loop over the other wrestlers (checks `sub_824C7B18`, `sub_824C1B60`, `sub_824CBF20`, `sub_824C3B10`, `sub_824CFCB8`, ...): any
+   hit -> keep going, a final miss -> 0.
+4. **Tail (0x824BB53C-0x824BB6E4)**: `sub_82340660(this+1872)` (= [this+1876] != 0) -> return 1. Otherwise the current move id is
+   compared against `sub_824DB0F8(this, k)` for k in {112,113,114,115, 91,92,93,94, 98,99,100,101, 105,106,107,108}; any equal
+   -> return 0 (NO cut). `sub_824DB0F8(this,k)` = u16 at `moveset_ptr + (k+222)*2` (moveset ptr = `sub_82452B30(this)`): these
+   are 4 groups of 4 move slots (each group = 7 slots apart), i.e. almost certainly the signature/finisher (and their ground/
+   variant) slots. This is the finisher/signature exclusion players describe. 16 call sites, LR 0x824BB570..0x824BB6xx.
+- The grapple (non-finisher) case is not confirmed: nothing else in the function is keyed on a move-id list except 56194, 1386,
+  [11500,11600). If grapples are also locked it is either one of those, an earlier early-out, or data (camera tables).
+- SvR 2010's generated code has no function with the same slot list (searched), so no like-for-like comparison is possible.
+
+**Smallest patch (not written, waiting for Main)**: a hook `extern "C" REX_FUNC(sub_824DB0F8)` (framerate_hook.cpp pattern) behind
+a cvar (e.g. `wwe2k15_camera_cuts_on_finishers`, default false until tested) that, when `ctx.lr` is in 0x824BB570..0x824BB6E4,
+sets `ctx.r3.u64 = 0xFFFF` (never equal to a move id) and returns without calling the original; all other callers pass through.
+Only the 16 finisher/signature compares are neutralised; the rest of the predicate and the option flag stay as they are.
+Test plan: pause menu camera cuts ON, do a finisher and a signature in 1v1 with the cvar on/off (cut or no cut), then a
+normal grapple, an entrance/replay and a 6-man for crashes; log (once) the move id and k when the hook fires.
+
+### Update 2026-11-04 (night): camera cut predicate measured in a running match (Mods)
+
+Diagnostic build (cvars `wwe2k15_camera_cuts_diag`, `wwe2k15_camera_cuts_on_finishers`, not committed; logs kept in work\dev\camcut_off.log
+/ camcut_on.log, ignored by Git), 1P mashing keys against the AI, option CAMERA CUTS = ON. Answers of `sub_824BB130` by move id
+(first occurrence of each id/answer, ~80 lines per run):
+- Moves of the actor are the ids in the slot table: signature/finisher ids are in the 50000-51400 range (examples of one wrestler's slots:
+  112-115 = 51091 51058 51091 51058, 91-94 = 50206 50389 50206 50298, 98-101 = 50531 50052 50464 50463, 105-108 = 50442 50034 50389 50034).
+- **Confirmed**: with the cvar off the slot test refuses (answer 0, reason "REFUSED in the slot test") 50463 (slot 101), 50464 (slot 100),
+  50052 (slot 99), 50531 (slot 98): moves of the 98-101 group (4 hits in about 10 minutes of play).
+- Most other 5xxxx moves (50034, 50140, 50206, 50393, 51036, 51052, 51329...) and the plain ids 100-104, 800-810, 10280, 40116... are refused
+  by an earlier test ("other early test", about 20 distinct ids per run), so the slot test is not the only gate; the early tests
+  depend on state (the same id 50463 was refused early in one run and in the slot test in another).
+- Two answers 0 came from the end of the opponent loop (`sub_824CC060` on the opponent's move: opponent 29002 / 20600 while the actor played 210 / 218).
+- Moves answered 1 (cut): about 40-57 distinct ids per run (ids < 500, 10xxx, 29xxx, 38xxx-40xxx), never a 50xxx id.
+- The "cut allowed by the cvar" case was not reached in the cvar-on run (no slot-test hit in 5 minutes), so the effect of
+  `wwe2k15_camera_cuts_on_finishers` is not yet seen on screen. Neither build crashed; 60 fps throughout.
+
+### Update 2026-11-05: the early gate is "actor and partner both in a hold" (Mods)
+
+Diagnostic run with state dump (work\dev\camcut_early.log / camcut_early2.log, not in Git). Every move refused before the slot test and the
+end of the opponent loop had: settings bytes +41/+6 = 0, `sub_824C28C8` = 0, `sub_824C3DE0` = 0, actor state +3752 = 0, 3 actors / 2 active,
+so none of the counting tests fired. What they all had in common was a linked partner (`actor+836` != 0) and `vfunc[128]` of both actor
+and partner = `sub_824AE850` (TU4). `sub_824AE850(x)` = x's "is in a hold" answer: virtual 144 true, then 1 if state +3752 is 4/6,
+otherwise the hold flag `[holdobj+100]`. In `sub_824BB130` (0x824BB1D0-0x824BB21C): "actor in a hold AND partner in a hold -> no cut"
+(call sites: actor `lr 0x824BB1EC`, partner `lr 0x824BB214`). Grapples (ids 100-104, 800-810, ...) and grapple finishers (50xxx) are all in that state,
+which explains players seeing no cuts on grapples and finishers; the 16-slot test is only reached by a move whose actor is not flagged "in a hold".
+Smallest patch candidate: answer 0 from `sub_824AE850` when called with `lr == 0x824BB214` (partner check) so that test E can never refuse;
+the slot test stays handled by `wwe2k15_camera_cuts_on_finishers`. Not tried in game.
+
+## 2026-11-05 (Perf) [load] line now reports file reads and CPU (SDK patch rexglue-sdk-iostats.patch)
+`[load] 1.0 s: read X MB in N calls (T ms) | textures ... | pipelines ... | cpu C ms | F fps`: NtReadFile totals (same counters as WWE '12 PC) and the process's CPU time per second.
+First reading, Chamber 6-man load on this PC (SSD, warm caches): reads are tiny and slow-paced: 0.1-3.5 MB/s, 1-43 calls/s (about 15 MB for the whole 12 s load), read time 0-4 ms/s,
+process CPU only 78-250 ms per second, 60 fps. So the load is neither disk-bound nor CPU-bound here: the game waits between small reads (one step per frame group), which is the lever
+still to find. Players' logs will now show whether a slow load has long read times (HDD) or low CPU (waiting). NOTE: "textures N" in [load] = texture mirrors rebuilt when a draw binds a
+changed texture, i.e. mostly the loading screen's own animated textures (~120/s), not loader work.
+
+## 2026-11-05 (Perf) What paces the load: the I/O threads are idle, requests come from the game's frame-driven scheduler (stopped: no small hook)
+Dev probes (kept outside Git in `work/dev/exp_ioprobe/`: a log of every NtReadFile with host thread id + path, per-thread wait/sleep probe, stack scan with thread names), Chamber 6-man load (~12 s):
+- Reads come from 3-4 threads: the pac loader (`XThread ... F8000720`, entry `sub_82B99770`, reads `pac\ch\*.pac`, `mot*.pac`, `menu*.pac` in 128 KB blocks), the job helper (the one `job_dispatch_fix.cpp` serves,
+  `sub_8261E8B8` loop; it also reads big `mot*.pac` chunks: 11-29 MB each), Wwise `AK::IOThread` (`sound\*.pck`) and the Bink IO threads (`movies\wwe15logo_title.bk2`).
+- Reads happen in bursts in the first ~6 s (30-95 calls/s), then nothing for the last ~5 s of the load: the end of the load waits on something else.
+- The pac loader thread sits in a request-queue pop (`sub_82B9C5B8`: NtWaitForSingleObjectEx on a semaphore at this+40); the producer `sub_82B9C4D0` (push) only sleeps (KeDelayExecutionThread) when the queue is full.
+  So the loader is not paced by a timer, Sleep or vblank of its own: its requests arrive from the game's frame-driven resource code above (`sub_82B9D6D0`, `sub_82B9DBA0`, `sub_82B9DE28`/`DED8`,
+  a layer of file API wrappers used from many places). No single "N per frame" budget variable was found; the nearest equivalent of WWE '12's loader budget is not reachable with a small hook.
+- Per-frame waits seen: 5 game threads at the frame barrier `sub_82B36418`, the job helper at `sub_82B2A240`; none of them is the loader.
+Conclusion: STOP here (time box of the task). Ideas not tried: trace the callers of `sub_82B9D6D0`/`DBA0`/`DE28` with the guest-stack walk (backchain `[r1]`, saved LR at `[prev-8]`) from the NtReadFile entry
+to find which game code issues the requests and how many per frame.
+
+## 2026-11-04 (Launcher): Steam Deck / Proton audit of the launcher
+Code review only (no Linux machine here); the launcher and updater changes build and were checked on Windows.
+- **Gamepad navigation**: `NavEnableGamepad` was already on and SDL3 feeds D-pad / A / B / LB / RB. Missing: the left stick
+  (added: mapped to the ImGui LStick keys), a visible focus (the angled tiles are invisible buttons, so ImGui drew nothing: tiles
+  now get a gold outline when focused) and activation of a focused tile by A / Enter (a tile only reacted to the mouse). The JOUER
+  tile is the default focus. Needs a Steam Input *gamepad* layout for the non-Steam shortcut (the desktop layout turns the pad into a mouse).
+- **Detection**: `RunningUnderWine()` (ntdll exports `wine_get_version`) and `OnSteamDeck()` (env `SteamDeck=1`, set by Steam in game
+  mode). Under Wine the window starts at 0,0 maximised (it used to open at 100,100 and overflow a 1280x800 screen). On a Deck with no
+  saved options (first start) the defaults are: native renderer, 720p internal, full screen, vsync, 60 fps entrances, CPU yield, keyboard off.
+  Saved options are never touched.
+- **What may break under Wine, and what was hardened**:
+  - Fonts: `C:/Windows/Fonts/bahnschrift|segoeui|impact.ttf` do not exist in a Proton prefix, so the UI used ImGui's tiny default font.
+    Now `GetWindowsDirectory()` + a chain (bahnschrift, segoeui, arial, tahoma, verdana, calibri; impact, arialbd, tahomabd, verdanab).
+  - Starting the game: `ShellExecuteExW` may fail or return no process handle on unix-style paths: under Wine it falls back to `CreateProcessW`.
+  - Updater: `WinHttpOpen(AUTOMATIC_PROXY)` can be refused: falls back to DEFAULT_PROXY then NO_PROXY. TLS goes through Wine's winhttp
+    (gnutls); if certificates fail the update check just reports "failed" in ABOUT (nothing else depends on it).
+  - Left alone because they are fine under Wine/DXVK: D3D11 device (DXVK; the WARP fallback does not exist, the launcher then says it cannot
+    start its UI), `DwmSetWindowAttribute` (stub), `IFileDialog` (Wine implements it; paths come back as `Z:\home\...`), `SHGetFolderPath`,
+    DXGI adapter names for the native GPU choice (DXVK reports the Vulkan names).
+  - Not testable here: `JOURNAUX` / `OUVRIR LE RAPPORT` use `ShellExecuteW("open")` on a folder / .txt (Wine hands it to xdg-open: may do nothing on a Deck).
+
+## 2026-11-05 (Perf) The last ~5 s of the Chamber load: idle, not the port's work
+RIP samples of the 30 busiest threads over PLAY+6 s .. PLAY+12 s (`chamber.sh` with `LOADPROF=samp SDELAY=6 SSEC=6 STOP=30`): 4 cores 98.4 % in ntdll waits, 1.3 % game code
+(of which UploadPixel/VertexShaderConstants, texture mirrors: the loading screen's own frames); 2 cores 96.9 % waits, 1.9 % game; 4 cores with `pipelines.bin` removed (pipelines rebuilt) 93.9 % waits,
+2.1 % game, 3.4 % win32u. No pipeline/shader/upload work in that window, no GPU wait. The [load] lines (2-core run) show the shape of a load: reads of 14-35 MB/s in exactly ~30 calls per second
+(one request every 2 frames, same on every machine) for several seconds, then no reads and 1 core of CPU once the match runs. So the port does nothing slow there; the tail is the game waiting.
+Lead not followed (time box): the 30 calls/s cadence looks like one job per 2 frames from the job dispatcher (`sub_8261E230` hook in `job_dispatch_fix.cpp`, 6 call sites); making it
+dispatch more often during loading would shorten the read phase (about 6 s here), but the call sites/semantics are unknown. `chamber.sh` samp mode now takes SDELAY/SSEC/STOP.
+
+## (Mods) Custom logo import (#21, #29): study (2026-11-05)
+
+Analysis only, no game run, no code.
+
+**How WWE 2K14 recomp (Jarrod / promethendev) does it** (read from its public source, `src/logo_import.h`, `src/launcher/logo_save.h`, and its CHANGELOG):
+- Mods -> Logos in the launcher. A PNG is handed to the game by cvar (`wwe2k14_logo_import`, `..._file`, default `mods/logos/import.png`); the
+  launcher never decodes it. The game hooks one function (`sub_833A8730`, "editor image -> canvas") while Create-a-Logo is open, resizes the PNG
+  (WIC, exact 256x256 or 128x128, no aspect ratio kept) and writes ARGB big-endian words into the editor's three image copies
+  (`P+96`, `P+0x40068`, `P+0x80070`, 8-byte header then w*h words), then sets the update flag (`P+92`).
+- The launcher then drives the game with an input script (state asserts on game memory at each screen, quits without saving on any mismatch) to
+  press ACCEPT so that the GAME writes its own save. It backs up the save folder first (10 backups kept), fills the next free slot (20 slots
+  per page layout) and re-reads the save to verify. 2K14 save facts: `545408B2\00000001\00PaintTool.pt\SaveData.Dat`, 4 `ZLIB` blocks, 20 slots of
+  0x50468 bytes (used flag, w, h at +0x40/+0x44, ARGB pixels at +0x48). No checksum handled by the importer: the game writes the save.
+
+**What 2K15 has (from our own files):**
+- No `PaintTool` string anywhere in the decoded pacs; the save is one `SaveData.Dat` (not a separate paint-tool file); the stats table in
+  `menu.pac` has `BASIC_CREATE_{SUPERSTAR_CAS,DIVA_CAS,ENTRANCE,FINISHER,STORY,ARENA,CHAMPIONSHIP}_COUNT` and `BASIC_EDIT_SUPERSTAR_THREADS_COUNT`
+  but no create-logo counter. So a standalone Create-a-Logo may not exist in 2K15: not confirmed (needs a look at CREATIONS in game).
+- Logo-related pieces that do exist: `edit.pac` shader samplers `g_mSampLogo0/1` and `CapLogo` (logo layers of the attire compositor used by Superstar
+  Threads), `CAALogo` in `_startup.pac` / `cab\CAB.pac` (Create-an-Arena logo parameter), stock logo meshes in `car/*`, `parts_*`.
+- The user's current save is nearly empty (17 non-zero 4 KB pages, one ZLIB block of 1.89 MB inflated); it cannot be used to read the logo layout.
+
+**What mods\ does today** (docs/MODS.md): replaces whole files by relative path (pac, movies, sound, TU files) read-only, GAME: and UPDATE:, mods win over game_update.
+It has no logo-specific feature; replacing a stock logo means replacing a whole .pac (tens of MB) and a repacker.
+
+**Feasibility (preliminary):**
+1. Static replacement of stock logos (arena/ring/attire textures) by mods\pac\...: needs a pac repacker/texture injector (WWE '12's `svrfmt` pac/archive/texture
+   code is a model; licence: Kaiko's code, ideas only). Unknown: whether the game accepts a repacked, uncompressed EPK8 (menu.pac is an uncompressed EPAC and works).
+   Effort: days to a week. Risk: medium (format details, XCTD queries).
+2. 2K14-style live import: only if 2K15 has an editor with a PNG-sized canvas. Needs: confirm the menu, find the editor's image-to-canvas function (read trap /
+   memdiff as done for camera cuts, ~1 day), a hook like `logo_import.h`, plus a save-writing path (input script) and backups. Effort: 1-2 weeks. Risk: medium-high.
+3. Smallest prototype after confirmation: a cvar + hook that overwrites the editor canvas from `mods\logos\import.png` while the editor is open (no UI automation), user presses ACCEPT.
+Needed from the player: PNG (square, 256x256 or 128x128 if it matches), a save backup (we make it), and for step 1 a look at CREATIONS to say which editor holds logos.
+
+## 2026-11-05 (Perf) "Light mode" for slow CPUs: no lever found in the draw calls
+Slow-CPU stand-ins (`port/tools/dev/jobcap.ps1`: Windows job-object hard CPU cap on the game process; affinity masks): with 1 logical core uncapped, the Fatal 4-Way match still holds 60 fps (75 % of a
+core) but the 60 fps entrances exceed the limit (29.7 ms per frame) and the automatic fallback to 30 fps triggers (as intended, #28). Capped at 0.35-0.5 of a core the Chamber falls to 30-46 fps with
+frame gaps of 170-350 ms (artefact of the cap's 300 ms periods, so fps is noisy; use CPU totals instead).
+Equal-footing CPU test (Chamber, 4 cores, 30 s `thread_cpu` total, noise about +-10 %): base 93 % and 103 % of one core; `--wwe12_shadows=false` (skips draws into R32_FLOAT targets with depth) 106 %;
+`--svr_skip_shaders` (new dev cvar: draws using the listed vertex/pixel shader hashes are skipped) on the three biggest draw groups of a match frame (63EC47B29CD9DB33: 144 draws into the main target,
+BDFF9625124636EE: 121 draws into 512x256, C35DF1151DFFDA5A: 91 draws into 512x512) 98 %, 97 %, 102 %. None is measurably cheaper than the base: skipping up to ~30 % of a frame's draws does not
+reduce the CPU, so the render thread's draw submission is not what makes slow CPUs struggle; the CPU goes to the game's recompiled code (flat profile, see 2026-11-03 notes).
+Conclusion: no safe "light" setting from skipping passes; the remaining CPU lever on slow PCs is the automatic 60 -> 30 fps fallback of scenes (already in). Dev tools kept: `fatal4.sh`, `jobcap.ps1`, `svr_skip_shaders`.
+
+### Update 2026-11-05: Create-a-Logo EXISTS in 2K15 and is the same design as 2K14 (Mods)
+
+Checked in game (muted, windowed, monitor 2, closed afterwards; save backed up to work\dev\save_backup_before_logo and found identical afterwards).
+- Path: main menu -> CREATIONS (4th entry down from PLAY) -> submenu SUPERSTAR / SUPERSTAR THREADS / ENTRANCE / MOVE-SET / ARENA / CHAMPIONSHIP / **LOGO**.
+- First entry: "In order to use custom logo, a Custom Logo save data must first be created. Would you like to create one now?" (YES / NO; NO ->
+  "You can't start custom logo without creating the save data...", back to the menu). Same flow as 2K14's `00PaintTool.pt`.
+- Then the LOGOS grid: 2 pages x 10 slots (1/2), slot 1 holds a default 256x256 "YES!" logo (as in 2K14), the others EMPTY; Y = COPY/PASTE, X = DELETE.
+- Opening an empty slot: SELECT CANVAS SIZE = 128x128 or 256x256 pixels, then the editor (TOOLS: pen, shape, line, eraser, rotate, flip, fill...; checkerboard canvas).
+- No file was written by merely opening it (the logo save is only written on ACCEPT), the user's SaveData.Dat is untouched.
+- Input quirks: arrow keys do not reach the menus; stick keys do (S down, Z up, A left, D right). The YES/NO dialog only answers to the D-pad: launch with
+  `--keybind_dpad_left=L --keybind_dpad_right=J` and send L/J. The first ENTER after launch is lost (send it twice); the main menu needs ~35 s after START.
+Consequence: the 2K14 recipe (hook the editor's image->canvas function, ARGB big-endian words, script ACCEPT, game writes its own save) applies; what is missing is the 2K15 address
+of that function and the editor object layout (find with memdump/memdiff on a blank vs a drawn canvas, then a read trap on the canvas page).
+
+### Update 2026-11-05 (later): the Create-a-Logo editor image function found in 2K15 TU4 (Mods)
+
+Method (game muted, windowed, monitor 2, closed afterwards, save untouched): in the 256x256 editor draw a black line (200 pixels), scan guest memory for runs of
+`FF000000` words (work\dev scratch script `runs.py`): the editor image copies sit at 0xA4F6C51C+/0xA4FAC524 (spacing 0x40008 = P+96 vs P+0x40068), more
+copies elsewhere (undo/canvas). Write/read trap (memtrap with a deeper stack walk) on those pages, then llvm-symbolizer on the return addresses.
+- **`sub_83277F00(P)` (TU4) is the editor's "image -> canvas" update** (the 2K14 recomp's `sub_833A8730` equivalent): reads the update flag `[P+92]`, the canvas
+  `O = [P+16]`, uses the image at `P+96` (8-byte header + w*h ARGB words) and the backup copies at `P+0x40068` and `P+0x80070` (chosen by flags `[P+24]`/`[P+28]`),
+  copies them to the canvas buffers with memcpy (`sub_82B2A180`, 0x10000 words for a 256 canvas, 0x4000 for 128; `sub_831F6848(O)` returns the width).
+  Callers: `sub_83278CC8(P)` (`[P+20]` state 1 -> sub_83277F00; state 2 counts `[P+32]` down) <- `sub_829AAF20`.
+  Identical layout to Jarrod's 2K14 notes (P+92 flag, P+96 image, P+0x40068, P+0x80070, O = [P+16]).
+- Canvas size menu: first entry 128x128, second 256x256; the editor opened on an empty slot for 256x256 shows X/Y coordinates 0..255.
+- Prototype plan (not written): hook `sub_83277F00` (REX_FUNC + `__imp__`), when `wwe2k15_logo_import` is on and the file `mods\logos\import.png` changed, decode it
+  (WIC), resize to the canvas size read from the canvas object, write ARGB big-endian words into the three image buffers (after the 8-byte header), set `[P+92]=1`, call the original.
+  Then ACCEPT in the editor saves it as a real logo (the game writes its own save). A launcher button + input script can come later.
+
+### Update 2026-11-05 (evening): logo import prototype tested (Mods)
+
+`port/src/logo_import.cpp` (cvar `wwe2k15_logo_import`, default false; hook `sub_83277F00`; PNG `mods\logos\import.png`) built and tested in game (muted, windowed, monitor 2):
+- 512x512 PNG with transparency imported on a 256x256 canvas: colours and alpha correct (screenshots li_6c.png, li_10c.png in work\dev), ACCEPT -> the logo shows in slot 2 of the
+  LOGOS grid; after killing and restarting the game it is still there (persisted by the game's own save, no write by the hook).
+- 100x60 PNG on a 128x128 canvas: imported (stretched to the square, aspect ratio not kept, as in Jarrod's 2K14 importer; a "fit with transparent margins" option is possible later).
+- A text file renamed import.png: one WARN line ("not a readable image"), empty editor, no crash. Missing file: nothing happens.
+- Logs: "logo import: ... loaded (512x512)" and "picture written into the editor (256x256 canvas, editor A4F5E7D0)".
+Facts learned:
+- **The real save folder on this PC is `C:\Users\Melvin\Documents\WWE2K15\B13EBABEBABEBABE\545408B6\`** (not %LOCALAPPDATA%\WWE2K15: the older runs used that one). Logos are
+  `00000001\00PaintTool.pt\SaveData.Dat` (53,834 bytes with the default logo + one import) and `Headers\00000001\00PaintTool.pt.header`, same name as 2K14. The main save is `SaveData.dat\SaveData.Dat`.
+  My first backup copied the wrong folder; the logo files created by the tests were copied to work\dev\logo_save_made_by_tests and removed (the first test, 16:41, had created them: the game then
+  asks "Custom Logo save data must first be created" again, as at the start).
+- Input quirks (mnk defaults): X button = L (so L on the logo grid opens "delete this logo?", answer NO), Y = P, LT = Q or I (I worked, Q did not), RB/LB = 3/1, D-pad = Shift+arrows, B = Backspace.
+  ACCEPT in the editor: LT (I) to the tools window, stick down x3 (pen -> eraser -> fill -> ACCEPT), A.
+Not done: automatic ACCEPT/launcher button, aspect-ratio-preserving import, 2K14-style slot picker; nothing is exposed to players.

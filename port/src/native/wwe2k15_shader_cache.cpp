@@ -344,6 +344,19 @@ const uint8_t *Wwe2k15ShaderSpirv(const ShaderCacheEntry *entry) {
   return it == g_entries.end() ? nullptr : it->second->smolv.data();
 }
 
+bool Wwe2k15DxcUsable() {
+  if (!LoadDxc())  // logs "missing or unusable"
+    return false;
+  IDxcCompiler3 *dxc = nullptr;
+  if (FAILED(g_dxc_create(CLSID_DxcCompiler, IID_PPV_ARGS(&dxc))) || !dxc) {
+    BD_ERROR("Native shaders: dxcompiler.dll loaded but its compiler instance can't be created: "
+             "the game's shaders can't be converted");
+    return false;
+  }
+  dxc->Release();
+  return true;
+}
+
 void Wwe2k15WaitShader(bd::gpu::GuestShader *shader, uint32_t timeout_ms) {
   if (!shader)
     return;

@@ -12,6 +12,10 @@
 #include <unordered_map>
 #include <vector>
 
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
 #include <fmt/format.h>
 
 #include <xxhash.h>
@@ -1061,12 +1065,25 @@ static void LoadStatsTick() {
   static u64 last_pso_known = 0, last_pso_ns = 0;
   const double mb = double(bytes - last_bytes) / (1024.0 * 1024.0);
   const double fps = double(frame - last_frame) / seconds;
+  // Whole-process CPU time (user + kernel) used during this second: with the file-read time above it
+  // tells a disk-bound load (reads) from a CPU-bound one (cpu near 1000 ms per core) and from waiting.
+  static double last_cpu_ms = 0;
+  double cpu_now_ms = 0;
+  {
+    FILETIME created, exited, kernel, user;
+    if (GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) {
+      const auto ticks = [](const FILETIME &f) { return double((uint64_t(f.dwHighDateTime) << 32) | f.dwLowDateTime); };
+      cpu_now_ms = (ticks(kernel) + ticks(user)) / 10000.0;
+    }
+  }
+  const double cpu_ms = cpu_now_ms - last_cpu_ms;
+  last_cpu_ms = cpu_now_ms;
   if (bytes != last_bytes || mirrors != last_mirrors || pso != last_pso || fps < 55.0)
     BD_INFO("[load] {:.1f} s: read {:.1f} MB in {} calls ({} ms) | textures {} ({} ms) | "
-            "pipelines {} ({} known, {} ms) | {:.0f} fps",
+            "pipelines {} ({} known, {} ms) | cpu {:.0f} ms | {:.0f} fps",
             seconds, mb, calls - last_calls, (io_ns - last_io_ns) / 1000000, mirrors - last_mirrors,
             (mirror_ns - last_mirror_ns) / 1000000, pso - last_pso, pso_known - last_pso_known,
-            (pso_ns - last_pso_ns) / 1000000, fps);
+            (pso_ns - last_pso_ns) / 1000000, cpu_ms, fps);
   last_pso_known = pso_known, last_pso_ns = pso_ns;
   last_bytes = bytes, last_calls = calls, last_io_ns = io_ns, last_mirrors = mirrors,
   last_mirror_ns = mirror_ns, last_pso = pso, last_frame = frame;
