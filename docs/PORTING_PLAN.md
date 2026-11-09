@@ -1051,3 +1051,60 @@ Facts learned:
 - Input quirks (mnk defaults): X button = L (so L on the logo grid opens "delete this logo?", answer NO), Y = P, LT = Q or I (I worked, Q did not), RB/LB = 3/1, D-pad = Shift+arrows, B = Backspace.
   ACCEPT in the editor: LT (I) to the tools window, stick down x3 (pen -> eraser -> fill -> ACCEPT), A.
 Not done: automatic ACCEPT/launcher button, aspect-ratio-preserving import, 2K14-style slot picker; nothing is exposed to players.
+
+## 2026-11-09 (Rendu) Created superstar portrait (#34), arena thumbnail (#35), championship freeze (#33)
+Reproduced on this PC (native, RTX 5070 Ti, internal 2560x1440 = 2x), the user at the pad.
+- **#34 cause:** the created superstar's portrait (target 736x1280, 11 mips, k_8_8_8_8) is drawn with predicated tiling:
+  4 stacked 768x320 tiles, drawn once when the superstar is saved (ACCEPT); the CPU compresses it in that same frame.
+  Native learns a tiled surface's full extent only during its first frame (SvrNoteTiledResolve), too late for a picture
+  drawn once: only the top tile (the head) existed, the rest of the saved portrait was old memory, i.e. noise on the
+  selection screen. Also: targets resolved from a surface above 1x were never read back (`extent > 4`),
+  WriteGuestTextureBase refused packed-mip textures, and mipmapped targets were only read back 2 frames later.
+- **#34 fix (confirmed on screen by the user):** 768x320 surfaces start at the 768x1280 extent (like 320x736/640x736);
+  one-off resolves of 16:9 or scaled targets are read back (downscaled with an area filter to the texture's size),
+  immediately when the target has mips; packed-mip bases (both sides > 16) are written.
+- **#35 cause/fix (confirmed on screen):** saving an arena takes a 1280x720 shot into a target made for it and the CPU
+  reads it at once; one-off resolves into a target created in that same frame are now read back immediately.
+  Side cost: scene targets read back once at scene starts (37 read-backs in a whole title -> entrance -> match run).
+- Kept: cube targets are never read back (WriteGuestTextureBase cannot write them). Deferred read-backs are dropped if
+  the texture header changed since the resolve (memory reused).
+- Debug: `--svr_log_readbacks=true` logs each read-back (memory range written), the first resolve of each burst and
+  the one-off decisions; `--svr_dump_readbacks=true` also dumps targets 1024 px tall and the raw guest memory.
+- Regression (native 1v1 with entrance, title -> match): 0 critical, 56-60 fps per 5 s, one 345 ms gap at match load
+  (wrestler load, not a read-back of this change). Superstar Threads: the user edited Adam Rose's attire and played him vs CM Punk at 720p:
+  attire normal on screen, its 2048x1024 composite read back (9x, written: true). The attire targets are never 16:9 nor
+  scaled, so the render scale does not change their path; the Xenos exe (wwe2k15.exe) shares none of this code (the SDK
+  patch only adds a log line on a bad packet).
+- **#33 (not fixed):** the freeze reproduces (Create a Championship, moving logos). New SDK log
+  (`rexglue-sdk-bad-indirect-buffer-log.patch`): the bad indirect buffers start with floats (3ACCCCCD 3B360B61 0 0
+  3F800000 = 1/640, 1/360, 0, 0, 1.0: shader constants), at a different address each time. So the game's INDIRECT_BUFFER
+  points at a constant block; it is not a native write-back over a command buffer. Next: log the primary-ring
+  INDIRECT_BUFFER packet and the guest caller that emitted it.
+
+## 2026-11-09 (Rendu) Create a Championship freeze (#33): two threads in the D3D ring
+- **Cause:** the game's main thread runs the D3D helper sub_82BA8358 (called from 82BA2600, once per texture while a
+  logo list loads) and it writes packets (WAIT_REG_MEM, rect-list draws with ALU constants) into the same D3D command
+  ring as the render thread, with no lock. A segment was then closed in the middle of the other thread's packet
+  (a type-0 header 001F4000 cut after 8 of its 32 dwords). The SDK command processor drops the rest of that indirect
+  buffer (its fences) and the next one starts with floats. The game then waits on its fence forever.
+- Proved with a probe (helper on the main thread while the render thread is in the ring wait sub_82BB0180), and
+  reproduced with keys: Create a Championship > Logos, switching categories/logos (`work\dev\logo_loop2.sh`).
+  The race also exists in wwe2k15.exe (Xenos); there it did not freeze in 15 rounds.
+- **Fix (cvar `wwe2k15_d3d_ring_lock`, OFF by default for now), render_wait_hook.cpp:**
+  - a handshake: the render thread "parks" only inside its ring wait, its fence wait (sub_82BAFB78) and at a
+    present when a helper is waiting;
+  - helper calls run only while it is parked, one at a time;
+  - bounded waits (helper 50 ms, park 100 ms), then each side goes on as before, logged. No deadlock possible.
+  - A first version where the render thread held a timed mutex dropped boot to 20 fps (helper timeouts): dropped.
+- Results with the lock ON:
+  - logo loop: native 20 rounds, Xenos 15 rounds, no freeze, 0 bad indirect buffer;
+  - about 9,000 helper calls per session, 2 "alone" (the first 2, before the first present), 0 park timeouts;
+  - 1v1 with entrance: native 59-60 fps; Xenos same 30 fps windows as with the lock OFF (20 vs 24 of 79).
+- **ON by default since 0.3.5** (to turn it off: `wwe2k15_d3d_ring_lock = false` in wwe2k15.toml), after: a Superstar
+  Threads attire match by the user (attire normal), 7 Elimination Chamber loads in a row (59.7-60 fps, max gap 31-50 ms,
+  0 critical, 0 park timeouts; `work\dev\chlock1..7.log`).
+- SDK patch `rexglue-sdk-bad-indirect-buffer-log.patch`: on a bad packet, logs the indirect buffer's dwords and the
+  packets of the buffer that called it.
+- **For Perf:** a stall of 1.3 to 7.7 s about 10 s after launch, before the title screen, with or without the lock
+  (native, 2026-11-09 runs `work\dev\lockon*.log`/`lockoff.log`; earlier runs that day had none). Its length varies
+  from run to run.

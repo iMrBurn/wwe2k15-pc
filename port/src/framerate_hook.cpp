@@ -161,7 +161,10 @@ struct Counter {
 // Called once per guest present: by the Swap hook below, or in wwe2k15_native.exe (where re:Blue
 // overrides D3DDevice_Swap itself) from the renderer's per-frame tick (Wwe12DisplayOnFrame). `base`
 // is null there: the title fps read from guest memory is then left out of the log line.
+void Wwe2k15RingLockOnPresent();  // render_wait_hook.cpp (issue #33)
+
 void Wwe2k15OnGuestPresent(uint8_t* base) {
+  Wwe2k15RingLockOnPresent();
   g_wwe2k15_present_count.fetch_add(1, std::memory_order_relaxed);
   const uint64_t now = NowUs();
   SceneWatch(now);

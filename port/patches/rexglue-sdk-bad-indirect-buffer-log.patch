@@ -1,0 +1,97 @@
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 889cde9..0d04e80 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -14,6 +14,7 @@
+ #include <cinttypes>
+ #include <cmath>
+ #include <cstring>
++#include <string>
+ #include <string_view>
+ 
+ #include <fmt/format.h>
+@@ -646,6 +647,18 @@ uint32_t CommandProcessor::ExecutePrimaryBuffer(uint32_t read_index, uint32_t wr
+   return write_index;
+ }
+ 
++namespace {
++// The packets around the INDIRECT_BUFFER being executed (the buffer that called it), for the
++// "bad packet" log: which command stream handed out a pointer to non-command data.
++struct IndirectCaller {
++  const uint8_t* buffer = nullptr;
++  uint32_t capacity = 0;
++  uint32_t header_offset = 0;
++  uint32_t depth = 0;
++};
++thread_local IndirectCaller t_indirect_caller;
++}  // namespace
++
+ void CommandProcessor::ExecuteIndirectBuffer(uint32_t ptr, uint32_t count) {
+   SCOPE_profile_cpu_f("gpu");
+ 
+@@ -653,9 +666,46 @@ void CommandProcessor::ExecuteIndirectBuffer(uint32_t ptr, uint32_t count) {
+   memory::RingBuffer reader(memory_->TranslatePhysical(ptr), count * sizeof(uint32_t));
+   reader.set_write_offset(count * sizeof(uint32_t));
+   do {
++    const uint32_t packet_offset = uint32_t(reader.read_offset());
+     if (!ExecutePacket(&reader)) {
+       // Return up a level if we encounter a bad packet.
+       REXGPU_ERROR("**** INDIRECT RINGBUFFER: Failed to execute packet.");
++      // Where the bad packet sits, and the dwords around it (big-endian as in memory), to tell a
++      // buffer overwritten by something else from a parsing problem.
++      static std::atomic<uint32_t> logged{0};
++      if (logged.fetch_add(1, std::memory_order_relaxed) < 16) {
++        const uint32_t bad = packet_offset / 4;
++        const auto* words = memory_->TranslatePhysical<const uint32_t*>(ptr);
++        std::string around;
++        const uint32_t first = bad >= 8 ? bad - 8 : 0;
++        const uint32_t last = std::min(count, bad + 8);
++        for (uint32_t i = first; i < last; ++i) {
++          around += fmt::format("{}{:08X}", i == bad ? " [" : " ",
++                                rex::byte_swap(words[i]));
++          if (i == bad) {
++            around += "]";
++          }
++        }
++        REXGPU_ERROR("Indirect buffer {:08X}, {} dwords, bad packet at dword {}:{}", ptr, count,
++                     bad, around);
++        // The 24 dwords before the INDIRECT_BUFFER packet that pointed here, the packet itself
++        // and its 2 operands.
++        const IndirectCaller& c = t_indirect_caller;
++        if (c.buffer && c.capacity >= 4) {
++          std::string caller;
++          for (int i = -24; i <= 2; ++i) {
++            const uint32_t off =
++                uint32_t((int64_t(c.header_offset) + int64_t(i) * 4 + c.capacity) % c.capacity);
++            uint32_t v;
++            std::memcpy(&v, c.buffer + off, 4);
++            caller += fmt::format("{}{:08X}{}", i == 0 ? " [" : " ", rex::byte_swap(v),
++                                  i == 0 ? "]" : "");
++          }
++          REXGPU_ERROR("  called from {} buffer (depth {}), offset {:X} of {:X}:{}",
++                       c.depth > 1 ? "an indirect" : "the primary", c.depth, c.header_offset,
++                       c.capacity, caller);
++        }
++      }
+       assert_always();
+       break;
+     }
+@@ -986,11 +1036,18 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+ bool CommandProcessor::ExecutePacketType3_INDIRECT_BUFFER(memory::RingBuffer* reader,
+                                                           uint32_t packet, uint32_t count) {
+   // indirect buffer dispatch
++  const IndirectCaller outer = t_indirect_caller;
++  t_indirect_caller.buffer = reader->buffer();
++  t_indirect_caller.capacity = uint32_t(reader->capacity());
++  t_indirect_caller.header_offset =
++      uint32_t((reader->read_offset() + reader->capacity() - 4) % reader->capacity());
++  t_indirect_caller.depth = outer.depth + 1;
+   uint32_t list_ptr = CpuToGpu(reader->ReadAndSwap<uint32_t>());
+   uint32_t list_length = reader->ReadAndSwap<uint32_t>();
+   assert_zero(list_length & ~0xFFFFF);
+   list_length &= 0xFFFFF;
+   ExecuteIndirectBuffer(GpuToCpu(list_ptr), list_length);
++  t_indirect_caller = outer;
+   return true;
+ }
+ 

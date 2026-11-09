@@ -1025,17 +1025,48 @@ void DrainEvictedNativeTextures(u32 slot) {
 }
 
 #if defined(SVR_NATIVE_RENDERER)
-bool WriteGuestTextureBase(u32 guest_va, const u8 *rgba, u32 row_pitch, u32 width, u32 height) {
+bool ReadGuestTextureBaseRaw(u32 guest_va, std::vector<u8> &raw, u32 &pitch_blocks) {
   xe::xe_gpu_texture_fetch_t fetch{};
-  if (!rgba || !ReadFetch(guest_va, fetch) ||
-      fetch.dimension != xe::DataDimension::k2DOrStacked || fetch.packed_mips)
-    return false;
-  if (fetch.format != xe::TextureFormat::k_8_8_8_8 &&
-      fetch.format != xe::TextureFormat::k_4_4_4_4)
+  if (!ReadFetch(guest_va, fetch))
     return false;
   const MirrorLayout L = MakeLayout(fetch);
-  if (L.width != width || L.height != height)
+  const auto *src = FetchMemory<u8>(u32(fetch.base_address) << 12);
+  if (!src)
     return false;
+  raw.assign(src, src + L.source_bytes);
+  pitch_blocks = L.tiled ? L.aligned_w : 0;
+  return true;
+}
+
+bool WriteGuestTextureBase(u32 guest_va, const u8 *rgba, u32 row_pitch, u32 width, u32 height,
+                           std::string *out_range) {
+  xe::xe_gpu_texture_fetch_t fetch{};
+  // Packed mips only move the small levels into a shared tail; a base level wider and taller
+  // than 16 texels keeps its own place (the created superstar's 736x1280 portrait, 11 levels).
+  if (!rgba || !ReadFetch(guest_va, fetch) ||
+      fetch.dimension != xe::DataDimension::k2DOrStacked ||
+      (fetch.packed_mips && (width <= 16 || height <= 16))) {
+    if (out_range)
+      *out_range = fmt::format("not a 2D texture (dimension {}, packed mips {})",
+                               u32(fetch.dimension), u32(fetch.packed_mips));
+    return false;
+  }
+  if (fetch.format != xe::TextureFormat::k_8_8_8_8 &&
+      fetch.format != xe::TextureFormat::k_4_4_4_4) {
+    if (out_range)
+      *out_range = fmt::format("format {} not handled", u32(fetch.format));
+    return false;
+  }
+  const MirrorLayout L = MakeLayout(fetch);
+  if (L.width != width || L.height != height) {
+    if (out_range)
+      *out_range = fmt::format("header now {}x{}", L.width, L.height);
+    return false;
+  }
+  if (out_range)
+    *out_range = fmt::format("phys {:08X}-{:08X} fmt {} {}", u32(fetch.base_address) << 12,
+                             (u32(fetch.base_address) << 12) + L.source_bytes, u32(fetch.format),
+                             fetch.tiled ? "tiled" : "linear");
   // Writable view of the same memory the mirror reads.
   auto *dst = const_cast<u8 *>(FetchMemory<u8>(fetch.base_address << 12));
   if (!dst)
