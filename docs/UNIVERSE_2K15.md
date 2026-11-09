@@ -69,3 +69,14 @@ Decoded block sizes:
 Consumers (to read next for the field meaning): data readers `sub_82A97D20` (STRE), `82A97E38` (ShowDefaultParameter), `82A98410` (STYT), `82A987C0` (UWBL), `82A988C0` (MTDT), `82A8D1E8` (menu data table);
 the readers are thin virtual wrappers, the fields are used by the day loop `sub_82A63708` (about 100 calls into `82A58xxx-82A74xxx`: roster/card/story helpers such as `82A5B618`, `82A58630`, `82A62B10`, `82A65FF8`).
 Full field-by-field decoding is not done yet.
+
+## 7. Further format notes (2026-11-09)
+- STRE (`WWEU/STRE`, reader `sub_82A97D20`): payload = 8-byte block header + **204 bytes** = **17 rows x 6 u16** (the byte-swap routine `sub_82A97C08` swaps 17 x 6 halfwords) copied into the Univers data object (+56).
+- MTDT (reader `sub_82A988C0`): **32 sub-tables** (PACH entries 0..31) loaded into a 32-pointer array; each decoded block starts with the magic `"WMT "`, a count and variable-size records whose empty
+  participant slots are `0xFFFF00FF`; tables 12-15 are larger (16 888 / 10 136 / 4 228 / 10 136 bytes).
+- ShowDefaultParameter (`CWWEUniverseDataReader_ShowDefaultParameter`, reader `sub_82A97E38`): reads a PACH of 4 blocks, takes the blocks 2 and 3 as two tables stored at this+56 / this+60 (converted by `sub_82A7F6C8`,
+  merged by `sub_82A74E90`). It is not in `wuniData.pac`: the Universe starting data is `pac/misc05_save.pac` (group `BATL`, section `SAVE`; group entries there are 16 bytes `{name[8], start, size}`, section start 0,
+  size 0x1EA x 256 bytes): a PACH of **5 uncompressed blocks**: id 3 (11 216 bytes), id 4 (14 008), id 5 (37 624, begins with an offset table: 0, 0x1310, 0x17A8, 0x1914, 0x1EB8, 0x1EC0, 0x1EFC...),
+  id 6 (62 196, begins with the u16 2004 = the starting year, then 20100 / 20300), and a 200-byte `LBTS` block. These are the "new Universe" default values (rosters, shows, dates, relations): the best place to look
+  for show/roster parameters (a minimum roster per show may be a value here rather than code). Field meaning not decoded yet.
+- Other Univers-related pacs seen: `pac/evt/Universe00-09.pac` (Univers scenes), `evt/Season*.pac`, `evt/Winning*.pac`, `evtdsc/`.
