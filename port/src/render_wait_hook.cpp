@@ -133,9 +133,10 @@ extern "C" REX_FUNC(sub_82BAC6B0) {
 // render thread stays parked (at most kParkMs) until the helper is done. Past either limit both
 // go on as before and it is logged: the worst case is today's behaviour, never a deadlock. Helper
 // calls are serialized among themselves.
-REXCVAR_DEFINE_BOOL(wwe2k15_d3d_ring_lock, false, "WWE2K15",
+REXCVAR_DEFINE_BOOL(wwe2k15_d3d_ring_lock, true, "WWE2K15",
                     "Run the game's D3D helper (main thread) only while the render thread is "
-                    "between two D3D packets (Create a Championship freeze, issue #33)");
+                    "between two D3D packets (Create a Championship freeze, issue #33). To turn "
+                    "it off: wwe2k15_d3d_ring_lock = false in wwe2k15.toml");
 
 REX_EXTERN(__imp__sub_82BA8358);
 REX_EXTERN(__imp__sub_82BB0180);

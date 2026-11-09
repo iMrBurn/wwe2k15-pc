@@ -1100,7 +1100,9 @@ Reproduced on this PC (native, RTX 5070 Ti, internal 2560x1440 = 2x), the user a
   - logo loop: native 20 rounds, Xenos 15 rounds, no freeze, 0 bad indirect buffer;
   - about 9,000 helper calls per session, 2 "alone" (the first 2, before the first present), 0 park timeouts;
   - 1v1 with entrance: native 59-60 fps; Xenos same 30 fps windows as with the lock OFF (20 vs 24 of 79).
-- Still to do before ON by default: a Superstar Threads attire match, a 6-man/Chamber run at 60 fps, 7 loads in a row.
+- **ON by default since 0.3.5** (to turn it off: `wwe2k15_d3d_ring_lock = false` in wwe2k15.toml), after: a Superstar
+  Threads attire match by the user (attire normal), 7 Elimination Chamber loads in a row (59.7-60 fps, max gap 31-50 ms,
+  0 critical, 0 park timeouts; `work\dev\chlock1..7.log`).
 - SDK patch `rexglue-sdk-bad-indirect-buffer-log.patch`: on a bad packet, logs the indirect buffer's dwords and the
   packets of the buffer that called it.
 - **For Perf:** a stall of 1.3 to 7.7 s about 10 s after launch, before the title screen, with or without the lock
