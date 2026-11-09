@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <system_error>
+#include <thread>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -25,7 +26,9 @@
 #include <rex/rex_app.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xam/content_manager.h>
+#include <rex/input/input_system.h>
 #include <rex/ui/imgui_dialog.h>
+#include <rex/ui/keybinds.h>
 
 #include <atomic>
 #include <imgui.h>
@@ -41,6 +44,7 @@
 
 #include <rex/cvar.h>
 
+#include "settings_menu.h"
 REXCVAR_DECLARE(bool, wwe2k15_show_fps);
 REXCVAR_DECLARE(bool, wwe2k15_mods);
 void InstallWwe2k15CrashReporter();
@@ -279,6 +283,13 @@ class Wwe2k15App : public rex::ReXApp {
   void OnPostSetup() override {
     InstallWwe2k15CrashReporter();
     Wwe2k15KbdInit(window());  // physical keyboard in the game's letter grids
+    // The game gets no input while the settings menu is open (SDK rule kept: not while an overlay has the mouse).
+    if (runtime() && runtime()->input_system()) {
+      static_cast<rex::input::InputSystem*>(runtime()->input_system())->SetActiveCallback([this]() {
+        if (g_wwe2k15_menu_open.load()) return false;
+        return !imgui_drawer() || !imgui_drawer()->GetIO().WantCaptureMouse;
+      });
+    }
     MountTitleUpdate();
     MountMods();
     InstallDlcPackages();
@@ -319,11 +330,20 @@ class Wwe2k15App : public rex::ReXApp {
     if (REXCVAR_GET(wwe2k15_show_fps)) {
       fps_counter_ = std::make_unique<FpsCounterDialog>(drawer);
     }
+    // Settings menu: F10, or Back + Start held on a pad (see settings_menu.h).
+    rex::ui::RegisterBind("bind_wwe2k15_menu", "F10", "WWE 2K15 settings menu", [this] { ToggleSettingsMenu(); });
+    StartMenuPadWatcher();
   }
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
-  void OnShutdown() override { fps_counter_.reset(); }
+  void OnShutdown() override {
+    pad_watcher_stop_ = true;
+    if (pad_watcher_.joinable()) pad_watcher_.join();
+    settings_menu_.reset();
+    g_wwe2k15_menu_open = false;
+    fps_counter_.reset();
+  }
  private:
   // Title Update data. The TU's default.xexp sits beside default.xex (the loader
   // applies it, and the generated code is built from the patched image); the rest
@@ -416,4 +436,53 @@ class Wwe2k15App : public rex::ReXApp {
   bool mods_mounted_ = false;
   std::filesystem::path extras_root_;  // holds default.xexp, the update folder and the dlc folder
   std::unique_ptr<FpsCounterDialog> fps_counter_;
+
+  // ---- settings menu (settings_menu.h) ----
+  std::unique_ptr<wwe2k15_menu::Dialog> settings_menu_;
+  std::thread pad_watcher_;
+  std::atomic<bool> pad_watcher_stop_{false};
+
+  // UI thread only.
+  void ToggleSettingsMenu() {
+    if (settings_menu_) {
+      settings_menu_.reset();
+      g_wwe2k15_menu_open = false;
+      return;
+    }
+    if (!imgui_drawer()) return;
+    settings_menu_ = std::make_unique<wwe2k15_menu::Dialog>(imgui_drawer(), rex::filesystem::GetExecutableFolder() / "wwe2k15.toml", [this] {
+      // Called from inside the dialog's own draw: close it once the frame is done.
+      app_context().CallInUIThreadDeferred([this] {
+        if (settings_menu_) {
+          settings_menu_.reset();
+          g_wwe2k15_menu_open = false;
+        }
+      });
+    });
+    g_wwe2k15_menu_open = true;
+    REXLOG_INFO("settings menu opened");
+  }
+
+  // Back + Start held for 0.4 s on any pad opens or closes the menu (Steam Deck: the two small buttons).
+  void StartMenuPadWatcher() {
+#if defined(_WIN32)
+    pad_watcher_ = std::thread([this] {
+      int held_ms = 0;
+      bool fired = false;
+      while (!pad_watcher_stop_) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        WORD b = 0;
+        float lx = 0, ly = 0;
+        const bool have = wwe2k15_menu::PollPad(b, lx, ly);
+        const bool combo = have && (b & wwe2k15_menu::kPadBack) && (b & wwe2k15_menu::kPadStart);
+        if (!combo) { held_ms = 0; fired = false; continue; }
+        held_ms += 50;
+        if (held_ms >= 400 && !fired) {
+          fired = true;
+          app_context().CallInUIThreadDeferred([this] { ToggleSettingsMenu(); });
+        }
+      }
+    });
+#endif
+  }
 };
