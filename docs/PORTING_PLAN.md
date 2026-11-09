@@ -1120,3 +1120,10 @@ Reproduced on this PC (native, RTX 5070 Ti, internal 2560x1440 = 2x), the user a
   (argument-change filter). SmartMenu list: update `sub_827A98B8`, object = r3 - 20, current index at +364; the index word is in the physical heap (0xA4D2C...). The code and the relabel diff are kept in
   work\dev\dormant_quit_entry (not in the repo): EXIT without a quit would be worse than SHOP.
 - Menu facts: the real options pages are native code (no Lua `MScript`), `OPTIONS > GAMEPLAY > VISUAL PRESENTATION` has CAMERA CUTS (see the camera cuts notes).
+
+### Update 2026-11-09 (later): SHOP -> EXIT stopped (Mods)
+
+WWE '12's approach (hook of the menu "decide" `sub_8253C3F0`, entry record with the text id at +24 and the page at +8) does not carry over: a guest-memory scan for the
+big-endian words 59170 (SHOP), 49000 (UNIVERSE) and 32860 (OPTIONS) finds them only in the text tables (`string.pac`: {id, offset, length} triplets), never in a menu
+record, and no `li/ori ..., 59170` exists in the recompiled code. The main menu's A handler is therefore still unknown. Decision (Main): stop; the F10 menu's Quit button is the way out.
+Dormant code (relabel + WM_CLOSE hook) stays outside the repo in work\dev\dormant_quit_entry.
