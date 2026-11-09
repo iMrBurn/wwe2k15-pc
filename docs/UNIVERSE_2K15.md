@@ -51,3 +51,21 @@ WWE '12 had to track wins itself; 2K15 already has a records structure (to be de
 1. Decode STYT / MTDT / UWBL / STRE fields (python, `work/univ2k15/`).
 2. A second memory dump taken inside the Universe roster/edit screens (needs a key script; the user's own save is never touched, use a copy) to find the text/xref of the minimum-roster message.
 3. Read `sub_82A63708` (day loop) and the card generator, then prototype (a) behind a cvar, default off.
+
+## 6. File format of `wuniData.pac` (decoded 2026-11-09; formats only, no game content)
+- EPK8 header at 0; group directory at 0x800: 12-byte entries `{name[4], start, size}`; first entry = group name `WWEU` (+ flags); the rest are sections `UWBL` (start 0, size 0x46), `MTDT` (9, 0x20),
+  `STYT` (0xD, 0x25D), `STRE` (0x59, 1), `MNTB` (0x5A, 0x4C). `start` is in 2 KB sectors after 0x4000, `size` in 256-byte units (the section ends where the next one starts).
+- Each section is a PACH: `"PACH"`, count N, 8 bytes of zero, then N 12-byte entries `{size, id, end}`, then the data (base = 16 + 12*N). Block i starts at `end[i-1]` (0 for the first) and is `size[i]` bytes;
+  `end` is the next block's start (4-byte aligned). A last entry with `id = 'ZLIB'` (0x42494C5A) describes the section's compression trailer (its `end` is always 4656).
+- A compressed block is `{u32 compressed_size, u32 uncompressed_size}` followed by a zlib stream (78 DA ...). Decoded data is little-endian (the game byte-swaps it when it reads it).
+Decoded block sizes:
+| Section | Blocks | Uncompressed size(s) | Notes |
+|---|---|---|---|
+| UWBL | 1 data block + 'ZLIB' block | **917 240 bytes** = a PACH of **194 records of 4716 bytes** (id 1..193 + tag) ; 52-byte header block starting "WUE" | records hold small ints and sentinels (0xFF); no text |
+| MTDT | 31 blocks + the last ('ZLIB' tag) | 2540 bytes for most (ids 1-12, 17-31), 16 888 / 10 136 / 4 228 / 10 136 (ids 13-16) | starts with magic `"WMT "` and a count; records of variable size; empty participant slots are the word `0xFFFF00FF` |
+| STYT | 1 block | **7 928 232 bytes** | story templates (the game prints `StoryNo,Trigger,CastA..CastF`) |
+| STRE | 1 block | 212 bytes | status records header/table |
+| MNTB | 18 blocks + 'ZLIB' | 540, 140, 1216, 34 888, 29 764, 3 928 (x3), 348, 5 540, 2 884, 13 724, 124, 44, 17 268, 1 108, 3 276, 3 096, 220 | menu tables (ids 1, 4, 6-21) |
+Consumers (to read next for the field meaning): data readers `sub_82A97D20` (STRE), `82A97E38` (ShowDefaultParameter), `82A98410` (STYT), `82A987C0` (UWBL), `82A988C0` (MTDT), `82A8D1E8` (menu data table);
+the readers are thin virtual wrappers, the fields are used by the day loop `sub_82A63708` (about 100 calls into `82A58xxx-82A74xxx`: roster/card/story helpers such as `82A5B618`, `82A58630`, `82A62B10`, `82A65FF8`).
+Full field-by-field decoding is not done yet.
