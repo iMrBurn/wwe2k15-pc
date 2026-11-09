@@ -62,6 +62,9 @@ REXCVAR_DEFINE_BOOL(svr_resolve_readback, true, "SvR",
 REXCVAR_DEFINE_BOOL(svr_dump_readbacks, false, "SvR",
                     "Debug: save each read-back of a work texture 1024 px wide or more to "
                     "logs\readback_*.rgba (16-byte header: width, height, row pitch, va)");
+REXCVAR_DEFINE_BOOL(svr_log_readbacks, false, "SvR",
+                    "Debug: log every read-back of a work texture (memory range written) and "
+                    "every one-off resolve that is not read back, at info");
 REXCVAR_DEFINE_INT32(svr_readback_streak, 32, "SvR",
                      "Resolves of one work texture copied back in a row before the copies pause "
                      "until it rests (then it is copied once more). Was 6: attires the game builds "
@@ -114,6 +117,7 @@ struct HostTarget {
   u32 extent = 0;    // surface: the tiled-rendering extent it was sized to (see below), w << 16 | h
   u64 last_used = 0; // frame it was last drawn to, resolved into or sampled
   bool in_memory = false;  // texture: its last resolve was read back into the game's memory
+  u64 created = 0;  // frame the host resource was made in
 };
 std::unordered_map<u32, HostTarget> g_surfaces;  // D3DSurface VA -> host render target
 std::unordered_map<u32, HostTarget> g_targets;   // texture VA -> GPU-written host texture
@@ -285,6 +289,13 @@ GuestTexture *SvrResolveSurface(u32 surface_va) {
       g_tiled_desc[surface_va] = desc;
     } else if ((width == 320 || width == 640) && height == 736) {
       g_tiled_extent[surface_va] = (1280u << 16) | 736u;
+      g_tiled_desc[surface_va] = desc;
+    } else if (width == 768 && height == 320) {
+      // The created superstar's portrait (736x1280, saved with the superstar and shown on the
+      // selection screen): 4 tiles of 768x320 stacked, drawn once when the superstar is saved.
+      // Learned during that frame, the extent came too late: only the top tile (the head) was
+      // drawn, the rest of the saved portrait was noise (issue #34).
+      g_tiled_extent[surface_va] = (768u << 16) | 1280u;
       g_tiled_desc[surface_va] = desc;
     }
   }
@@ -511,8 +522,9 @@ GuestTexture *SvrResolveTarget(u32 texture_va, float scale) {
   // in the crowd during entrances. Start them transparent black.
   if (host && !cube && !seeded)
     Video::ClearTexture(host, REXCVAR_GET(svr_debug_magenta) ? 0xFFFF00FFu : 0u);
-  g_targets.emplace(texture_va, HostTarget{host, {fetch.dword_1, fetch.dword_2}, quarters,
-                                           g_surface_frame.load(std::memory_order_relaxed)});
+  const u64 now = g_surface_frame.load(std::memory_order_relaxed);
+  g_targets.emplace(texture_va, HostTarget{host, {fetch.dword_1, fetch.dword_2}, quarters, now,
+                                           false, now});
   return host;
 }
 
@@ -526,6 +538,10 @@ namespace {
 struct DeferredReadback {
   GuestTexture *dst = nullptr;
   u64 last_frame = 0;
+  // Texture header (fetch dwords 1: format and memory, 2: size) at the last resolve. Issue #33:
+  // the editors free and reuse their work textures; a read-back two or more frames later must not
+  // write into memory that now holds something else.
+  u32 desc[2] = {};
 };
 std::unordered_map<u32, DeferredReadback> g_deferred_readbacks;
 void ReadBackTarget(u32 texture_va, GuestTexture *dst);
@@ -540,13 +556,96 @@ void SvrAfterResolve(u32 texture_va, GuestTexture *dst, u32 level, u32 face) {
     if (const auto it = g_targets.find(texture_va); it != g_targets.end() && it->second.host == dst)
       it->second.in_memory = false;
   }
+  if (REXCVAR_GET(svr_log_readbacks)) {
+    // First resolve of each burst only (a target resting for a second before it), so the
+    // per-frame ones do not drown the one-off pictures.
+    static std::mutex s_log_mutex;
+    static std::unordered_map<u32, u64> s_last_logged;
+    const u64 frame = g_frame_index.load(std::memory_order_relaxed);
+    bool log = false;
+    {
+      std::lock_guard log_lock(s_log_mutex);
+      auto [lt, fresh] = s_last_logged.try_emplace(texture_va, frame);
+      log = fresh || frame > lt->second + 60;
+      lt->second = frame;
+    }
+    if (log)
+      BD_INFO("SvR resolve 0x{:08X}: host {}x{} levels {} -> level {} face {} (frame {})",
+              texture_va, dst->width, dst->height, dst->mipLevels, level, face, frame);
+  }
   if (level != 0 || face != 0 || !REXCVAR_GET(svr_resolve_readback))
     return;
-  // Screen images (the scene, its bloom and depth-of-field chain: 16:9) are never read by the
-  // CPU. At 1x (Steam Deck, 720p) they used to qualify, and reading them back in the middle of a
-  // frame broke the rest of it (a black or noisy block in entrances and cutscenes).
-  if (u64(dst->width) * 9 == u64(dst->height) * 16)
+  // Header of the texture at this resolve, for the deferred read-backs' check.
+  u32 desc[2] = {};
+  {
+    rex::graphics::xenos::xe_gpu_texture_fetch_t fetch{};
+    if (ReadFetch(texture_va, fetch)) {
+      desc[0] = fetch.dword_1, desc[1] = fetch.dword_2;
+      // Cube targets (the wrestlers' reflection maps) are never read by the CPU, and
+      // WriteGuestTextureBase cannot write them: no GPU wait for nothing.
+      if (fetch.dimension == rex::graphics::xenos::DataDimension::kCube)
+        return;
+    }
+  }
+  // Screen images (the scene, its bloom and depth-of-field chain: 16:9) are resolved on every
+  // frame and never read by the CPU. At 1x (Steam Deck, 720p) they used to be read back, and
+  // reading them back in the middle of a frame broke the rest of it (a black or noisy block in
+  // entrances and cutscenes). Targets resolved from a surface drawn above 1x (render scale) are
+  // mostly scene images too. But a one-off resolve of either kind is a picture the game saves
+  // (issue #34: a created superstar's 736x1280 portrait, drawn at the render scale, came out as
+  // noise on the selection screen; #35: a created arena's thumbnail): read it back at the start
+  // of a later frame, once it was not resolved again, scaled down to the texture's size.
+  bool scene_like = u64(dst->width) * 9 == u64(dst->height) * 16;
+  bool fresh_target = false;
+  {
+    std::lock_guard lock(g_mutex);
+    const auto it = g_targets.find(texture_va);
+    if (it == g_targets.end() || it->second.host != dst)
+      return;
+    scene_like = scene_like || it->second.extent > 4;
+    // Made for this very resolve: a picture taken now (issue #35: a created arena's 1280x720
+    // shot when it is saved), which the CPU may read before the next frame.
+    fresh_target = it->second.created == g_surface_frame.load(std::memory_order_relaxed);
+  }
+  if (scene_like) {
+    bool immediate = false;
+    {
+      std::lock_guard lock(g_mutex);
+      const u64 frame = g_frame_index.load(std::memory_order_relaxed);
+      struct OneOff {
+        u64 last_frame = 0;
+        bool repeated = false;
+      };
+      static std::unordered_map<u32, OneOff> s_screen;
+      auto [ot, fresh] = s_screen.try_emplace(texture_va, OneOff{frame, false});
+      OneOff &o = ot->second;
+      if (!fresh) {
+        if (frame > o.last_frame + 60)
+          o.repeated = false;  // rested for a second: a new picture
+        else if (frame != o.last_frame)
+          o.repeated = true;   // resolved again on another frame: a per-frame screen image
+        o.last_frame = frame;
+      }
+      if (o.repeated) {
+        g_deferred_readbacks.erase(texture_va);
+        return;
+      }
+      // A mipmapped one (the CAW portrait, its tiles all resolved in one frame) is compressed by
+      // the CPU in that same frame: two frames later was too late, so read it back now.
+      if (dst->mipLevels > 1 || fresh_target) {
+        g_deferred_readbacks.erase(texture_va);
+        immediate = true;
+      } else {
+        g_deferred_readbacks[texture_va] = DeferredReadback{dst, frame, {desc[0], desc[1]}};
+      }
+      if (REXCVAR_GET(svr_log_readbacks))
+        BD_INFO("SvR target 0x{:08X}: {}x{} one-off resolve, read back {}", texture_va, dst->width,
+                dst->height, immediate ? "now" : "if not resolved again");
+    }
+    if (immediate)
+      ReadBackTarget(texture_va, dst);
     return;
+  }
   // Per-frame targets (shadows, lighting, the scene) are resolved on every frame; the composites
   // the CPU reads are built at load, or now and then in a match. Only those are worth the GPU
   // wait: a target resolved on more than svr_readback_streak frames in a row is skipped until it
@@ -559,11 +658,11 @@ void SvrAfterResolve(u32 texture_va, GuestTexture *dst, u32 level, u32 face) {
   {
     std::lock_guard lock(g_mutex);
     const auto it = g_targets.find(texture_va);
-    if (it == g_targets.end() || it->second.host != dst || it->second.extent > 4)
+    if (it == g_targets.end() || it->second.host != dst)
       return;
     const u64 frame = g_frame_index.load(std::memory_order_relaxed);
     if (dst->mipLevels > 1) {
-      g_deferred_readbacks[texture_va] = DeferredReadback{dst, frame};
+      g_deferred_readbacks[texture_va] = DeferredReadback{dst, frame, {desc[0], desc[1]}};
       return;
     }
     struct Streak {
@@ -578,7 +677,7 @@ void SvrAfterResolve(u32 texture_va, GuestTexture *dst, u32 level, u32 face) {
     st.last_frame = frame;
     if (st.frames > max_streak) {
       // Read the final content back once the target rests (SvrProcessDeferredReadbacks).
-      g_deferred_readbacks[texture_va] = DeferredReadback{dst, frame};
+      g_deferred_readbacks[texture_va] = DeferredReadback{dst, frame, {desc[0], desc[1]}};
       static u32 s_logged = 0;
       if (s_logged < 16 && st.frames == max_streak + 1 && ++s_logged)
         BD_INFO("SvR target 0x{:08X}: {}x{} resolved on {} frames in a row, read back when it "
@@ -600,8 +699,19 @@ static void SvrProcessDeferredReadbacks(u64 frame) {
         continue;
       }
       const auto t = g_targets.find(it->first);
-      if (t != g_targets.end() && t->second.host == it->second.dst)
+      rex::graphics::xenos::xe_gpu_texture_fetch_t fetch{};
+      const bool same_texture = ReadFetch(it->first, fetch) &&
+                                fetch.dword_1 == it->second.desc[0] &&
+                                fetch.dword_2 == it->second.desc[1];
+      if (t != g_targets.end() && t->second.host == it->second.dst && same_texture) {
         ready.emplace_back(it->first, it->second.dst);
+      } else if (t != g_targets.end() && t->second.host == it->second.dst) {
+        static u32 s_logged = 0;
+        if (s_logged < 32 && ++s_logged)
+          BD_INFO("SvR target 0x{:08X}: texture header changed since its resolve ({:08X} {:08X} "
+                  "-> {:08X} {:08X}), read-back dropped", it->first, it->second.desc[0],
+                  it->second.desc[1], fetch.dword_1, fetch.dword_2);
+      }
       it = g_deferred_readbacks.erase(it);
     }
   }
@@ -615,7 +725,7 @@ void ReadBackTarget(u32 texture_va, GuestTexture *dst) {
   u32 row_pitch = 0;
   if (!Video::ReadbackTextureLevel(dst, 0, 0, pixels, row_pitch))
     return;
-  if (REXCVAR_GET(svr_dump_readbacks) && dst->width >= 1024) {
+  if (REXCVAR_GET(svr_dump_readbacks) && (dst->width >= 1024 || dst->height >= 1024)) {
     static std::atomic<u32> s_dumps{0};
     static std::mutex s_dump_mutex;
     static std::unordered_map<u32, u32> s_dumps_per_target;
@@ -637,8 +747,71 @@ void ReadBackTarget(u32 texture_va, GuestTexture *dst) {
       }
     }
   }
-  const bool written = WriteGuestTextureBase(texture_va, pixels.data(), row_pitch, dst->width,
-                                             dst->height);
+  // A target drawn above 1x is larger on the host than in the game's memory: average each
+  // texture texel's footprint (area filter, any scale).
+  u32 guest_w = dst->width, guest_h = dst->height;
+  {
+    rex::graphics::xenos::xe_gpu_texture_fetch_t fetch{};
+    if (ReadFetch(texture_va, fetch))
+      guest_w = fetch.size_2d.width + 1, guest_h = fetch.size_2d.height + 1;
+  }
+  std::vector<u8> guest_pixels;
+  const u8 *write_pixels = pixels.data();
+  u32 write_pitch = row_pitch;
+  if ((guest_w != dst->width || guest_h != dst->height) && guest_w <= dst->width &&
+      guest_h <= dst->height && guest_w && guest_h) {
+    write_pitch = guest_w * 4u;
+    guest_pixels.resize(size_t(write_pitch) * guest_h);
+    for (u32 y = 0; y < guest_h; ++y) {
+      const u32 y0 = u32(u64(y) * dst->height / guest_h);
+      const u32 y1 = std::max(y0 + 1, u32(u64(y + 1) * dst->height / guest_h));
+      for (u32 x = 0; x < guest_w; ++x) {
+        const u32 x0 = u32(u64(x) * dst->width / guest_w);
+        const u32 x1 = std::max(x0 + 1, u32(u64(x + 1) * dst->width / guest_w));
+        u32 sum[4] = {};
+        for (u32 sy = y0; sy < y1; ++sy) {
+          const u8 *row = &pixels[size_t(sy) * row_pitch];
+          for (u32 sx = x0; sx < x1; ++sx)
+            for (int k = 0; k < 4; ++k)
+              sum[k] += row[sx * 4u + k];
+        }
+        const u32 n = (y1 - y0) * (x1 - x0);
+        u8 *o = &guest_pixels[size_t(y) * write_pitch + x * 4u];
+        for (int k = 0; k < 4; ++k)
+          o[k] = u8((sum[k] + n / 2) / n);
+      }
+    }
+    write_pixels = guest_pixels.data();
+  } else {
+    guest_w = dst->width, guest_h = dst->height;
+  }
+  std::string range;
+  const bool written = WriteGuestTextureBase(texture_va, write_pixels, write_pitch, guest_w,
+                                             guest_h, &range);
+  if (written && REXCVAR_GET(svr_dump_readbacks) && (dst->width >= 1024 || dst->height >= 1024)) {
+    // What landed in memory, raw (tiled), next to the read-back dumps.
+    static std::atomic<u32> s_raw{0};
+    std::vector<u8> raw;
+    u32 pitch_blocks = 0;
+    const u32 n = s_raw.fetch_add(1);
+    if (n < 16 && ReadGuestTextureBaseRaw(texture_va, raw, pitch_blocks)) {
+      const auto path = rex::filesystem::GetExecutableFolder() / "logs" /
+                        fmt::format("guestmem_{:02}_{:08X}_{}x{}.raw", n, texture_va, guest_w,
+                                    guest_h);
+      if (FILE *f = _wfopen(path.c_str(), L"wb")) {
+        const u32 header[4] = {guest_w, guest_h, pitch_blocks, texture_va};
+        std::fwrite(header, 4, 4, f);
+        std::fwrite(raw.data(), 1, raw.size(), f);
+        std::fclose(f);
+      }
+    }
+  }
+  if (REXCVAR_GET(svr_log_readbacks) || !written) {
+    static std::atomic<u32> s_not_written{0};
+    if (written || s_not_written.fetch_add(1, std::memory_order_relaxed) < 32)
+      BD_INFO("SvR target 0x{:08X}: {}x{} read back, written: {} ({})", texture_va, dst->width,
+              dst->height, written, range);
+  }
   if (written) {
     std::lock_guard lock(g_mutex);
     if (const auto it = g_targets.find(texture_va); it != g_targets.end() && it->second.host == dst)

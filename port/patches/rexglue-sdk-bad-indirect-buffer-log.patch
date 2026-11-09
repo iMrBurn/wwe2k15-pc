@@ -1,0 +1,42 @@
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 889cde9..19f0817 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -14,6 +14,7 @@
+ #include <cinttypes>
+ #include <cmath>
+ #include <cstring>
++#include <string>
+ #include <string_view>
+ 
+ #include <fmt/format.h>
+@@ -653,9 +654,29 @@ void CommandProcessor::ExecuteIndirectBuffer(uint32_t ptr, uint32_t count) {
+   memory::RingBuffer reader(memory_->TranslatePhysical(ptr), count * sizeof(uint32_t));
+   reader.set_write_offset(count * sizeof(uint32_t));
+   do {
++    const uint32_t packet_offset = uint32_t(reader.read_offset());
+     if (!ExecutePacket(&reader)) {
+       // Return up a level if we encounter a bad packet.
+       REXGPU_ERROR("**** INDIRECT RINGBUFFER: Failed to execute packet.");
++      // Where the bad packet sits, and the dwords around it (big-endian as in memory), to tell a
++      // buffer overwritten by something else from a parsing problem.
++      static std::atomic<uint32_t> logged{0};
++      if (logged.fetch_add(1, std::memory_order_relaxed) < 16) {
++        const uint32_t bad = packet_offset / 4;
++        const auto* words = memory_->TranslatePhysical<const uint32_t*>(ptr);
++        std::string around;
++        const uint32_t first = bad >= 8 ? bad - 8 : 0;
++        const uint32_t last = std::min(count, bad + 8);
++        for (uint32_t i = first; i < last; ++i) {
++          around += fmt::format("{}{:08X}", i == bad ? " [" : " ",
++                                rex::byte_swap(words[i]));
++          if (i == bad) {
++            around += "]";
++          }
++        }
++        REXGPU_ERROR("Indirect buffer {:08X}, {} dwords, bad packet at dword {}:{}", ptr, count,
++                     bad, around);
++      }
+       assert_always();
+       break;
+     }

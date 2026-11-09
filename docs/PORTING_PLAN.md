@@ -1051,3 +1051,32 @@ Facts learned:
 - Input quirks (mnk defaults): X button = L (so L on the logo grid opens "delete this logo?", answer NO), Y = P, LT = Q or I (I worked, Q did not), RB/LB = 3/1, D-pad = Shift+arrows, B = Backspace.
   ACCEPT in the editor: LT (I) to the tools window, stick down x3 (pen -> eraser -> fill -> ACCEPT), A.
 Not done: automatic ACCEPT/launcher button, aspect-ratio-preserving import, 2K14-style slot picker; nothing is exposed to players.
+
+## 2026-11-09 (Rendu) Created superstar portrait (#34), arena thumbnail (#35), championship freeze (#33)
+Reproduced on this PC (native, RTX 5070 Ti, internal 2560x1440 = 2x), the user at the pad.
+- **#34 cause:** the created superstar's portrait (target 736x1280, 11 mips, k_8_8_8_8) is drawn with predicated tiling:
+  4 stacked 768x320 tiles, drawn once when the superstar is saved (ACCEPT); the CPU compresses it in that same frame.
+  Native learns a tiled surface's full extent only during its first frame (SvrNoteTiledResolve), too late for a picture
+  drawn once: only the top tile (the head) existed, the rest of the saved portrait was old memory, i.e. noise on the
+  selection screen. Also: targets resolved from a surface above 1x were never read back (`extent > 4`),
+  WriteGuestTextureBase refused packed-mip textures, and mipmapped targets were only read back 2 frames later.
+- **#34 fix (confirmed on screen by the user):** 768x320 surfaces start at the 768x1280 extent (like 320x736/640x736);
+  one-off resolves of 16:9 or scaled targets are read back (downscaled with an area filter to the texture's size),
+  immediately when the target has mips; packed-mip bases (both sides > 16) are written.
+- **#35 cause/fix (confirmed on screen):** saving an arena takes a 1280x720 shot into a target made for it and the CPU
+  reads it at once; one-off resolves into a target created in that same frame are now read back immediately.
+  Side cost: scene targets read back once at scene starts (37 read-backs in a whole title -> entrance -> match run).
+- Kept: cube targets are never read back (WriteGuestTextureBase cannot write them). Deferred read-backs are dropped if
+  the texture header changed since the resolve (memory reused).
+- Debug: `--svr_log_readbacks=true` logs each read-back (memory range written), the first resolve of each burst and
+  the one-off decisions; `--svr_dump_readbacks=true` also dumps targets 1024 px tall and the raw guest memory.
+- Regression (native 1v1 with entrance, title -> match): 0 critical, 56-60 fps per 5 s, one 345 ms gap at match load
+  (wrestler load, not a read-back of this change). Superstar Threads: the user edited Adam Rose's attire and played him vs CM Punk at 720p:
+  attire normal on screen, its 2048x1024 composite read back (9x, written: true). The attire targets are never 16:9 nor
+  scaled, so the render scale does not change their path; the Xenos exe (wwe2k15.exe) shares none of this code (the SDK
+  patch only adds a log line on a bad packet).
+- **#33 (not fixed):** the freeze reproduces (Create a Championship, moving logos). New SDK log
+  (`rexglue-sdk-bad-indirect-buffer-log.patch`): the bad indirect buffers start with floats (3ACCCCCD 3B360B61 0 0
+  3F800000 = 1/640, 1/360, 0, 0, 1.0: shader constants), at a different address each time. So the game's INDIRECT_BUFFER
+  points at a constant block; it is not a native write-back over a command buffer. Next: log the primary-ring
+  INDIRECT_BUFFER packet and the guest caller that emitted it.
