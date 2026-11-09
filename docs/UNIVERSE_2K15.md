@@ -80,3 +80,12 @@ Full field-by-field decoding is not done yet.
   id 6 (62 196, begins with the u16 2004 = the starting year, then 20100 / 20300), and a 200-byte `LBTS` block. These are the "new Universe" default values (rosters, shows, dates, relations): the best place to look
   for show/roster parameters (a minimum roster per show may be a value here rather than code). Field meaning not decoded yet.
 - Other Univers-related pacs seen: `pac/evt/Universe00-09.pac` (Univers scenes), `evt/Season*.pac`, `evt/Winning*.pac`, `evtdsc/`.
+
+## 8. In-game observations (2026-11-09, separate profile `--user_data_root`, user's save untouched: sha256 of both save trees identical before/after)
+- Main menu: PLAY (Exhibition), 2K SHOWCASE, Who Got NXT, UNIVERSE, CREATIONS... A fresh profile asks to create save data, then shows the online user agreement (declined for the test).
+- UNIVERSE menu: PLAY MATCHES, CALENDAR, RIVALRIES, STORY COLLECTION, WWE.com, **CUSTOMIZE UNIVERSE**. A new Universe already exists with a starting match card.
+- WWE.com screen: LATEST NEWS, CURRENT RANKING per championship, **STATS** (WINS, APPEARANCES: "statistics for championships, shows, and more"): the stat tracking already exists in 2K15.
+- CUSTOMIZE UNIVERSE: **EDIT CALENDAR** ("Create, edit, or delete shows and PPVs"), EDIT SUPERSTARS, **EDIT ROSTERS** ("Create or edit rosters to use in your shows"), EDIT TEAMS, **EDIT TITLES** ("Change or remove the Superstars who hold championships"), STORY OPTIONS, RESET UNIVERSE.
+- EDIT ROSTERS: 12 roster slots (RAW, SmackDown, NXT, WWE, two more logos, INACTIVE, empty ones). The RAW roster screen shows a **ROSTER SIZE** panel: SUPERSTARS 31, DIVAS 8, TOTAL 39, **MINIMUM 8**, and the show's airing day. So the minimum is **computed per show/roster** (here 8), not a fixed 15 as in the WWE '12 notes.
+- The UI texts (menus, errors) are not in the guest image range 0x82000000-0x83A00000 (they live in heap-loaded tables): the message text and the function computing MINIMUM are still to be located (next probe: a dump of the committed heap regions, or tracing which Univers functions run when the roster panel opens).
+- Mods note: Universe UI flows are data (UI tool "Flow/Program" nodes in the menu pacs) calling native functions, so some rules may be changeable in data and not only in code.
