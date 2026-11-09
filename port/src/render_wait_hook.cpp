@@ -11,6 +11,7 @@
 #include "generated/default/wwe2k15_init.h"
 
 #include <rex/cvar.h>
+#include <rex/logging/macros.h>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -21,6 +22,11 @@
 #include <intrin.h>
 
 #include <atomic>
+#include <chrono>
+#include <mutex>
+#include <string>
+
+#include <fmt/format.h>
 
 // On by default since the 2026-10-26 A/B run: same pacing (60 fps in match, 30 in entrances), the
 // render thread drops from ~92 % of a core to ~1 % and the whole game from 200 % to 115 %.
@@ -113,4 +119,151 @@ extern "C" REX_FUNC(sub_82BAC6B0) {
     _mm_pause();
   }
 #endif
+}
+
+// Issue #33: Create a Championship froze. The game's main thread runs the D3D helper
+// sub_82BA8358 (once per texture while the logo list loads) and it writes packets into the same
+// D3D command ring as the render thread, with no lock between them; a segment then got closed in
+// the middle of the other thread's packet, the command processor dropped its tail (the fences) and
+// the game waited forever. Both renderers have the race; native hits it within minutes.
+//
+// wwe2k15_d3d_ring_lock: a handshake, not a lock held by the render thread. The render thread is
+// only between two whole packets at a present and inside its ring and fence waits; a helper call
+// waits (at most kHelperWaitMs) until the render thread is parked at one of those points, and the
+// render thread stays parked (at most kParkMs) until the helper is done. Past either limit both
+// go on as before and it is logged: the worst case is today's behaviour, never a deadlock. Helper
+// calls are serialized among themselves.
+REXCVAR_DEFINE_BOOL(wwe2k15_d3d_ring_lock, false, "WWE2K15",
+                    "Run the game's D3D helper (main thread) only while the render thread is "
+                    "between two D3D packets (Create a Championship freeze, issue #33)");
+
+REX_EXTERN(__imp__sub_82BA8358);
+REX_EXTERN(__imp__sub_82BB0180);
+REX_EXTERN(__imp__sub_82BAFB78);
+
+namespace {
+constexpr int kHelperWaitMs = 50;
+constexpr int kParkMs = 100;
+std::timed_mutex g_helper_mutex;               // one helper call at a time
+std::atomic<uint32_t> g_render_thread{0};      // the thread that presents
+std::atomic<uint32_t> g_helpers_waiting{0};    // helper calls waiting for a parked render thread
+std::atomic<uint32_t> g_helpers_running{0};    // helper calls running under the handshake
+std::atomic<bool> g_render_parked{false};
+std::atomic<uint32_t> g_helper_calls{0}, g_helper_timeouts{0}, g_park_timeouts{0};
+thread_local int t_wait_depth = 0;
+
+uint32_t ThisThread() { return static_cast<uint32_t>(GetCurrentThreadId()); }
+bool IsRenderThread() { return g_render_thread.load(std::memory_order_relaxed) == ThisThread(); }
+uint64_t NowMs() { return GetTickCount64(); }
+
+// Render thread at a packet boundary: let any running helper finish before going on.
+// Leaving: drop the parked flag, then look at the helpers again (both sides use sequentially
+// consistent operations: either the helper sees "not parked" or this sees it running).
+void RenderUnparkAfterHelpers() {
+  const uint64_t start = NowMs();
+  for (;;) {
+    while (g_helpers_running.load()) {
+      if (NowMs() - start > uint64_t(kParkMs)) {
+        const uint32_t n = g_park_timeouts.fetch_add(1, std::memory_order_relaxed);
+        if (n < 16 || (n & 255) == 0)
+          REXLOG_WARN("D3D ring handshake: render thread went on after {} ms ({} times)",
+                      kParkMs, n + 1);
+        g_render_parked.store(false);
+        return;
+      }
+      SwitchToThread();
+    }
+    g_render_parked.store(false);
+    if (!g_helpers_running.load())
+      return;
+    g_render_parked.store(true);
+  }
+}
+
+// Render thread inside one of its waits: parked for the whole wait.
+struct RenderWaitScope {
+  bool active = false;
+  RenderWaitScope() {
+    if (REXCVAR_GET(wwe2k15_d3d_ring_lock) && IsRenderThread() && t_wait_depth++ == 0) {
+      active = true;
+      g_render_parked.store(true);
+    }
+  }
+  ~RenderWaitScope() {
+    if (active && --t_wait_depth == 0)
+      RenderUnparkAfterHelpers();
+  }
+};
+}  // namespace
+
+// framerate_hook.cpp, once per guest present on the render thread: identify it and, when a helper
+// is waiting, park here (the frame's packets are complete) until it has run.
+void Wwe2k15RingLockOnPresent() {
+  if (!REXCVAR_GET(wwe2k15_d3d_ring_lock))
+    return;
+  const uint32_t me = ThisThread();
+  if (g_render_thread.load(std::memory_order_relaxed) != me) {
+    g_render_thread.store(me, std::memory_order_relaxed);
+    REXLOG_INFO("D3D ring handshake: render thread {}", me);
+  }
+  if (!g_helpers_waiting.load(std::memory_order_acquire))
+    return;
+  g_render_parked.store(true);
+  // Give the waiting helper(s) the time to start, then wait for them to finish.
+  const uint64_t start = NowMs();
+  while (g_helpers_waiting.load(std::memory_order_acquire) &&
+         !g_helpers_running.load(std::memory_order_acquire) && NowMs() - start < 5)
+    SwitchToThread();
+  RenderUnparkAfterHelpers();
+}
+
+extern "C" REX_FUNC(sub_82BA8358) {
+  if (!REXCVAR_GET(wwe2k15_d3d_ring_lock) || !g_render_thread.load(std::memory_order_relaxed) ||
+      IsRenderThread()) {
+    __imp__sub_82BA8358(ctx, base);
+    return;
+  }
+  const uint32_t calls = g_helper_calls.fetch_add(1, std::memory_order_relaxed) + 1;
+  std::unique_lock serial(g_helper_mutex, std::defer_lock);
+  bool ok = serial.try_lock_for(std::chrono::milliseconds(kHelperWaitMs));
+  if (ok) {
+    g_helpers_waiting.fetch_add(1);
+    const uint64_t start = NowMs();
+    // Counted as running before the parked check (see RenderUnparkAfterHelpers).
+    g_helpers_running.fetch_add(1);
+    while (!g_render_parked.load()) {
+      g_helpers_running.fetch_sub(1);
+      if (NowMs() - start > uint64_t(kHelperWaitMs)) {
+        ok = false;
+        break;
+      }
+      SwitchToThread();
+      g_helpers_running.fetch_add(1);
+    }
+    g_helpers_waiting.fetch_sub(1);
+  }
+  if (!ok) {
+    const uint32_t n = g_helper_timeouts.fetch_add(1, std::memory_order_relaxed);
+    if (n < 16 || (n & 255) == 0)
+      REXLOG_WARN("D3D ring handshake: helper went on alone after {} ms ({} of {} calls)",
+                  kHelperWaitMs, n + 1, calls);
+    __imp__sub_82BA8358(ctx, base);
+    return;
+  }
+  __imp__sub_82BA8358(ctx, base);
+  g_helpers_running.fetch_sub(1);
+  if ((calls & 1023) == 0)
+    REXLOG_INFO("D3D ring handshake: {} helper calls, {} alone, {} render park timeouts", calls,
+                g_helper_timeouts.load(std::memory_order_relaxed),
+                g_park_timeouts.load(std::memory_order_relaxed));
+}
+
+extern "C" REX_FUNC(sub_82BB0180) {
+  RenderWaitScope scope;
+  __imp__sub_82BB0180(ctx, base);
+}
+
+extern "C" REX_FUNC(sub_82BAFB78) {
+  RenderWaitScope scope;
+  __imp__sub_82BAFB78(ctx, base);
 }

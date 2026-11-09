@@ -1080,3 +1080,29 @@ Reproduced on this PC (native, RTX 5070 Ti, internal 2560x1440 = 2x), the user a
   3F800000 = 1/640, 1/360, 0, 0, 1.0: shader constants), at a different address each time. So the game's INDIRECT_BUFFER
   points at a constant block; it is not a native write-back over a command buffer. Next: log the primary-ring
   INDIRECT_BUFFER packet and the guest caller that emitted it.
+
+## 2026-11-09 (Rendu) Create a Championship freeze (#33): two threads in the D3D ring
+- **Cause:** the game's main thread runs the D3D helper sub_82BA8358 (called from 82BA2600, once per texture while a
+  logo list loads) and it writes packets (WAIT_REG_MEM, rect-list draws with ALU constants) into the same D3D command
+  ring as the render thread, with no lock. A segment was then closed in the middle of the other thread's packet
+  (a type-0 header 001F4000 cut after 8 of its 32 dwords). The SDK command processor drops the rest of that indirect
+  buffer (its fences) and the next one starts with floats. The game then waits on its fence forever.
+- Proved with a probe (helper on the main thread while the render thread is in the ring wait sub_82BB0180), and
+  reproduced with keys: Create a Championship > Logos, switching categories/logos (`work\dev\logo_loop2.sh`).
+  The race also exists in wwe2k15.exe (Xenos); there it did not freeze in 15 rounds.
+- **Fix (cvar `wwe2k15_d3d_ring_lock`, OFF by default for now), render_wait_hook.cpp:**
+  - a handshake: the render thread "parks" only inside its ring wait, its fence wait (sub_82BAFB78) and at a
+    present when a helper is waiting;
+  - helper calls run only while it is parked, one at a time;
+  - bounded waits (helper 50 ms, park 100 ms), then each side goes on as before, logged. No deadlock possible.
+  - A first version where the render thread held a timed mutex dropped boot to 20 fps (helper timeouts): dropped.
+- Results with the lock ON:
+  - logo loop: native 20 rounds, Xenos 15 rounds, no freeze, 0 bad indirect buffer;
+  - about 9,000 helper calls per session, 2 "alone" (the first 2, before the first present), 0 park timeouts;
+  - 1v1 with entrance: native 59-60 fps; Xenos same 30 fps windows as with the lock OFF (20 vs 24 of 79).
+- Still to do before ON by default: a Superstar Threads attire match, a 6-man/Chamber run at 60 fps, 7 loads in a row.
+- SDK patch `rexglue-sdk-bad-indirect-buffer-log.patch`: on a bad packet, logs the indirect buffer's dwords and the
+  packets of the buffer that called it.
+- **For Perf:** a stall of 1.3 to 7.7 s about 10 s after launch, before the title screen, with or without the lock
+  (native, 2026-11-09 runs `work\dev\lockon*.log`/`lockoff.log`; earlier runs that day had none). Its length varies
+  from run to run.
