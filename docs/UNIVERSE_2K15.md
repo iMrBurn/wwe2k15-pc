@@ -89,3 +89,13 @@ Full field-by-field decoding is not done yet.
 - EDIT ROSTERS: 12 roster slots (RAW, SmackDown, NXT, WWE, two more logos, INACTIVE, empty ones). The RAW roster screen shows a **ROSTER SIZE** panel: SUPERSTARS 31, DIVAS 8, TOTAL 39, **MINIMUM 8**, and the show's airing day. So the minimum is **computed per show/roster** (here 8), not a fixed 15 as in the WWE '12 notes.
 - The UI texts (menus, errors) are not in the guest image range 0x82000000-0x83A00000 (they live in heap-loaded tables): the message text and the function computing MINIMUM are still to be located (next probe: a dump of the committed heap regions, or tracing which Univers functions run when the roster panel opens).
 - Mods note: Universe UI flows are data (UI tool "Flow/Program" nodes in the menu pacs) calling native functions, so some rules may be changeable in data and not only in code.
+
+## 9. Roster minimum and show validation (traced 2026-11-09)
+- The **MINIMUM** line of the ROSTER SIZE panel is not a rule, only a display: panel formatter `sub_8284AA38` prints SUPERSTARS, DIVAS, TOTAL and MINIMUM = `min(superstars, divas)` (`cmpw r28,r29`); the counts come from `sub_82A5A3B8(roster, gender (2 = any), flag)`
+  (loop over 0..499 roster slots). RAW 31/8 -> 8, SmackDown 18/1 -> 1. Callers: `82836DE0`, `828458A0`, `8284AA38`.
+- A custom roster with **0 wrestlers is accepted** without any message (EDIT ROSTERS). No size check exists when creating a roster.
+- SHOW EDIT (new Major show): fields SHOW NAME, SHOW LOGO, ROSTERS, ARENA, MATCH-UP SCREEN, 4 championship boxes (World/Singles/Tag/Diva), MATCHES (5), UNIVERSE DRAFT, ACCEPT.
+  ACCEPT with an empty roster and no title shows the dialog "A World Championship must be chosen when creating a Major Show." (ATTENTION, OK). No roster-size message appeared first: the title check comes before.
+  Major shows need a World title; Minor shows do not (type asked at creation).
+- Tracing every function of 0x82A50000-0x82AA1000 during ACCEPT showed only per-frame UI helpers (`82A58630`, `82A84480`, `82A50098`, `82A599D0`, `82A5CA30`, `82A69168`, `82A51258`, `82A72830`, `82A8D4D8`): the show-edit validation therefore lives in the **UI module outside that range** (near the roster panel code `8283xxxx-8285xxxx`), not in the Universe simulation module.
+- Consequence for the objectives: (a) "no minimum of 15" is likely only a UI/validation check in the 8283-8285 range (+ possibly the match-card generator needing enough wrestlers): still to find by tracing 0x82830000-0x82860000 while ACCEPTing a show with a roster of 1-2 wrestlers.
