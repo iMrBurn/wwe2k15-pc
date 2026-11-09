@@ -271,10 +271,12 @@ constexpr WORD kPadUp = 0x0001, kPadDown = 0x0002, kPadLeft = 0x0004, kPadRight 
 
 class Dialog : public rex::ui::ImGuiDialog {
  public:
-  Dialog(rex::ui::ImGuiDrawer* drawer, std::filesystem::path toml_path, std::function<void()> close)
+  Dialog(rex::ui::ImGuiDrawer* drawer, std::filesystem::path toml_path, std::function<void()> close,
+         std::function<void()> quit_game = nullptr)
       : rex::ui::ImGuiDialog(drawer),
         toml_path_(std::move(toml_path)),
         close_(std::move(close)),
+        quit_game_(std::move(quit_game)),
         items_(BuildItems()) {
     auto& io = GetIO();
     saved_nav_flags_ = io.ConfigFlags;
@@ -337,6 +339,17 @@ class Dialog : public rex::ui::ImGuiDialog {
     if (ImGui::Button("Apply and save")) Apply();
     ImGui::SameLine();
     if (ImGui::Button("Cancel")) { close_(); ImGui::End(); return; }
+    if (quit_game_) {
+      ImGui::SameLine();
+      if (ImGui::Button("Quit game")) confirm_quit_ = true;
+    }
+    if (confirm_quit_) {
+      ImGui::Separator();
+      ImGui::TextColored(ImVec4(0.95f, 0.6f, 0.3f, 1), "Quit the game? Anything not saved in the game is lost.");
+      if (ImGui::Button("Yes, quit")) { confirm_quit_ = false; quit_game_(); ImGui::End(); return; }
+      ImGui::SameLine();
+      if (ImGui::Button("No")) confirm_quit_ = false;
+    }
     ImGui::TextDisabled("The game keeps running behind this window: open it from the menus or the pause screen.");
     if (any_changed) ImGui::TextDisabled("Nothing is saved until \"Apply and save\".");
     if (!focused_once_) { ImGui::SetKeyboardFocusHere(-100); focused_once_ = true; }
@@ -393,6 +406,8 @@ class Dialog : public rex::ui::ImGuiDialog {
 
   std::filesystem::path toml_path_;
   std::function<void()> close_;
+  std::function<void()> quit_game_;
+  bool confirm_quit_ = false;
   std::vector<Item> items_;
   ImGuiConfigFlags saved_nav_flags_ = 0;
   ImGuiBackendFlags saved_backend_flags_ = 0;

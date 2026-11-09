@@ -1108,3 +1108,15 @@ Reproduced on this PC (native, RTX 5070 Ti, internal 2560x1440 = 2x), the user a
 - **For Perf:** a stall of 1.3 to 7.7 s about 10 s after launch, before the title screen, with or without the lock
   (native, 2026-11-09 runs `work\dev\lockon*.log`/`lockoff.log`; earlier runs that day had none). Its length varies
   from run to run.
+
+### Update 2026-11-09: in-game settings menu, SHOP -> EXIT abandoned (Mods)
+
+- **F10 menu** (`settings_menu.h`, commit 5f01799): ImGui window (keyboard + XInput pad, Back+Start 0.4 s), writes only changed keys to `wwe2k15.toml` and `launcher-options.ini`;
+  tested with the normal and the native renderer. A **Quit game** button (Yes/No confirmation) closes the game by posting WM_CLOSE to the process windows
+  (`quit_game.h`); `RequestDeferredQuit()` from the menu callback left the process hung, WM_CLOSE exits in 1 s.
+- **SHOP -> EXIT in the main menu: not done.** Relabelling the SHOP string (id 59170, 5 languages, icon U+E018 around the word; "Xbox Live" is a greyed image, no text) works, but the
+  main menu's "A" handler was not found: `sub_8276C030` (error box 29004/29900), `sub_827A8C00` (SmartMenu network state, message 29803 when `sub_82724210()==1`) are NOT
+  run when SHOP is chosen; the six other functions that load text 29803 (`sub_82955D58 sub_828FAB38 sub_828F3428 sub_829562F8 sub_829563A0 sub_828BCDF0`) logged nothing at the press
+  (argument-change filter). SmartMenu list: update `sub_827A98B8`, object = r3 - 20, current index at +364; the index word is in the physical heap (0xA4D2C...). The code and the relabel diff are kept in
+  work\dev\dormant_quit_entry (not in the repo): EXIT without a quit would be worse than SHOP.
+- Menu facts: the real options pages are native code (no Lua `MScript`), `OPTIONS > GAMEPLAY > VISUAL PRESENTATION` has CAMERA CUTS (see the camera cuts notes).

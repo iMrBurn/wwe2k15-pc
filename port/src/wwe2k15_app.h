@@ -45,6 +45,7 @@
 #include <rex/cvar.h>
 
 #include "settings_menu.h"
+#include "quit_game.h"
 REXCVAR_DECLARE(bool, wwe2k15_show_fps);
 REXCVAR_DECLARE(bool, wwe2k15_mods);
 void InstallWwe2k15CrashReporter();
@@ -458,7 +459,7 @@ class Wwe2k15App : public rex::ReXApp {
           g_wwe2k15_menu_open = false;
         }
       });
-    });
+        }, [] { Wwe2k15PostClose(); });
     g_wwe2k15_menu_open = true;
     REXLOG_INFO("settings menu opened");
   }
