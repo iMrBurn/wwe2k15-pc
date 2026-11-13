@@ -160,6 +160,16 @@ inline std::vector<Item> BuildItems() {
   add(boolean("Camera cuts on grapples", "wwe2k15_camera_cuts_on_holds", false, false, true, ""));
   add(boolean("Custom logo import (mods/logos/import.png)", "wwe2k15_logo_import", false, false, false, "logo_import"));
   add(boolean("Logo import: keep proportions", "wwe2k15_logo_import_keep_ratio", false, false, false, ""));
+  {
+    // One row sets both Universe experiments together (hidden if either cvar is missing). Read when a show is saved / a day
+    // is played: no restart needed.
+    Item it;
+    it.label = "Universe: free shows (use a COPY of your save)";
+    it.experimental = true;
+    it.opts = {Option{"Off", {{"wwe2k15_universe_free_shows", "false"}, {"wwe2k15_universe_free_shows_play", "false"}}},
+               Option{"On", {{"wwe2k15_universe_free_shows", "true"}, {"wwe2k15_universe_free_shows_play", "true"}}}};
+    add(std::move(it));
+  }
   return items;
 }
 
