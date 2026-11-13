@@ -1108,3 +1108,42 @@ Reproduced on this PC (native, RTX 5070 Ti, internal 2560x1440 = 2x), the user a
 - **For Perf:** a stall of 1.3 to 7.7 s about 10 s after launch, before the title screen, with or without the lock
   (native, 2026-11-09 runs `work\dev\lockon*.log`/`lockoff.log`; earlier runs that day had none). Its length varies
   from run to run.
+
+### Update 2026-11-09: in-game settings menu, SHOP -> EXIT abandoned (Mods)
+
+- **F10 menu** (`settings_menu.h`, commit 5f01799): ImGui window (keyboard + XInput pad, Back+Start 0.4 s), writes only changed keys to `wwe2k15.toml` and `launcher-options.ini`;
+  tested with the normal and the native renderer. A **Quit game** button (Yes/No confirmation) closes the game by posting WM_CLOSE to the process windows
+  (`quit_game.h`); `RequestDeferredQuit()` from the menu callback left the process hung, WM_CLOSE exits in 1 s.
+- **SHOP -> EXIT in the main menu: not done.** Relabelling the SHOP string (id 59170, 5 languages, icon U+E018 around the word; "Xbox Live" is a greyed image, no text) works, but the
+  main menu's "A" handler was not found: `sub_8276C030` (error box 29004/29900), `sub_827A8C00` (SmartMenu network state, message 29803 when `sub_82724210()==1`) are NOT
+  run when SHOP is chosen; the six other functions that load text 29803 (`sub_82955D58 sub_828FAB38 sub_828F3428 sub_829562F8 sub_829563A0 sub_828BCDF0`) logged nothing at the press
+  (argument-change filter). SmartMenu list: update `sub_827A98B8`, object = r3 - 20, current index at +364; the index word is in the physical heap (0xA4D2C...). The code and the relabel diff are kept in
+  work\dev\dormant_quit_entry (not in the repo): EXIT without a quit would be worse than SHOP.
+- Menu facts: the real options pages are native code (no Lua `MScript`), `OPTIONS > GAMEPLAY > VISUAL PRESENTATION` has CAMERA CUTS (see the camera cuts notes).
+
+### Update 2026-11-09 (later): SHOP -> EXIT stopped (Mods)
+
+WWE '12's approach (hook of the menu "decide" `sub_8253C3F0`, entry record with the text id at +24 and the page at +8) does not carry over: a guest-memory scan for the
+big-endian words 59170 (SHOP), 49000 (UNIVERSE) and 32860 (OPTIONS) finds them only in the text tables (`string.pac`: {id, offset, length} triplets), never in a menu
+record, and no `li/ori ..., 59170` exists in the recompiled code. The main menu's A handler is therefore still unknown. Decision (Main): stop; the F10 menu's Quit button is the way out.
+Dormant code (relabel + WM_CLOSE hook) stays outside the repo in work\dev\dormant_quit_entry.
+
+### Update 2026-11-13: arena logo stretch limit (#36) first dynamic pass (Mods)
+
+Path: CREATIONS > ARENA > NEW > STAGE DESIGN (accept first screen) > tab menu > EDIT LAYERS > EDIT PARTS > e.g. APRON (1ST) > LOGOS > MISC. LOGOS > first logo
+-> placement mode ("ADJUST SIZE" = the right stick; with the keyboard Shift+Up/Down changes the logo's height; LB/RB rotate, X resets). Memdump/memdiff while stretching:
+- two copies (0xA47065DC, 0xA475F1E4) of a float go 0.625 -> 0.96875 -> **1.25 and stay at 1.25** (saturated: the max), and 0xA475F2B4 goes 220 -> 242 -> **260 (max)**.
+- The per-frame writer of the float is `sub_822B7120` (logo draw record builder: size = u16 at record+16476/+16478 * constant * f28/f29), the integer is written by the generic copy
+  `sub_82AC3DE8` called from `sub_82331118` (huge 1311-line per-object update, 1 caller chain `sub_82331998 <- sub_82335D88`). The clamp itself (the code that stops at 1.25 / 260) was
+  not found yet: it runs where the input changes the value, upstream of these copies. Next: write-trap the SOURCE of the integer (find the record whose +16476 word is 220 -> 260) or break on
+  the input handler (stick -> size), then look for the `fcmpu`/`fsel` with 1.25 (0x3FA00000) or 260 in that function and hook the constant/compare behind a cvar.
+
+### Update 2026-11-13 (later): #36 second pass, clamp not found (Mods)
+
+- The saturating floats (0.625 -> 1.25, copies at 0xA47065DC / 0xA475F1E4, stable between sessions) and the size in pixels 220.0 -> 260.0 (0xA475F2B4, floats 0x435C0000 -> 0x43820000) are derived values:
+  they are uploaded each frame by `sub_82AC3DE8` (called from `sub_82331118`, lr 0x82331824 / 0x8233261C) from a stack array (r4 = 0x7042F...; it is a constant/vertex upload, not a copy
+  of the editor's own data), so the trap on the destination does not lead to the code that clamps.
+- Searching the code for `260` immediates or a `1.25` pair gave only unrelated hits (floats are synthesized with lis/stw in the code, not read from a table).
+- To continue: trap the input side. The stick/keyboard delta is applied by the placement-mode state function (called from the arena editor's per-frame function); a good start is a write trap on the
+  record word the editor keeps for the logo (look for the integer at record+16476/+16478 in the `sub_822B7120` loop: u16 pairs, sizes in 1/N units) while changing the size, in a run with the probe
+  from work\dev\dormant_arena_probe (not in the repo). Stopped at the 30 min budget; nothing committed for #36 besides these notes.
