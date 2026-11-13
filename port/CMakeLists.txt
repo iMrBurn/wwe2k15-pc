@@ -26,6 +26,7 @@ set(WWE2K15_SOURCES
     src/job_dispatch_fix.cpp
     src/camera_cuts_hook.cpp
     src/logo_import.cpp
+    src/universe_free_shows.cpp
     src/shader_dump.cpp
 )
 
@@ -56,6 +57,7 @@ if(WWE2K15_NATIVE_RENDERER)
         src/job_dispatch_fix.cpp
         src/camera_cuts_hook.cpp
         src/logo_import.cpp
+        src/universe_free_shows.cpp
         res/wwe2k15.rc)
     wwe2k15_add_native_renderer(wwe2k15_native)
 endif()
