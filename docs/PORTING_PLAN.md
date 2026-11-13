@@ -1137,3 +1137,13 @@ Path: CREATIONS > ARENA > NEW > STAGE DESIGN (accept first screen) > tab menu > 
   `sub_82AC3DE8` called from `sub_82331118` (huge 1311-line per-object update, 1 caller chain `sub_82331998 <- sub_82335D88`). The clamp itself (the code that stops at 1.25 / 260) was
   not found yet: it runs where the input changes the value, upstream of these copies. Next: write-trap the SOURCE of the integer (find the record whose +16476 word is 220 -> 260) or break on
   the input handler (stick -> size), then look for the `fcmpu`/`fsel` with 1.25 (0x3FA00000) or 260 in that function and hook the constant/compare behind a cvar.
+
+### Update 2026-11-13 (later): #36 second pass, clamp not found (Mods)
+
+- The saturating floats (0.625 -> 1.25, copies at 0xA47065DC / 0xA475F1E4, stable between sessions) and the size in pixels 220.0 -> 260.0 (0xA475F2B4, floats 0x435C0000 -> 0x43820000) are derived values:
+  they are uploaded each frame by `sub_82AC3DE8` (called from `sub_82331118`, lr 0x82331824 / 0x8233261C) from a stack array (r4 = 0x7042F...; it is a constant/vertex upload, not a copy
+  of the editor's own data), so the trap on the destination does not lead to the code that clamps.
+- Searching the code for `260` immediates or a `1.25` pair gave only unrelated hits (floats are synthesized with lis/stw in the code, not read from a table).
+- To continue: trap the input side. The stick/keyboard delta is applied by the placement-mode state function (called from the arena editor's per-frame function); a good start is a write trap on the
+  record word the editor keeps for the logo (look for the integer at record+16476/+16478 in the `sub_822B7120` loop: u16 pairs, sizes in 1/N units) while changing the size, in a run with the probe
+  from work\dev\dormant_arena_probe (not in the repo). Stopped at the 30 min budget; nothing committed for #36 besides these notes.
