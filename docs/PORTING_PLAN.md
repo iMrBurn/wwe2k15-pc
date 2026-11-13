@@ -1127,3 +1127,13 @@ WWE '12's approach (hook of the menu "decide" `sub_8253C3F0`, entry record with 
 big-endian words 59170 (SHOP), 49000 (UNIVERSE) and 32860 (OPTIONS) finds them only in the text tables (`string.pac`: {id, offset, length} triplets), never in a menu
 record, and no `li/ori ..., 59170` exists in the recompiled code. The main menu's A handler is therefore still unknown. Decision (Main): stop; the F10 menu's Quit button is the way out.
 Dormant code (relabel + WM_CLOSE hook) stays outside the repo in work\dev\dormant_quit_entry.
+
+### Update 2026-11-13: arena logo stretch limit (#36) first dynamic pass (Mods)
+
+Path: CREATIONS > ARENA > NEW > STAGE DESIGN (accept first screen) > tab menu > EDIT LAYERS > EDIT PARTS > e.g. APRON (1ST) > LOGOS > MISC. LOGOS > first logo
+-> placement mode ("ADJUST SIZE" = the right stick; with the keyboard Shift+Up/Down changes the logo's height; LB/RB rotate, X resets). Memdump/memdiff while stretching:
+- two copies (0xA47065DC, 0xA475F1E4) of a float go 0.625 -> 0.96875 -> **1.25 and stay at 1.25** (saturated: the max), and 0xA475F2B4 goes 220 -> 242 -> **260 (max)**.
+- The per-frame writer of the float is `sub_822B7120` (logo draw record builder: size = u16 at record+16476/+16478 * constant * f28/f29), the integer is written by the generic copy
+  `sub_82AC3DE8` called from `sub_82331118` (huge 1311-line per-object update, 1 caller chain `sub_82331998 <- sub_82335D88`). The clamp itself (the code that stops at 1.25 / 260) was
+  not found yet: it runs where the input changes the value, upstream of these copies. Next: write-trap the SOURCE of the integer (find the record whose +16476 word is 220 -> 260) or break on
+  the input handler (stick -> size), then look for the `fcmpu`/`fsel` with 1.25 (0x3FA00000) or 260 in that function and hook the constant/compare behind a cvar.
