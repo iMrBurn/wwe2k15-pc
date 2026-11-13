@@ -39,6 +39,9 @@
 REXCVAR_DEFINE_BOOL(wwe2k15_logo_import, false, "WWE2K15",
                     "Create-a-Logo: replace the picture in the editor with mods\\logos\\import.png (resized to the canvas)");
 
+REXCVAR_DEFINE_BOOL(wwe2k15_logo_import_keep_ratio, false, "WWE2K15",
+                    "Logo import: keep the picture's proportions (transparent margins) instead of stretching it to the square canvas");
+
 REX_EXTERN(__imp__sub_83277F00);
 REX_EXTERN(__imp__sub_831F6848);
 
@@ -128,12 +131,23 @@ std::string LoadPng(const std::filesystem::path&, Picture&) { return "PNG import
 #endif
 
 // Area-average (box) resize of straight-alpha BGRA to n x n; alpha-weighted so transparent pixels do not bleed.
-std::vector<uint32_t> ToCanvas(const Picture& pic, uint32_t n) {
+// keep_ratio: the picture is scaled by the same factor on both axes to fit the square and centred (the rest stays
+// transparent); otherwise it is stretched to fill the square.
+std::vector<uint32_t> ToCanvas(const Picture& pic, uint32_t n, bool keep_ratio) {
   std::vector<uint32_t> out(size_t(n) * n, 0);
-  for (uint32_t y = 0; y < n; ++y) {
-    const double y0 = double(y) * pic.h / n, y1 = double(y + 1) * pic.h / n;
-    for (uint32_t x = 0; x < n; ++x) {
-      const double x0 = double(x) * pic.w / n, x1 = double(x + 1) * pic.w / n;
+  // Destination rectangle [dx0, dx0 + dw) x [dy0, dy0 + dh) inside the n x n canvas.
+  uint32_t dw = n, dh = n, dx0 = 0, dy0 = 0;
+  if (keep_ratio) {
+    const double scale = std::min(double(n) / pic.w, double(n) / pic.h);
+    dw = std::max<uint32_t>(1, std::min<uint32_t>(n, uint32_t(pic.w * scale + 0.5)));
+    dh = std::max<uint32_t>(1, std::min<uint32_t>(n, uint32_t(pic.h * scale + 0.5)));
+    dx0 = (n - dw) / 2;
+    dy0 = (n - dh) / 2;
+  }
+  for (uint32_t y = dy0; y < dy0 + dh; ++y) {
+    const double y0 = double(y - dy0) * pic.h / dh, y1 = double(y - dy0 + 1) * pic.h / dh;
+    for (uint32_t x = dx0; x < dx0 + dw; ++x) {
+      const double x0 = double(x - dx0) * pic.w / dw, x1 = double(x - dx0 + 1) * pic.w / dw;
       double sa = 0, sr = 0, sg = 0, sb = 0, sw = 0;
       for (uint32_t sy = uint32_t(y0); sy < pic.h && sy < y1; ++sy) {
         const double wy = std::min<double>(sy + 1, y1) - std::max<double>(sy, y0);
@@ -216,7 +230,7 @@ extern "C" REX_FUNC(sub_83277F00) {
         REXLOG_WARN("logo import: unexpected canvas size {}, nothing written", size);
         g_pending = false;
       } else {
-        const std::vector<uint32_t> px = ToCanvas(g_pic, size);
+        const std::vector<uint32_t> px = ToCanvas(g_pic, size, REXCVAR_GET(wwe2k15_logo_import_keep_ratio));
         for (const uint32_t offset : {kImage0, kImage1, kImage2}) {
           uint8_t* dst = base + editor + offset + 8;  // after the 8-byte header
           for (size_t i = 0; i < px.size(); ++i) {

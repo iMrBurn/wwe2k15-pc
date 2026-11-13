@@ -159,6 +159,7 @@ inline std::vector<Item> BuildItems() {
   add(boolean("Camera cuts on finishers", "wwe2k15_camera_cuts_on_finishers", false, false, true, ""));
   add(boolean("Camera cuts on grapples", "wwe2k15_camera_cuts_on_holds", false, false, true, ""));
   add(boolean("Custom logo import (mods/logos/import.png)", "wwe2k15_logo_import", false, false, false, "logo_import"));
+  add(boolean("Logo import: keep proportions", "wwe2k15_logo_import_keep_ratio", false, false, false, ""));
   return items;
 }
 
