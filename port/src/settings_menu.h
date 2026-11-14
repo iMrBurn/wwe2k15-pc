@@ -159,6 +159,7 @@ inline std::vector<Item> BuildItems() {
   add(boolean("Camera cuts on finishers", "wwe2k15_camera_cuts_on_finishers", false, false, true, ""));
   add(boolean("Camera cuts on grapples", "wwe2k15_camera_cuts_on_holds", false, false, true, ""));
   add(boolean("Custom logo import (mods/logos/import.png)", "wwe2k15_logo_import", false, false, false, "logo_import"));
+  add(boolean("Main menu EXIT entry (replaces SHOP)", "wwe2k15_quit_entry", false, true, false, ""));
   add(boolean("Logo import: keep proportions", "wwe2k15_logo_import_keep_ratio", false, false, false, ""));
   {
     // One row sets both Universe experiments together (hidden if either cvar is missing). Read when a show is saved / a day
@@ -326,11 +327,15 @@ class Dialog : public rex::ui::ImGuiDialog {
       ImGui::SetWindowFontScale(scale);
       ImGui::Text("Quit the game?");
       ImGui::TextDisabled("Anything not saved in the game is lost.");
-      ImGui::TextDisabled("Left/Right to choose, Enter / A to confirm, Esc / B = No");
-      if (!focused_once_) { ImGui::SetKeyboardFocusHere(); focused_once_ = true; }
+      ImGui::TextDisabled("Left/Right to choose, Enter / A to confirm (default: No), Esc / B = No");
+      // Safe default: the focus starts on "No" (Enter / A cancels); Left then Enter / A means "Yes". A first
+      // (invisible) Right press wakes the navigation up so that Enter / A work at once.
       if (ImGui::Button("Yes, quit")) { quit_game_(); ImGui::End(); return; }
       ImGui::SameLine();
+      if (!focused_once_) { ImGui::SetKeyboardFocusHere(); focused_once_ = true; }
       if (ImGui::Button("No")) { close_(); ImGui::End(); return; }
+      if (frames_ == 2) io.AddKeyEvent(ImGuiKey_RightArrow, true);
+      else if (frames_ == 3) io.AddKeyEvent(ImGuiKey_RightArrow, false);
       ImGui::End();
       return;
     }

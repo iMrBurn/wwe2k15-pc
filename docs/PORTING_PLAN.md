@@ -1166,3 +1166,9 @@ Method of the 2K16/2K17 ports (menu accessors by text id) applied to 2K15 TU4 (`
   Yes posts WM_CLOSE (`quit_game.h`). Everything else goes to the original. text_hook.cpp relabels the SHOP string EXIT (5 languages) under the same cvar. Xbox Live (35243) untouched.
 - Tested (normal and native exe, windowed, separate profile): label shows EXIT; A -> the box (no network-error message); No/Esc keeps the game running; Yes quits; MY WWE, Xbox Live (greyed: normal message),
   UNIVERSE, OPTIONS do not quit. Not done: the game's own Yes/No dialog (DialogManager) instead of ImGui; the F10 menu has no switch for the cvar yet (default false).
+
+### Update 2026-11-14 (later): EXIT entry on by default (Mods)
+
+`wwe2k15_quit_entry` now defaults to true (F10 row "Main menu EXIT entry (replaces SHOP)", marked restart). The confirmation box starts on "No" (a plain Enter / A / Esc / B cancels; Left then Enter / A quits; mouse works;
+pad: XInput D-pad/stick + A/B through the same ImGui keys as the F10 menu, not tested on a real pad). Labels checked in game in en / fr (QUITTER) / es (SALIR) / it (ESCI) / de (BEENDEN, replaces "<icon>-SHOP"):
+the line is highlighted and aligned like the others; Xbox Live untouched. Tested normal + native: No keeps the game, Left+Enter quits.

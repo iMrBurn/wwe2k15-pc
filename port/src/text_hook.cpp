@@ -21,7 +21,7 @@
 REXCVAR_DEFINE_BOOL(wwe2k15_pc_texts, true, "WWE2K15",
                     "Say PC instead of Xbox 360 console in the game's texts");
 
-REXCVAR_DEFINE_BOOL(wwe2k15_quit_entry, false, "WWE2K15",
+REXCVAR_DEFINE_BOOL(wwe2k15_quit_entry, true, "WWE2K15",
                     "Main menu: the dead SHOP entry is labelled EXIT (needs the decide hook in quit_entry.cpp)");
 
 REX_EXTERN(__imp__sub_82B529A0);
@@ -93,7 +93,7 @@ constexpr Rule kShopRules[] = {
     {"BOUTIQUE \xEE\x80\x98 ", "QUITTER \xEE\x80\x98 "},  // fr
     {"TIENDA \xEE\x80\x98", "SALIR \xEE\x80\x98"},      // es
     {"NEGOZIO \xEE\x80\x98", "ESCI \xEE\x80\x98"},      // it
-    {"\xEE\x80\x98-SHOP", "\xEE\x80\x98-ENDE"},        // de
+    {"\xEE\x80\x98-SHOP", "BEENDEN"},               // de
 };
 
 int RewriteShop(char* p, char* end) {
