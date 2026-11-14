@@ -1155,3 +1155,14 @@ Read/write traps on those pages (all host views 1AA/1CA/1EA/20A..., during title
 `sub_82B69DA8`, `sub_82B6C1F0`; loader chain `sub_82B3BCA0 <- sub_82B52670 <- sub_82B3BE10`): nobody reads the SHOP string bytes while the main menu is built or rebuilt, so the menu text is copied/laid out
 before the title screen (or from a copy elsewhere). A static search for a binary-search style getter (`mulli 12` + halving + compare) found only a texture helper (`sub_82C218D0`), not the text getter.
 Next idea (needs a build, not done): hook the table loader's consumers: log `sub_82B52670` callers and, after the table is inflated, scan the guest heap for a second copy of "SHOP" (ASCII, 0xEE8098 icon) and trap THAT.
+
+### Update 2026-11-14: main menu SHOP -> EXIT works (Mods)
+
+Method of the 2K16/2K17 ports (menu accessors by text id) applied to 2K15 TU4 (`quit_entry.cpp`, cvar `wwe2k15_quit_entry`, default false):
+- `sub_827A0380(menu, group, item)` = GetMenuItemDesc (first word 0xFFFFFFFF = invalid, **text id at +24**), `sub_827A3718` = CheckMenuItemVisible, **`sub_827A3910(menu, group, item, msg_override)` =
+  ConfirmCheckAndPopup** (builds the dialog request: +0 = 2 Yes/No, +84 message id: 30743, 30755, 30721, 29814 (Xbox Live not connected, id 35243), 30055, 30125, 30723; shows it through the dialog manager
+  `[0x8xxxxxxx lis -31859 + 11972]` vtable +108). The main menu list is group 1, SHOP = item 7, descriptor text id **35178** (same as 2K16; the label string is 59170, so the first scan by 59170 was misleading).
+- The hook returns 1 ("handled") for descriptor id 35178 and asks the app to show an ImGui "Quit the game?" Yes/No box (`settings_menu.h` quit-only mode: Left/Right then Enter, mouse, pad, Esc/B = No);
+  Yes posts WM_CLOSE (`quit_game.h`). Everything else goes to the original. text_hook.cpp relabels the SHOP string EXIT (5 languages) under the same cvar. Xbox Live (35243) untouched.
+- Tested (normal and native exe, windowed, separate profile): label shows EXIT; A -> the box (no network-error message); No/Esc keeps the game running; Yes quits; MY WWE, Xbox Live (greyed: normal message),
+  UNIVERSE, OPTIONS do not quit. Not done: the game's own Yes/No dialog (DialogManager) instead of ImGui; the F10 menu has no switch for the cvar yet (default false).

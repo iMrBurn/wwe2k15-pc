@@ -295,6 +295,9 @@ class Dialog : public rex::ui::ImGuiDialog {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
   }
+  // Opens with the "Quit the game?" confirmation showing (main menu EXIT entry, quit_entry.cpp).
+  void AskQuit() { quit_only_ = quit_game_ != nullptr; confirm_quit_ = quit_only_; }
+
   ~Dialog() override {
     auto& io = GetIO();
     io.ConfigFlags = saved_nav_flags_;
@@ -314,6 +317,23 @@ class Dialog : public rex::ui::ImGuiDialog {
     }
     ++frames_;
     const float scale = std::clamp(io.DisplaySize.y / 540.0f, 1.3f, 2.6f);  // bigger on small screens (Deck, 720p)
+    if (quit_only_) {  // just the confirmation (main menu EXIT entry)
+      ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+      ImGui::SetNextWindowBgAlpha(0.94f);
+      ImGui::Begin("WWE 2K15 PC - Exit##wwe2k15_exit", nullptr,
+                   ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
+      ImGui::SetWindowFontScale(scale);
+      ImGui::Text("Quit the game?");
+      ImGui::TextDisabled("Anything not saved in the game is lost.");
+      ImGui::TextDisabled("Left/Right to choose, Enter / A to confirm, Esc / B = No");
+      if (!focused_once_) { ImGui::SetKeyboardFocusHere(); focused_once_ = true; }
+      if (ImGui::Button("Yes, quit")) { quit_game_(); ImGui::End(); return; }
+      ImGui::SameLine();
+      if (ImGui::Button("No")) { close_(); ImGui::End(); return; }
+      ImGui::End();
+      return;
+    }
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always,
                             ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(std::min(io.DisplaySize.x * 0.92f, 760.0f * scale), 0));
@@ -419,6 +439,7 @@ class Dialog : public rex::ui::ImGuiDialog {
   std::function<void()> close_;
   std::function<void()> quit_game_;
   bool confirm_quit_ = false;
+  bool quit_only_ = false;
   std::vector<Item> items_;
   ImGuiConfigFlags saved_nav_flags_ = 0;
   ImGuiBackendFlags saved_backend_flags_ = 0;
