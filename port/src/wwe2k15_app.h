@@ -46,6 +46,7 @@
 
 #include "settings_menu.h"
 #include "quit_game.h"
+#include "quit_entry.h"
 REXCVAR_DECLARE(bool, wwe2k15_show_fps);
 REXCVAR_DECLARE(bool, wwe2k15_mods);
 void InstallWwe2k15CrashReporter();
@@ -334,6 +335,12 @@ class Wwe2k15App : public rex::ReXApp {
     // Settings menu: F10, or Back + Start held on a pad (see settings_menu.h).
     rex::ui::RegisterBind("bind_wwe2k15_menu", "F10", "WWE 2K15 settings menu", [this] { ToggleSettingsMenu(); });
     StartMenuPadWatcher();
+    Wwe2k15QuitConfirmRequest() = [this] {
+      app_context().CallInUIThreadDeferred([this] {
+        if (!settings_menu_) ToggleSettingsMenu();
+        if (settings_menu_) settings_menu_->AskQuit();
+      });
+    };
   }
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>

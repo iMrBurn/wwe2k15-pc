@@ -21,6 +21,9 @@
 REXCVAR_DEFINE_BOOL(wwe2k15_pc_texts, true, "WWE2K15",
                     "Say PC instead of Xbox 360 console in the game's texts");
 
+REXCVAR_DEFINE_BOOL(wwe2k15_quit_entry, true, "WWE2K15",
+                    "Main menu: the dead SHOP entry is labelled EXIT (needs the decide hook in quit_entry.cpp)");
+
 REX_EXTERN(__imp__sub_82B529A0);
 
 namespace {
@@ -82,13 +85,54 @@ int Rewrite(char* p, char* end) {
   return changed;
 }
 
+// The main menu's SHOP entry is string id 59170, with the WWE icon U+E018 (EE 80 98) before or after the
+// word, depending on the language. Exact whole-string matches only (NUL before and after), replaced by a
+// text of the same length or shorter (the rest becomes NULs, as above).
+constexpr Rule kShopRules[] = {
+    {"\xEE\x80\x98 SHOP", "\xEE\x80\x98 EXIT"},        // en
+    {"BOUTIQUE \xEE\x80\x98 ", "QUITTER \xEE\x80\x98 "},  // fr
+    {"TIENDA \xEE\x80\x98", "SALIR \xEE\x80\x98"},      // es
+    {"NEGOZIO \xEE\x80\x98", "ESCI \xEE\x80\x98"},      // it
+    {"\xEE\x80\x98-SHOP", "BEENDEN"},               // de
+};
+
+int RewriteShop(char* p, char* end) {
+  int changed = 0;
+  for (const Rule& r : kShopRules) {
+    char* at = p;
+    while (end - at >= static_cast<ptrdiff_t>(r.from.size() + 1)) {
+      char* hit = static_cast<char*>(std::memchr(at, r.from[0], end - at));
+      if (!hit || end - hit < static_cast<ptrdiff_t>(r.from.size() + 1)) break;
+      const bool starts = hit == p || hit[-1] == 0;
+      if (starts && std::memcmp(hit, r.from.data(), r.from.size()) == 0 && hit[r.from.size()] == 0) {
+        std::memcpy(hit, r.to.data(), r.to.size());
+        std::memset(hit + r.to.size(), 0, r.from.size() - r.to.size());
+        ++changed;
+        at = hit + r.from.size();
+      } else {
+        at = hit + 1;
+      }
+    }
+  }
+  return changed;
+}
+
 }  // namespace
 
 extern "C" REX_FUNC(sub_82B529A0) {
   const uint32_t strm = ctx.r3.u32;
   const uint32_t out_before = strm ? REX_LOAD_U32(strm + 12) : 0;  // z_stream.next_out
   __imp__sub_82B529A0(ctx, base);
-  if (!strm || !REXCVAR_GET(wwe2k15_pc_texts)) return;
+  if (!strm) return;
+  if (REXCVAR_GET(wwe2k15_quit_entry)) {
+    const uint32_t a = REX_LOAD_U32(strm + 12);
+    if (a > out_before) {
+      const int n = RewriteShop(reinterpret_cast<char*>(base + out_before), reinterpret_cast<char*>(base + a));
+      static std::atomic<int> s_shop{0};
+      if (n && s_shop.fetch_add(n) == 0) REXLOG_INFO("Game texts: main menu SHOP relabelled EXIT");
+    }
+  }
+  if (!REXCVAR_GET(wwe2k15_pc_texts)) return;
   const uint32_t out_after = REX_LOAD_U32(strm + 12);
   if (out_after <= out_before || out_after - out_before < kKey.size()) return;
   const int changed =
