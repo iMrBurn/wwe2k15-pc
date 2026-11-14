@@ -1147,3 +1147,11 @@ Path: CREATIONS > ARENA > NEW > STAGE DESIGN (accept first screen) > tab menu > 
 - To continue: trap the input side. The stick/keyboard delta is applied by the placement-mode state function (called from the arena editor's per-frame function); a good start is a write trap on the
   record word the editor keeps for the logo (look for the integer at record+16476/+16478 in the `sub_822B7120` loop: u16 pairs, sizes in 1/N units) while changing the size, in a run with the probe
   from work\dev\dormant_arena_probe (not in the repo). Stopped at the 30 min budget; nothing committed for #36 besides these notes.
+
+### Update 2026-11-14: SHOP -> EXIT, line-supplier trace attempt (Mods)
+
+Method suggested by the 2K16/2K17 port (intercept the line provider by text id): the string table {id 59170 = 0xE722, offset 0x6486B, len 0x11} sits at guest 0xAA130978 (text bytes at table + 0x6486B = 0xAA19486B).
+Read/write traps on those pages (all host views 1AA/1CA/1EA/20A..., during title -> main menu and during OPTIONS/back transitions) only see the inflate of the table (`sub_82B529A0` zlib, adler32
+`sub_82B69DA8`, `sub_82B6C1F0`; loader chain `sub_82B3BCA0 <- sub_82B52670 <- sub_82B3BE10`): nobody reads the SHOP string bytes while the main menu is built or rebuilt, so the menu text is copied/laid out
+before the title screen (or from a copy elsewhere). A static search for a binary-search style getter (`mulli 12` + halving + compare) found only a texture helper (`sub_82C218D0`), not the text getter.
+Next idea (needs a build, not done): hook the table loader's consumers: log `sub_82B52670` callers and, after the table is inflated, scan the guest heap for a second copy of "SHOP" (ASCII, 0xEE8098 icon) and trap THAT.
