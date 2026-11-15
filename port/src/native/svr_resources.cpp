@@ -200,6 +200,27 @@ bool TargetCurrent(u32 texture_va, std::unordered_map<u32, HostTarget>::iterator
 // are even, so the product is exact; rounding only guards odd sizes.
 static u32 Scaled(u32 v, float scale) { return u32(float(v) * scale + 0.5f); }
 
+REXCVAR_DEFINE_BOOL(svr_auto_lowend, true, "SvR",
+                    "Automatic resolution picks 540p (4 logical processors or fewer) or 480p (2 or fewer) on integrated "
+                    "GPUs; false = keep 720p. Has no effect when svr_render_scale is set");
+
+// Logical processors this process may run on (the smaller of the machine's count and the affinity mask).
+REXCVAR_DEFINE_INT32(svr_lowend_cpu_count, 0, "SvR",
+                     "Test: pretend the PC has this many logical processors for svr_auto_lowend (0 = detect)")
+    .range(0, 256);
+
+static unsigned LogicalProcessorsAvailable() {
+  if (const int forced = REXCVAR_GET(svr_lowend_cpu_count); forced > 0) return unsigned(forced);
+  unsigned n = unsigned(GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
+  DWORD_PTR proc = 0, sys = 0;
+  if (GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys) && proc) {
+    unsigned a = 0;
+    for (DWORD_PTR m = proc; m; m &= m - 1) ++a;
+    n = std::min(n, a);
+  }
+  return n ? n : 1;
+}
+
 float SvrRenderScale() {
   static std::atomic<float> s_scale{0.0f};
   if (const float scale = s_scale.load(std::memory_order_relaxed); scale > 0.0f)
@@ -220,9 +241,17 @@ float SvrRenderScale() {
             : configured == 540  ? 0.75f
             : configured == 1080 ? 1.5f
                                  : float(std::clamp((configured + 360) / 720, 1, 4));
+  } else if (integrated && REXCVAR_GET(svr_auto_lowend) && LogicalProcessorsAvailable() <= 4) {
+    // Integrated GPU on a 2-core / 4-thread (or smaller) CPU (Ryzen 3 2200U / Vega 3, Athlon, old Intel U parts):
+    // both the GPU and the CPU are short, so automatic mode draws below the Xbox's 720p.
+    const unsigned cpus = LogicalProcessorsAvailable();
+    scale = cpus <= 2 ? 2.0f / 3.0f : 0.75f;
+    BD_INFO("SvR native: low-end PC detected ({} logical processors, integrated GPU {}): {}p "
+            "(svr_auto_lowend=false or svr_render_scale=720 turns this off)",
+            cpus, device->getDescription().name, cpus <= 2 ? 480 : 540);
   } else if (integrated) {
-    BD_INFO("SvR native: integrated GPU ({}), automatic resolution stays at 720p",
-            device->getDescription().name);
+    BD_INFO("SvR native: integrated GPU ({}, {} logical processors), automatic resolution stays at 720p",
+            device->getDescription().name, LogicalProcessorsAvailable());
   } else if (const u64 vram = device ? device->getDescription().dedicatedVideoMemory : 0;
              vram > 0 && vram < 3584ull * 1024 * 1024) {
     // Small discrete GPUs (GeForce 940MX, GT 1030, RX 560 with 2 GB): 2x on a 1080p screen is

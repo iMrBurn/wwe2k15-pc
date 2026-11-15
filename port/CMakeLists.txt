@@ -60,7 +60,8 @@ if(WWE2K15_NATIVE_RENDERER)
         src/logo_import.cpp
         src/quit_entry.cpp
         src/universe_free_shows.cpp
-        res/wwe2k15.rc)
+        res/wwe2k15.rc
+        res/utf8.manifest)
     wwe2k15_add_native_renderer(wwe2k15_native)
 endif()
 
@@ -91,7 +92,8 @@ if(MSVC)
     target_link_options(wwe2k15 PRIVATE /DEBUG /OPT:REF /OPT:ICF)
 endif()
 if(WIN32)
-    target_sources(wwe2k15 PRIVATE res/wwe2k15.rc)
+    # UTF-8 active code page: the --*_root cvars are UTF-8 and the SDK builds std::filesystem paths from them (issue #40).
+    target_sources(wwe2k15 PRIVATE res/wwe2k15.rc res/utf8.manifest)
     # rc.exe dependency scanning misses the icon; rebuild the resource when it changes.
     set_source_files_properties(res/wwe2k15.rc PROPERTIES
         OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/res/wwe2k15.ico)
