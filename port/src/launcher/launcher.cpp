@@ -62,6 +62,8 @@ fs::file_time_type launch_time{};
 std::chrono::steady_clock::time_point launch_start{};
 bool launched_native = false;  // the running (or last) game is the native renderer
 bool migration_note = false;   // this launch moved an install to the native renderer (shown once)
+std::string runtime_note;      // problem seen in the game's log while it runs (data folder refused...)
+bool runtime_checked = false;  // the log was read for this launch
 std::string fallback_note;     // shown when the native renderer failed to start and the normal one was launched
 SDL_Gamepad* pad = nullptr;  // the connected gamepad (SDL), if any
 std::string start_failure;  // plain-language reason the game stopped right after starting
@@ -90,6 +92,7 @@ struct Options {
   bool cpu_yield = true;      // wwe2k15_render_wait_yield
   bool vsync = true;          // no tearing (vulkan_allow_present_mode_immediate = false)
   bool show_fps = false;      // wwe2k15_show_fps
+  bool local_data = false;    // game data (saves, DLC, cache) in user_data next to the launcher instead of %LOCALAPPDATA%
   bool logo_import = false;   // wwe2k15_logo_import: Create-a-Logo editor takes mods\\logos\\import.png
   bool fps60 = true;          // wwe2k15_60fps: entrances and victory scenes at 60 fps instead of the console's 30
   bool native = kNativeByDefault;  // native renderer: wwe2k15_native.exe
@@ -160,11 +163,39 @@ fs::path ExeDir() {
 
 void LoadOptions();
 
+// The game keeps saves, installed DLC and its cache in the user data folder. When Windows refuses to
+// write there (antivirus, "Controlled folder access", odd permissions) the game cannot install the
+// DLC ("Unable to create Xbox cache folder ... Access is denied", issue #40): the folder next to the
+// launcher is used instead, and the PLAY page says so.
+bool CanWriteFolder(const fs::path& dir) {
+  std::error_code ec;
+  fs::create_directories(dir / L"xbox_cache", ec);
+  if (ec) return false;
+  const fs::path probe = dir / L".write_test";
+  {
+    std::ofstream f(probe, std::ios::trunc);
+    if (!f) return false;
+    f << "x";
+    if (!f) return false;
+  }
+  fs::remove(probe, ec);
+  return true;
+}
+std::string user_data_denied;  // the default user data folder Windows refused, "" = fine
+
 void LoadSettings() {
   wchar_t local[MAX_PATH]{};
   SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, local);
   user_data = fs::path(local) / L"WWE2K15";
-  fs::create_directories(user_data);
+  {
+    std::error_code uec;
+    fs::create_directories(user_data, uec);
+    if (uec || !CanWriteFolder(user_data)) {
+      user_data_denied = user_data.string();
+      user_data = root / L"user_data";
+      fs::create_directories(user_data, uec);
+    }
+  }
   {
     // The game started without the launcher keeps saves in Documents\wwe2k15: adopt them once.
     wchar_t docs[MAX_PATH]{};
@@ -291,6 +322,37 @@ constexpr uint32_t kTitleId = 0x545408B6;
 // Installs one STFS package: a WWE 2K15 title update is extracted into the game folder
 // (default.xexp beside default.xex, the rest under update\); a DLC package is copied
 // unchanged into dlc\, where the game installs it on its next start.
+// Installing a package copies or extracts tens to hundreds of MB (the Title Update, each DLC): on the UI
+// thread that froze the launcher for as long as the disk and the antivirus took (issue #40). It runs
+// in a worker thread; the UI shows the progress and waits for the end.
+std::mutex install_mutex;
+std::string install_text;                 // progress text, read by the UI thread
+std::atomic<bool> install_running{false};
+std::atomic<bool> install_finished{false};
+std::thread install_thread;
+
+void SetInstallText(const std::string& t) {
+  std::lock_guard lock(install_mutex);
+  install_text = t;
+}
+
+bool InstallBusy() { return install_running.load(); }
+
+// Called every frame: shows the progress, and the result once the worker is done.
+void PollInstall() {
+  if (!install_running) return;
+  if (install_finished.exchange(false)) {
+    if (install_thread.joinable()) install_thread.join();
+    install_running = false;
+  }
+  std::lock_guard lock(install_mutex);
+  status = install_text;
+}
+
+void WaitInstall() {
+  if (install_thread.joinable()) install_thread.join();
+}
+
 bool InstallPackage(const fs::path& file, std::string& msg) {
   const std::string name = file.filename().string();
   stfs::Package pkg;
@@ -313,6 +375,9 @@ bool InstallPackage(const fs::path& file, std::string& msg) {
                                                : Extras() / L"update" / fs::path(rel);
     if (entry.directory) { fs::create_directories(dst, ec); continue; }
     fs::create_directories(dst.parent_path(), ec);
+    if (i % 25 == 0)
+      SetInstallText(std::string(tr("Installation en cours : ")) + name + " (" + std::to_string(i) + "/" +
+                     std::to_string(pkg.entries.size()) + tr(" fichier(s)") + ")");
     if (!pkg.Extract(entry, dst)) { msg = name + tr(" : extraction échouée pour ") + rel + "."; return false; }
   }
   msg = tr("Title Update 4 installée.");
@@ -320,6 +385,7 @@ bool InstallPackage(const fs::path& file, std::string& msg) {
 }
 
 void AddPackages() {
+  if (InstallBusy()) return;
   if (!HasGame()) { status = tr("Sélectionne d'abord le dossier qui contient default.xex."); return; }
   IFileOpenDialog* dialog = nullptr;
   if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
@@ -333,22 +399,37 @@ void AddPackages() {
     if (SUCCEEDED(dialog->GetResults(&items))) {
       DWORD count = 0;
       items->GetCount(&count);
-      std::string last;
-      int ok = 0;
+      std::vector<fs::path> files;
       for (DWORD i = 0; i < count; ++i) {
         IShellItem* item = nullptr;
         PWSTR path = nullptr;
         if (SUCCEEDED(items->GetItemAt(i, &item)) &&
             SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-          if (InstallPackage(path, last)) ++ok;
+          files.emplace_back(path);
           CoTaskMemFree(path);
         }
         if (item) item->Release();
       }
       items->Release();
-      status = count == 1 ? last
-                          : std::to_string(ok) + "/" + std::to_string(count) +
-                                tr(" package(s) installé(s). Dernier : ") + last;
+      if (!files.empty()) {
+        // The copies run off the UI thread; PollInstall shows the progress and then the result.
+        install_running = true;
+        install_finished = false;
+        SetInstallText(std::string(tr("Installation en cours : ")) + files.front().filename().string());
+        install_thread = std::thread([files] {
+          std::string last;
+          int ok = 0;
+          for (size_t i = 0; i < files.size(); ++i) {
+            SetInstallText(std::string(tr("Installation en cours : ")) + files[i].filename().string() + " (" +
+                           std::to_string(i + 1) + "/" + std::to_string(files.size()) + ")");
+            if (InstallPackage(files[i], last)) ++ok;
+          }
+          SetInstallText(files.size() == 1 ? last
+                                           : std::to_string(ok) + "/" + std::to_string(files.size()) +
+                                                 tr(" package(s) installé(s). Dernier : ") + last);
+          install_finished = true;
+        });
+      }
     }
   }
   dialog->Release();
@@ -360,7 +441,7 @@ void SaveOptions() {
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
       << "\nnative_default_migrated=1\nnative=" << opt.native << "\nnative_resolution=" << opt.native_resolution << "\ngpu=" << opt.gpu
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nentrances_60fps=" << opt.fps60 << "\nlogo_import=" << opt.logo_import << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nentrances_60fps=" << opt.fps60 << "\nlogo_import=" << opt.logo_import << "\nlocal_data=" << opt.local_data << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
 }
 
 // ---- Key bindings remapped in the game (F4 > "Save to config") ----
@@ -464,6 +545,7 @@ void LoadOptions() {
     else if (k == "show_fps") opt.show_fps = v != 0;
     else if (k == "entrances_60fps") opt.fps60 = v != 0;
     else if (k == "logo_import") opt.logo_import = v != 0;
+    else if (k == "local_data") opt.local_data = v != 0;
     else if (k == "vsync") opt.vsync = v != 0;
     else if (k == "native") opt.native = v != 0;
     else if (k == "native_resolution")
@@ -502,6 +584,13 @@ void LoadOptions() {
   }
   LoadSavedKeys();
   SyncSavedKeys();
+  // The player (or the PLAY page, after the game failed to write its data folder) chose the folder
+  // next to the launcher.
+  if (opt.local_data) {
+    std::error_code lec;
+    user_data = root / L"user_data";
+    fs::create_directories(user_data, lec);
+  }
 }
 
 // The GPU emulation renders whole multiples of the Xbox 360's 720p: 1080p renders at 2x (1440p)
@@ -629,6 +718,7 @@ void LaunchGame(bool automatic = false) {
   }
   if (game_process) { CloseHandle(game_process); game_process = nullptr; }
   if (updater.Busy()) { status = tr("Attends la fin de la mise à jour."); return; }
+  if (InstallBusy()) { status = tr("Attends la fin de l'installation des packages."); return; }
   const bool native = UseNative();
   const fs::path exe = root / (native ? L"wwe2k15_native.exe" : L"wwe2k15.exe");
   if (!fs::exists(exe)) { status = tr("wwe2k15.exe est introuvable : reconstruis le projet."); return; }
@@ -638,6 +728,8 @@ void LaunchGame(bool automatic = false) {
   launch_time = fs::file_time_type::clock::now();
   launch_start = std::chrono::steady_clock::now();
   start_failure.clear();
+  runtime_note.clear();
+  runtime_checked = false;
   if (!automatic) fallback_note.clear();
   launched_native = native;
   if (opt.auto_backup) {
@@ -701,6 +793,20 @@ void UpdateGameProcess() {
   if (!game_process) return;
   if (WaitForSingleObject(game_process, 0) == WAIT_TIMEOUT) {
     status = tr("Jeu en cours d'exécution.");
+    // Once, a little after the start: did the game fail to write its data folder (DLC not installed)?
+    if (!runtime_checked && std::chrono::steady_clock::now() - launch_start > std::chrono::seconds(15)) {
+      runtime_checked = true;
+      if (const fs::path log = NewestLog(launch_time - std::chrono::seconds(2)); !log.empty()) {
+        std::ifstream in(log);
+        std::string line;
+        while (std::getline(in, line))
+          if (line.find("Unable to create Xbox cache folder") != std::string::npos ||
+              line.find("failed to install: 00000005") != std::string::npos) {
+            runtime_note = tr("Le jeu n'a pas pu écrire dans son dossier de données (accès refusé) : les DLC ne seront pas reconnus. Ferme le jeu, puis vérifie ton antivirus et « Accès contrôlé aux dossiers » de Windows, ou place le dossier du port dans un dossier simple comme C:\\WWE2K15.");
+            break;
+          }
+      }
+    }
     return;
   }
   DWORD exit_code = 0;
@@ -956,6 +1062,33 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
     const float wrap = area.x - 96;
     d->AddText(ui_font, 17, {o.x + 48, o.y + 470}, kGold, fallback_note.c_str(), nullptr, wrap);
   }
+  {
+    // Data folder problems: the one Windows refused before the start, and what the game's log said.
+    const float wrap = area.x - 96;
+    float ny = o.y + 470 + (fallback_note.empty() ? 0.0f : 40.0f) + (migration_note && UseNative() ? 40.0f : 0.0f);
+    if (!user_data_denied.empty()) {
+      const std::string note = std::string(tr("Windows refuse l'écriture dans le dossier de données du jeu (")) + user_data_denied +
+                               tr("). Tes sauvegardes et tes DLC sont rangés dans le dossier user_data à côté du lanceur.");
+      d->AddText(ui_font, 15, {o.x + 48, ny}, kGold, note.c_str(), nullptr, wrap);
+      ny += 40;
+    }
+    if (!runtime_note.empty()) {
+      d->AddText(ui_font, 15, {o.x + 48, ny}, IM_COL32(255, 96, 96, 255), runtime_note.c_str(), nullptr, wrap);
+      if (!opt.local_data && !running) {
+        // One click: keep the saves, DLC and cache in user_data next to the launcher.
+        ImGui::SetCursorScreenPos({o.x + 48, ny + 44});
+        if (Tile("local_data", tr("UTILISER LE DOSSIER user_data"), {340, 36}, false, false, 15)) {
+          opt.local_data = true;
+          user_data = root / L"user_data";
+          std::error_code lec;
+          fs::create_directories(user_data, lec);
+          SaveOptions();
+          runtime_note.clear();
+          status = tr("Données du jeu : dossier user_data à côté du lanceur. Relance le jeu (les anciennes sauvegardes restent dans l'ancien dossier).");
+        }
+      }
+    }
+  }
   if (running && keyboard_forced)
     d->AddText(ui_font, 17, {o.x + 48, o.y + 446}, kGold,
                tr("Aucune manette détectée : le clavier a été activé pour cette partie (Espace = A, Entrée = Start)."));
@@ -1005,7 +1138,9 @@ void DrawSettings(ImDrawList* d, ImVec2 o, ImVec2 area) {
   ImGui::SetCursorScreenPos({o.x + 48, o.y + 204});
   if (Tile("browse", tr("PARCOURIR…"), {210, 48}, false, true, 20)) BrowseGame();
   ImGui::SetCursorScreenPos({o.x + 280, o.y + 204});
+  ImGui::BeginDisabled(InstallBusy());
   if (Tile("packages", tr("AJOUTER TU / DLC…"), {260, 48}, false, false, 20)) AddPackages();
+  ImGui::EndDisabled();
   ImGui::SetCursorScreenPos({o.x + 562, o.y + 204});
   if (Tile("save", tr("ENREGISTRER"), {200, 48}, false, false, 20)) { SaveSettings(); status = tr("Réglages enregistrés."); }
 
@@ -1769,11 +1904,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (IsIconic(hwnd)) { Sleep(150); continue; }
     if (game_process) Sleep(60);
     if(resize_w && resize_h) { target.Reset(); swapchain->ResizeBuffers(0,resize_w,resize_h,DXGI_FORMAT_UNKNOWN,0); resize_w=resize_h=0; MakeTarget(); }
-    ImGui_ImplDX11_NewFrame(); ImGui_ImplWin32_NewFrame(); PollPad(); ImGui::NewFrame(); DrawUi(); ImGui::Render();
+    ImGui_ImplDX11_NewFrame(); ImGui_ImplWin32_NewFrame(); PollPad(); PollInstall(); ImGui::NewFrame(); DrawUi(); ImGui::Render();
     const float bg[]={.035f,.035f,.04f,1}; context->OMSetRenderTargets(1,target.GetAddressOf(),nullptr); context->ClearRenderTargetView(target.Get(),bg);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); swapchain->Present(1,0);
   }
   updater.Shutdown();
+  WaitInstall();
   ImGui_ImplDX11_Shutdown(); ImGui_ImplWin32_Shutdown(); ImGui::DestroyContext();
   target.Reset(); swapchain.Reset(); context.Reset(); device.Reset(); DestroyWindow(hwnd); UnregisterClassW(wc.lpszClassName,wc.hInstance);
   if (game_process) CloseHandle(game_process);
