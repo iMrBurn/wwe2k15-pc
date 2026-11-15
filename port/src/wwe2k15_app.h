@@ -176,8 +176,39 @@ class Wwe2k15App : public rex::ReXApp {
   void OnWindowPixelSizeChanged(uint32_t, uint32_t) override { bd::gpu::Video::RequestResize(); }
 #endif
 
+  // Folder cvars (--user_data_root=..., from the launcher or the toml) reach the SDK as UTF-8 text, but the SDK turns
+  // them into std::filesystem::path through the ANSI code page, so a user name like "Hernan" with an acute a became
+  // "Hern" + A-tilde + inverted-exclamation + "n" (a folder that does not exist and cannot be created: no cache, no DLC install, no saves; issue #40).
+  // Rebuild such a path from the cvar's UTF-8 text.
+  static bool ValidUtf8(const std::string& v) {
+    for (size_t i = 0; i < v.size();) {
+      const unsigned char c = static_cast<unsigned char>(v[i]);
+      const size_t n = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 0;
+      if (!n || i + n > v.size()) return false;
+      for (size_t k = 1; k < n; ++k)
+        if ((static_cast<unsigned char>(v[i + k]) & 0xC0) != 0x80) return false;
+      i += n;
+    }
+    return true;
+  }
+  static void FixCvarPath(std::filesystem::path& p, const char* cvar_name) {
+    std::string v = rex::cvar::GetFlagByName(cvar_name);
+    if (v.size() >= 2 && v.front() == '"' && v.back() == '"') v = v.substr(1, v.size() - 2);
+    bool non_ascii = false;
+    for (unsigned char c : v) non_ascii |= c >= 0x80;
+    if (!non_ascii || !ValidUtf8(v)) return;
+    const std::filesystem::path wrong(v);  // what the SDK built (ANSI decoding of the UTF-8 bytes)
+    if (p != wrong) return;                // not taken from the cvar: leave it
+    p = std::filesystem::u8path(v);
+    REXLOG_INFO("{}: path rebuilt from its UTF-8 text ({})", cvar_name, p.u8string());
+  }
+
   void OnConfigurePaths(rex::PathConfig& paths) override {
     const auto exe_dir = rex::filesystem::GetExecutableFolder();
+    FixCvarPath(paths.game_data_root, "game_data_root");
+    FixCvarPath(paths.user_data_root, "user_data_root");
+    FixCvarPath(paths.update_data_root, "update_data_root");
+    FixCvarPath(paths.metadata_root, "metadata_root");
 
     // Keep graphics/pipeline caches beside this portable build. The default
     // Documents cache folder may be read-only in managed or restricted setups,
@@ -195,11 +226,11 @@ class Wwe2k15App : public rex::ReXApp {
           {},
           {},
       };
-      if (const char* user_profile = std::getenv("USERPROFILE")) {
+      if (const wchar_t* user_profile = _wgetenv(L"USERPROFILE")) {
         candidates[5] = std::filesystem::path(user_profile) / "Desktop" / "WWE2K15";
         candidates[6] = std::filesystem::path(user_profile) / "Documents" / "WWE2K15";
       }
-      if (const char* local_app_data = std::getenv("LOCALAPPDATA")) {
+      if (const wchar_t* local_app_data = _wgetenv(L"LOCALAPPDATA")) {
         candidates[7] = std::filesystem::path(local_app_data) / "WWE2K15" / "game";
       }
 
@@ -243,7 +274,7 @@ class Wwe2k15App : public rex::ReXApp {
     }
 
     if (paths.user_data_root.empty()) {
-      if (const char* local_app_data = std::getenv("LOCALAPPDATA")) {
+      if (const wchar_t* local_app_data = _wgetenv(L"LOCALAPPDATA")) {
         paths.user_data_root = std::filesystem::path(local_app_data) / "WWE2K15";
       } else {
         paths.user_data_root = exe_dir / "user_data";
