@@ -205,6 +205,13 @@ fs::path ExeDir() {
 
 void LoadOptions();
 
+// The user_data folder next to the launcher only helps when its path is plain ASCII (directly or by its short name).
+bool LocalDataIsAscii() {
+  std::error_code ec;
+  fs::create_directories(root / L"user_data", ec);
+  return IsAscii(AsciiSafePath(root / L"user_data"));
+}
+
 // The game keeps saves, installed DLC and its cache in the user data folder. When Windows refuses to
 // write there (antivirus, "Controlled folder access", odd permissions) the game cannot install the
 // DLC ("Unable to create Xbox cache folder ... Access is denied", issue #40): the folder next to the
@@ -848,7 +855,9 @@ void UpdateGameProcess() {
         while (std::getline(in, line))
           if (line.find("Unable to create Xbox cache folder") != std::string::npos ||
               line.find("failed to install: 00000005") != std::string::npos) {
-            runtime_note = tr("Le jeu n'a pas pu écrire dans son dossier de données (accès refusé) : les DLC ne seront pas reconnus. Ferme le jeu, puis vérifie ton antivirus et « Accès contrôlé aux dossiers » de Windows, ou place le dossier du port dans un dossier simple comme C:\\WWE2K15.");
+            // With the port folder itself accented, the user_data folder next to the launcher cannot help.
+            runtime_note = tr(LocalDataIsAscii() ? "Le jeu n'a pas pu écrire dans son dossier de données (accès refusé) : les DLC ne seront pas reconnus. Causes possibles : un antivirus ou « Accès contrôlé aux dossiers » de Windows, ou un accent / caractère spécial dans le nom de ton compte Windows. Ferme le jeu, puis clique sur le bouton ci-dessous (dossier user_data à côté du lanceur), ou place le dossier du port dans un chemin simple comme C:\\WWE2K15."
+                                                 : "Le jeu n'a pas pu écrire dans son dossier de données (accès refusé) : les DLC ne seront pas reconnus. Causes possibles : un antivirus ou « Accès contrôlé aux dossiers » de Windows, ou un accent / caractère spécial dans un chemin (dossier du port ou nom de compte Windows). Ferme le jeu et place le dossier du port dans un chemin simple, sans accent, comme C:\\WWE2K15.");
             break;
           }
       }
@@ -1145,10 +1154,10 @@ void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
     }
     if (!runtime_note.empty()) {
       d->AddText(ui_font, 15, {o.x + 48, ny}, IM_COL32(255, 96, 96, 255), runtime_note.c_str(), nullptr, wrap);
-      if (!opt.local_data && !running) {
+      if (!opt.local_data && !running && LocalDataIsAscii()) {
         // One click: keep the saves, DLC and cache in user_data next to the launcher.
         ImGui::SetCursorScreenPos({o.x + 48, ny + 44});
-        if (Tile("local_data", tr("UTILISER LE DOSSIER user_data"), {340, 36}, false, false, 15)) {
+        if (Tile("local_data", tr("UTILISER LE DOSSIER user_data (évite accents et blocages)"), {520, 36}, false, false, 15)) {
           opt.local_data = true;
           user_data = root / L"user_data";
           std::error_code lec;
