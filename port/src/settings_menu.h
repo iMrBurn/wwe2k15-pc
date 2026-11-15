@@ -156,8 +156,6 @@ inline std::vector<Item> BuildItems() {
 #endif
   add(boolean("Entrances at 60 FPS", "wwe2k15_60fps", false, false, false, "entrances_60fps"));
   add(boolean("FPS counter", "wwe2k15_show_fps", false, true, false, "show_fps"));
-  add(boolean("Camera cuts on finishers", "wwe2k15_camera_cuts_on_finishers", false, false, true, ""));
-  add(boolean("Camera cuts on grapples", "wwe2k15_camera_cuts_on_holds", false, false, true, ""));
   add(boolean("Custom logo import (mods/logos/import.png)", "wwe2k15_logo_import", false, false, false, "logo_import"));
   add(boolean("Main menu EXIT entry (replaces SHOP)", "wwe2k15_quit_entry", false, true, false, ""));
   add(boolean("Logo import: keep proportions", "wwe2k15_logo_import_keep_ratio", false, false, false, ""));
