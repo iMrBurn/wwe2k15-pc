@@ -8,7 +8,7 @@
 D=$(cd "$(dirname "$0")" && pwd); S=/c/Dev/wwe2k15-pc2/work/dev; mkdir -p $S; N="$(cygpath -w $D/nav.ps1)"; T=$1; B=$2; shift 2
 if tasklist | grep -qiE "wwe2k15|ninja|clang-cl"; then echo "BUSY"; exit 1; fi
 EXE=${EXE:-wwe2k15.exe}; PROC=$(basename $EXE .exe)
-nav() { powershell -NoProfile -ExecutionPolicy Bypass -File "$N" -keys "$1" -shot "$2"; }
+nav() { powershell -NoProfile -ExecutionPolicy Bypass -File "$N" -keys "$1" -shot "$2" || { echo "NOFOCUS: game window not in front, stopped"; taskkill //IM $EXE //F > /dev/null 2>&1; exit 2; }; }  # NOFOCUS (exit 2): stop, no retry
 if [ "$LOADPROF" = dump ]; then echo 0 > $S/${T}_dump.txt; export WWE2K15_DUMP_FILE=$(cygpath -w $S/${T}_dump.txt); fi
 if [ "$LOADPROF" = ts ]; then echo 100 > $S/${T}_ts.txt; export WWE2K15_TIMESCALE_FILE=$(cygpath -w $S/${T}_ts.txt); fi
 cd $B; (./$EXE "--game_data_root=C:/Dev/games/WWE2K15-TU4" --log_max_files=200 --mnk_mode=true --monitor=2 --keybind_dpad_up=Up --keybind_dpad_down=Down --keybind_dpad_left=Left --keybind_dpad_right=Right "$@" > /dev/null 2>&1 &)

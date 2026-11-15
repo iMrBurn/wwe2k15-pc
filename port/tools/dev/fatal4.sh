@@ -5,7 +5,7 @@
 D=$(cd "$(dirname "$0")" && pwd); S=/c/Dev/wwe2k15-pc2/work/dev; N="$(cygpath -w $D/nav.ps1)"; T=$1; B=$2; shift 2
 if tasklist | grep -qiE "wwe2k15|ninja|clang-cl"; then echo "BUSY"; exit 1; fi
 EXE=${EXE:-wwe2k15_native.exe}; PROC=$(basename $EXE .exe)
-nav() { powershell -NoProfile -ExecutionPolicy Bypass -File "$N" -keys "$1" -shot "$2"; }
+nav() { powershell -NoProfile -ExecutionPolicy Bypass -File "$N" -keys "$1" -shot "$2" || { echo "NOFOCUS: game window not in front, stopped"; taskkill //IM $EXE //F > /dev/null 2>&1; exit 2; }; }  # NOFOCUS (exit 2): stop, no retry
 cd $B; (./$EXE "--game_data_root=C:/Dev/games/WWE2K15-TU4" --log_max_files=200 --mnk_mode=true --keybind_dpad_up=Up --keybind_dpad_down=Down --keybind_dpad_left=Left --keybind_dpad_right=Right "$@" > /dev/null 2>&1 &)
 [ -n "$AFF" ] && { sleep 3; powershell -NoProfile -Command "(Get-Process $PROC).ProcessorAffinity = 0x$AFF"; }
 sleep 90
