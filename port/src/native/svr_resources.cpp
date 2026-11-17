@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <mutex>
 #include <shared_mutex>
@@ -209,6 +210,49 @@ REXCVAR_DEFINE_INT32(svr_lowend_cpu_count, 0, "SvR",
                      "Test: pretend the PC has this many logical processors for svr_auto_lowend (0 = detect)")
     .range(0, 256);
 
+// Steam Deck: SteamDeck=1 (game mode) or the GPU's name (desktop mode, other launchers). Under DXVK/RADV the
+// APU is reported as "AMD Custom GPU 0405" / "0932" or by its code name VANGOGH.
+static bool IsDeckGpuName(const std::string &name) {
+  std::string n;
+  for (char c : name)
+    n += char(std::tolower(static_cast<unsigned char>(c)));
+  for (const char *key : {"vangogh", "van gogh", "custom gpu 0405", "custom gpu 0932", "steam deck"})
+    if (n.find(key) != std::string::npos)
+      return true;
+  return false;
+}
+
+// "Small PC" score of the GPU actually in use (never another adapter of a two-GPU laptop):
+// integrated +2, dedicated video memory known and under 3.5 GB +2, 4 physical cores or fewer +1,
+// 8 GB of RAM or less +1. Unknown values add nothing (in doubt the profile is not applied).
+static int SmallPcScore(bool integrated, uint64_t vram, unsigned *physical_cores, unsigned long long *ram_mb) {
+  unsigned cores = 0;
+  DWORD len = 0;
+  GetLogicalProcessorInformation(nullptr, &len);
+  if (len) {
+    std::vector<SYSTEM_LOGICAL_PROCESSOR_INFORMATION> info(len / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION));
+    if (GetLogicalProcessorInformation(info.data(), &len))
+      for (const auto &i : info)
+        if (i.Relationship == RelationProcessorCore)
+          ++cores;
+  }
+  MEMORYSTATUSEX ms{};
+  ms.dwLength = sizeof(ms);
+  const unsigned long long ram = GlobalMemoryStatusEx(&ms) ? ms.ullTotalPhys : 0;
+  *physical_cores = cores;
+  *ram_mb = ram / (1024 * 1024);
+  int score = 0;
+  if (integrated)
+    score += 2;
+  if (vram > 0 && vram < 3584ull * 1024 * 1024)
+    score += 2;
+  if (cores > 0 && cores <= 4)
+    score += 1;
+  if (ram > 0 && ram <= 8ull * 1024 * 1024 * 1024)
+    score += 1;
+  return score;
+}
+
 static unsigned LogicalProcessorsAvailable() {
   if (const int forced = REXCVAR_GET(svr_lowend_cpu_count); forced > 0) return unsigned(forced);
   unsigned n = unsigned(GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
@@ -231,6 +275,10 @@ float SvrRenderScale() {
   const auto *device = Video::HostDevice();
   const bool integrated =
       device && device->getDescription().type == plume::RenderDeviceType::INTEGRATED;
+  const bool deck = SvrOnSteamDeck() || (device && IsDeckGpuName(device->getDescription().name));
+  int small_score = 0;
+  unsigned phys_cores = 0;
+  unsigned long long ram_mb = 0;
   if (const int configured = REXCVAR_GET(svr_render_scale); configured > 0) {
     // A multiple (1-4) or a height: 720, 1080 (1.5x), 1440, 2160, 2880.
     // 360 (0.5x), 480 (2/3x) and 540 (0.75x) draw below the Xbox's own 720p, for the weakest
@@ -249,16 +297,24 @@ float SvrRenderScale() {
     BD_INFO("SvR native: low-end PC detected ({} logical processors, integrated GPU {}): {}p "
             "(svr_auto_lowend=false or svr_render_scale=720 turns this off)",
             cpus, device->getDescription().name, cpus <= 2 ? 480 : 540);
+  } else if (integrated && REXCVAR_GET(svr_auto_lowend) && !deck &&
+             (small_score = SmallPcScore(true, device->getDescription().dedicatedVideoMemory, &phys_cores, &ram_mb)) >= 6) {
+    // All four small-PC signs at once (integrated GPU, little video memory, 4 physical cores or fewer, 8 GB of
+    // RAM or less) on a CPU with more than 4 threads (Intel U series 4c/8t...): 540p. Not the Steam Deck.
+    scale = 0.75f;
+    BD_INFO("SvR native: small PC (score {}: integrated GPU {}, {} physical cores, {} MB RAM): 540p "
+            "(svr_auto_lowend=false or svr_render_scale=720 turns this off)",
+            small_score, device->getDescription().name, phys_cores, ram_mb);
   } else if (integrated) {
-    BD_INFO("SvR native: integrated GPU ({}, {} logical processors), automatic resolution stays at 720p",
-            device->getDescription().name, LogicalProcessorsAvailable());
+    BD_INFO("SvR native: integrated GPU ({}, {} logical processors){}, automatic resolution stays at 720p",
+            device->getDescription().name, LogicalProcessorsAvailable(), deck ? ", Steam Deck" : "");
   } else if (const u64 vram = device ? device->getDescription().dedicatedVideoMemory : 0;
              vram > 0 && vram < 3584ull * 1024 * 1024) {
     // Small discrete GPUs (GeForce 940MX, GT 1030, RX 560 with 2 GB): 2x on a 1080p screen is
     // too much for them (a 940MX player had to pick 540p by hand), so automatic mode stays at 1x.
     BD_INFO("SvR native: GPU with {} MB of video memory ({}), automatic resolution stays at 720p",
             vram / (1024 * 1024), device->getDescription().name);
-  } else if (!SvrOnSteamDeck()) {
+  } else if (!deck) {
     // The larger of the window and the display, so a window on a big screen still renders
     // sharp (downscaled at present); 720p multiples rounded to nearest: 1080/1440 -> 2, 2160 -> 3.
     // The Deck keeps 1x even when docked: its GPU holds 60 fps there.

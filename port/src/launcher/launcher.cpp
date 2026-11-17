@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
+#include <cwctype>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <dwmapi.h>
@@ -192,7 +193,21 @@ bool OnSteamDeck() {
   static const bool deck = [] {
     wchar_t v[8]{};
     const DWORD n = GetEnvironmentVariableW(L"SteamDeck", v, 8);
-    return n > 0 && n < 8 && v[0] == L'1';
+    if (n > 0 && n < 8 && v[0] == L'1') return true;
+    // Desktop mode or another launcher: the Deck's APU is named by its code name or "Custom GPU 0405 / 0932".
+    ComPtr<IDXGIFactory1> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) return false;
+    ComPtr<IDXGIAdapter1> adapter;
+    for (UINT i = 0; factory->EnumAdapters1(i, &adapter) == S_OK; ++i, adapter.Reset()) {
+      DXGI_ADAPTER_DESC1 desc{};
+      adapter->GetDesc1(&desc);
+      if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
+      std::wstring name = desc.Description;
+      for (auto& c : name) c = static_cast<wchar_t>(towlower(c));
+      for (const wchar_t* key : {L"vangogh", L"van gogh", L"custom gpu 0405", L"custom gpu 0932", L"steam deck"})
+        if (name.find(key) != std::wstring::npos) return true;
+    }
+    return false;
   }();
   return deck;
 }
