@@ -24,7 +24,6 @@ set(WWE2K15_SOURCES
     src/text_entry_kbd.cpp
     src/crash_guards.cpp
     src/job_dispatch_fix.cpp
-    src/camera_cuts_hook.cpp
     src/logo_import.cpp
     src/quit_entry.cpp
     src/universe_free_shows.cpp
@@ -56,7 +55,6 @@ if(WWE2K15_NATIVE_RENDERER)
         src/text_entry_kbd.cpp
         src/crash_guards.cpp
         src/job_dispatch_fix.cpp
-        src/camera_cuts_hook.cpp
         src/logo_import.cpp
         src/quit_entry.cpp
         src/universe_free_shows.cpp

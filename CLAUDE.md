@@ -131,5 +131,5 @@ Exit criteria (all must hold; Main checks the issues before tagging 0.3.0):
    choices, "preparing shaders" note, separate keyboard player test (pad + keyboard), keybinds kept (#18, done).
 5. A few days without new serious issues after the last fix release.
 Other open items: (Perf) loading time native vs Xenos, 6-man/Chamber on 2 cores; (Perf) few-core job hand-off fix and silent-audio
-patch need player confirmation; (Mods) #19 camera cuts, Create-a-Story leftovers (SvR11 Story Designer audio only: not feasible);
+patch need player confirmation; (Mods) Create-a-Story leftovers (SvR11 Story Designer audio only: not feasible);
 (Main) Linux/Proton reports; (Launcher) square icon variant.
