@@ -33,6 +33,8 @@ if ($Native) {
 }
 Copy-Item (Join-Path $port "wwe2k15_runtime.toml") (Join-Path $stage "wwe2k15.toml")
 Copy-Item (Join-Path $port "dist\game\PUT_GAME_FILES_HERE.txt") (Join-Path $stage "game")
+# Read by RecompLauncher (third-party launcher): it installs/updates from our releases and starts our launcher.
+Copy-Item (Join-Path $port "dist\recomplauncher.json") $stage
 foreach ($f in "LISEZMOI.txt", "README.txt") {
   (Get-Content (Join-Path $port "dist\$f") -Raw -Encoding UTF8).Replace("{VERSION}", $version) |
     Set-Content (Join-Path $stage $f) -Encoding UTF8 -NoNewline

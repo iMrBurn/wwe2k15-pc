@@ -1,0 +1,8 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "repo": "iMrBurn/wwe2k15-pc",
+  "start": {
+    "program": ["WWE 2K15 Launcher.exe"]
+  }
+}
