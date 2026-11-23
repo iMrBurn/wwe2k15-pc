@@ -96,7 +96,6 @@ struct Options {
   bool lowend_note_shown = false;  // the one-time "weak PC" note has been shown
   bool local_data = false;    // game data (saves, DLC, cache) in user_data next to the launcher instead of %LOCALAPPDATA%
   bool logo_import = false;   // wwe2k15_logo_import: Create-a-Logo editor takes mods\\logos\\import.png
-  bool fps30 = false;         // wwe2k15_30fps: whole game at 30 fps (weak PCs)
   bool mute = false;          // audio_mute
   bool profile_done = false;    // the Deck / small-PC profile was applied or refused for good
   bool profile_backup = false;  // b_* hold the settings from before the profile (undo button)
@@ -514,7 +513,7 @@ void SaveOptions() {
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
       << "\nnative_default_migrated=1\nnative=" << opt.native << "\nnative_resolution=" << opt.native_resolution << "\ngpu=" << opt.gpu
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nfps30=" << opt.fps30 << "\nentrances_60fps=" << opt.fps60 << "\nlogo_import=" << opt.logo_import << "\nlocal_data=" << opt.local_data << "\nlowend_note_shown=" << opt.lowend_note_shown << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\nmute=" << opt.mute << "\nprofile_done=" << opt.profile_done << "\nprofile_backup=" << opt.profile_backup << "\nb_native=" << opt.b_native << "\nb_native_resolution=" << opt.b_native_res << "\nb_fullscreen=" << opt.b_fullscreen << "\nb_vsync=" << opt.b_vsync << "\nb_keyboard=" << opt.b_keyboard << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nentrances_60fps=" << opt.fps60 << "\nlogo_import=" << opt.logo_import << "\nlocal_data=" << opt.local_data << "\nlowend_note_shown=" << opt.lowend_note_shown << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\nmute=" << opt.mute << "\nprofile_done=" << opt.profile_done << "\nprofile_backup=" << opt.profile_backup << "\nb_native=" << opt.b_native << "\nb_native_resolution=" << opt.b_native_res << "\nb_fullscreen=" << opt.b_fullscreen << "\nb_vsync=" << opt.b_vsync << "\nb_keyboard=" << opt.b_keyboard << "\n";
 }
 
 // ---- Key bindings remapped in the game (F4 > "Save to config") ----
@@ -617,7 +616,6 @@ void LoadOptions() {
     else if (k == "gpu_wait_yield") opt.cpu_yield = v != 0;  // (the old cpu_yield key defaulted to off)
     else if (k == "show_fps") opt.show_fps = v != 0;
     else if (k == "entrances_60fps") opt.fps60 = v != 0;
-    else if (k == "fps30") opt.fps30 = v != 0;
     else if (k == "mute") opt.mute = v != 0;
     else if (k == "profile_done") opt.profile_done = v != 0;
     else if (k == "profile_backup") opt.profile_backup = v != 0;
@@ -703,7 +701,6 @@ std::wstring OptionArgs() {
            L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
            L" --wwe2k15_show_fps=" + b(opt.show_fps) +
            (opt.fps60 ? std::wstring() : std::wstring(L" --wwe2k15_60fps=false")) +
-           (opt.fps30 ? std::wstring(L" --wwe2k15_30fps=true") : std::wstring()) +
            (opt.mute ? std::wstring(L" --audio_mute=true") : std::wstring()) +
            (opt.logo_import ? std::wstring(L" --wwe2k15_logo_import=true") : std::wstring()) +
            L" --window_width=" + std::to_wstring((opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) * 16 / 9) +
@@ -721,7 +718,6 @@ std::wstring OptionArgs() {
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
          L" --wwe2k15_show_fps=" + b(opt.show_fps) +
          (opt.fps60 ? std::wstring() : std::wstring(L" --wwe2k15_60fps=false")) +
-           (opt.fps30 ? std::wstring(L" --wwe2k15_30fps=true") : std::wstring()) +
            (opt.mute ? std::wstring(L" --audio_mute=true") : std::wstring()) +
          (opt.logo_import ? std::wstring(L" --wwe2k15_logo_import=true") : std::wstring()) +
          L" --vulkan_allow_present_mode_immediate=" + b(!opt.vsync) +
@@ -1586,11 +1582,6 @@ void DrawGraphics(ImDrawList* d, ImVec2 o, ImVec2 area) {
   if (ImGui::Checkbox(tr("Réduire l'utilisation du processeur"), &opt.cpu_yield)) SaveOptions();
   y += 36;
   ImGui::SetCursorScreenPos({col2, y});
-  if (ImGui::Checkbox(tr("Mode 30 fps (PC faibles)"), &opt.fps30)) SaveOptions();
-  const char* fps30_help = tr("Le jeu tourne à 30 images/s : pour les PC à 2 cœurs. Moins fluide, mais plus régulier.");
-  d->AddText(ui_font, 14, {col2 + 28, y + 27}, kMuted, fps30_help, nullptr, o.x + area.x - 40 - (col2 + 28));
-  y += 34 + ui_font->CalcTextSizeA(14, FLT_MAX, o.x + area.x - 40 - (col2 + 28), fps30_help).y;
-  ImGui::SetCursorScreenPos({col2, y});
   const bool native_present = NativeAvailable();
   ImGui::BeginDisabled(!native_present);
   if (ImGui::Checkbox(tr("Rendu natif"), &opt.native)) {
@@ -2212,7 +2203,6 @@ void BuildDiagnostic() {
     s += (opt.native && UseNative() ? (opt.native_resolution ? std::to_string(opt.native_resolution) + "p" : std::string("auto")) : std::to_string(opt.resolution) + "p");
     s += opt.fullscreen ? ", fullscreen" : ", windowed";
     s += opt.vsync ? ", vsync" : "";
-    if (opt.fps30) s += ", 30 fps mode";
     if (opt.mute) s += ", muted";
     if (opt.keyboard) s += ", keyboard";
     same("Réglages", "Settings", s, 0);
