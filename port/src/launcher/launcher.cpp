@@ -96,6 +96,11 @@ struct Options {
   bool lowend_note_shown = false;  // the one-time "weak PC" note has been shown
   bool local_data = false;    // game data (saves, DLC, cache) in user_data next to the launcher instead of %LOCALAPPDATA%
   bool logo_import = false;   // wwe2k15_logo_import: Create-a-Logo editor takes mods\\logos\\import.png
+  bool mute = false;          // audio_mute
+  bool profile_done = false;    // the Deck / small-PC profile was applied or refused for good
+  bool profile_backup = false;  // b_* hold the settings from before the profile (undo button)
+  bool b_native = false, b_fullscreen = true, b_vsync = true, b_keyboard = false;
+  int b_native_res = 0;
   bool fps60 = true;          // wwe2k15_60fps: entrances and victory scenes at 60 fps instead of the console's 30
   bool native = kNativeByDefault;  // native renderer: wwe2k15_native.exe
   int native_resolution = 0;  // native renderer: svr_render_scale, 0 = automatic (GPU and screen)
@@ -508,7 +513,7 @@ void SaveOptions() {
   out << "fullscreen=" << opt.fullscreen << "\nresolution=" << opt.resolution
       << "\nanisotropic=" << opt.anisotropic << "\nfsi=" << opt.fsi
       << "\nnative_default_migrated=1\nnative=" << opt.native << "\nnative_resolution=" << opt.native_resolution << "\ngpu=" << opt.gpu
-      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nentrances_60fps=" << opt.fps60 << "\nlogo_import=" << opt.logo_import << "\nlocal_data=" << opt.local_data << "\nlowend_note_shown=" << opt.lowend_note_shown << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\n";
+      << "\nlanguage=" << opt.language << "\nkeyboard=" << opt.keyboard << "\nazerty=" << opt.azerty << "\nseparate_player=" << opt.separate_player << "\ngpu_wait_yield=" << opt.cpu_yield << "\nshow_fps=" << opt.show_fps << "\nentrances_60fps=" << opt.fps60 << "\nlogo_import=" << opt.logo_import << "\nlocal_data=" << opt.local_data << "\nlowend_note_shown=" << opt.lowend_note_shown << "\nvsync=" << opt.vsync << "\nmonitor=" << opt.monitor << "\naa=" << opt.aa << "\nletterbox=" << opt.letterbox << "\nauto_backup=" << opt.auto_backup << "\nmods=" << opt.mods << "\nmute=" << opt.mute << "\nprofile_done=" << opt.profile_done << "\nprofile_backup=" << opt.profile_backup << "\nb_native=" << opt.b_native << "\nb_native_resolution=" << opt.b_native_res << "\nb_fullscreen=" << opt.b_fullscreen << "\nb_vsync=" << opt.b_vsync << "\nb_keyboard=" << opt.b_keyboard << "\n";
 }
 
 // ---- Key bindings remapped in the game (F4 > "Save to config") ----
@@ -611,6 +616,14 @@ void LoadOptions() {
     else if (k == "gpu_wait_yield") opt.cpu_yield = v != 0;  // (the old cpu_yield key defaulted to off)
     else if (k == "show_fps") opt.show_fps = v != 0;
     else if (k == "entrances_60fps") opt.fps60 = v != 0;
+    else if (k == "mute") opt.mute = v != 0;
+    else if (k == "profile_done") opt.profile_done = v != 0;
+    else if (k == "profile_backup") opt.profile_backup = v != 0;
+    else if (k == "b_native") opt.b_native = v != 0;
+    else if (k == "b_native_resolution") opt.b_native_res = v;
+    else if (k == "b_fullscreen") opt.b_fullscreen = v != 0;
+    else if (k == "b_vsync") opt.b_vsync = v != 0;
+    else if (k == "b_keyboard") opt.b_keyboard = v != 0;
     else if (k == "logo_import") opt.logo_import = v != 0;
     else if (k == "local_data") opt.local_data = v != 0;
     else if (k == "lowend_note_shown") opt.lowend_note_shown = v != 0;
@@ -636,18 +649,8 @@ void LoadOptions() {
       opt.native = true;
       migration_note = true;
     }
-    // First start on a Steam Deck (no saved choices yet): its 1280x800 screen and handheld GPU want
-    // the native renderer at 720p, full screen, vsync, and the pad rather than the keyboard.
-    if (!ini_exists && OnSteamDeck()) {
-      opt.native = true;
-      opt.native_resolution = 720;
-      opt.resolution = 720;
-      opt.fullscreen = true;
-      opt.vsync = true;
-      opt.fps60 = true;
-      opt.cpu_yield = true;
-      opt.keyboard = false;
-    }
+    // A Steam Deck or a small PC is not set up silently any more: ProfileOfferCheck proposes the settings
+    // in a window on the first start (Apply / Not now / Don't ask again) and keeps a backup for the undo.
     SaveOptions();
   }
   LoadSavedKeys();
@@ -698,6 +701,7 @@ std::wstring OptionArgs() {
            L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
            L" --wwe2k15_show_fps=" + b(opt.show_fps) +
            (opt.fps60 ? std::wstring() : std::wstring(L" --wwe2k15_60fps=false")) +
+           (opt.mute ? std::wstring(L" --audio_mute=true") : std::wstring()) +
            (opt.logo_import ? std::wstring(L" --wwe2k15_logo_import=true") : std::wstring()) +
            L" --window_width=" + std::to_wstring((opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) * 16 / 9) +
            L" --window_height=" + std::to_wstring(opt.native_resolution ? std::max(opt.native_resolution, 720) : 1080) +
@@ -714,6 +718,7 @@ std::wstring OptionArgs() {
          L" --wwe2k15_render_wait_yield=" + b(opt.cpu_yield) +
          L" --wwe2k15_show_fps=" + b(opt.show_fps) +
          (opt.fps60 ? std::wstring() : std::wstring(L" --wwe2k15_60fps=false")) +
+           (opt.mute ? std::wstring(L" --audio_mute=true") : std::wstring()) +
          (opt.logo_import ? std::wstring(L" --wwe2k15_logo_import=true") : std::wstring()) +
          L" --vulkan_allow_present_mode_immediate=" + b(!opt.vsync) +
          L" --window_width=" + std::to_wstring(std::max(opt.resolution, 720) * 16 / 9) +
@@ -953,8 +958,8 @@ constexpr ImU32 kPanel = IM_COL32(24, 25, 28, 235);
 constexpr ImU32 kMuted = IM_COL32(150, 152, 158, 255);
 ImFont* ui_font = nullptr;
 ImFont* title_font = nullptr;
-const char* kTabs[] = {"JOUER", "RÉGLAGES", "GRAPHISMES", "CONTRÔLES", "MODS", "SAUVEGARDES", "À PROPOS"};
-constexpr int kTabCount = 7;
+const char* kTabs[] = {"JOUER", "RÉGLAGES", "GRAPHISMES", "CONTRÔLES", "MODS", "SAUVEGARDES", "DIAGNOSTIC", "À PROPOS"};
+constexpr int kTabCount = 8;
 
 int TabIndex() {
   for (int i = 0; i < kTabCount; ++i) if (page == kTabs[i]) return i;
@@ -1032,7 +1037,7 @@ void DrawHeader(ImDrawList* d) {
   d->AddText(title_font, 34, {44, 16}, kWhite, "WWE");
   d->AddText(title_font, 34, {112, 16}, kRed, "2K15");
   d->AddText(ui_font, 13, {46, 58}, kMuted, tr("PC  ·  RECOMPILATION NATIVE"));
-  float x = 360;
+  float x = 316;
   const float y = 24, h = 44;
   const int sel = TabIndex();
   d->AddText(ui_font, 15, {x - 36, y + 13}, kMuted, "LB");
@@ -1068,6 +1073,7 @@ void DrawFooter(ImDrawList* d, ImVec2 size) {
 
 fs::path NewestReport();
 bool WeakPcDetected();  // defined with the graphics page code
+void UndoProfile();
 
 void DrawPlay(ImDrawList* d, ImVec2 o, ImVec2 area) {
   UpdateGameProcess();
@@ -1250,6 +1256,16 @@ void DrawSettings(ImDrawList* d, ImVec2 o, ImVec2 area) {
   d->AddText(ui_font, 15, {o.x + 76, o.y + 432}, kMuted, disable_obs_vulkan_hook
       ? tr("Activé : évite l'injection d'OBS dans le rendu Vulkan du jeu.")
       : tr("Désactivé : OBS peut capturer le jeu via son hook Vulkan."));
+  {
+    // Sound off for the game, and the way back from the Deck / small-PC profile.
+    ImGui::SetCursorScreenPos({o.x + area.x * 0.5f + 16, o.y + 400});
+    if (ImGui::Checkbox(tr("Couper le son du jeu"), &opt.mute)) SaveOptions();
+  }
+  if (opt.profile_backup) {
+    const float ux = o.x + area.x * 0.5f + 16;
+    ImGui::SetCursorScreenPos({ux, o.y + 276});
+    if (Tile("undo_profile", tr("ANNULER LE PROFIL (anciens réglages)"), {std::min(470.0f, o.x + area.x - 48 - ux), 44}, false, false, 16)) UndoProfile();
+  }
   d->AddText(ui_font, 15, {o.x + 48, o.y + 476}, kMuted,
              tr("Rendu : Vulkan (GPU haute performance)  ·  Graphismes et clavier : onglets GRAPHISMES et CONTRÔLES"));
   d->AddText(ui_font, 15, {o.x + 48, o.y + 502}, kMuted,
@@ -1296,24 +1312,168 @@ const std::vector<std::string>& GpuNames() {
   return names;
 }
 
-// Weak PC: 4 logical processors or fewer AND only integrated graphics (no adapter with 1.5 GB or more of
-// dedicated video memory; an iGPU reports a few hundred MB). Same idea as the game's low-end rule.
+// What this PC is, for the small-PC profile, the DIAGNOSTIC page and the weak-PC note. The score is the game's
+// own "small PC" score (svr_resources.cpp): integrated GPU +2, dedicated video memory known and under 3.5 GB
+// +2, 4 physical cores or fewer +1, 8 GB of RAM or less +1. The GPU looked at is the one with the most
+// dedicated video memory (the one the game picks by default on a laptop with two).
+struct Machine {
+  unsigned logical = 0, physical = 0;
+  unsigned long long ram_mb = 0;
+  std::vector<std::pair<std::string, unsigned long long>> gpus;  // name, dedicated video memory in MB
+  std::string main_gpu;
+  unsigned long long main_vram_mb = 0;
+  bool integrated = false;
+  int score = 0;
+};
+
+const Machine& ThisMachine() {
+  static const Machine machine = [] {
+    Machine r;
+    unsigned n = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    DWORD_PTR proc = 0, sys = 0;
+    if (GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys) && proc) {
+      unsigned a = 0;
+      for (DWORD_PTR b = proc; b; b &= b - 1) ++a;
+      n = std::min(n, a);
+    }
+    r.logical = n ? n : 1;
+    DWORD len = 0;
+    GetLogicalProcessorInformation(nullptr, &len);
+    if (len) {
+      std::vector<SYSTEM_LOGICAL_PROCESSOR_INFORMATION> info(len / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION));
+      if (GetLogicalProcessorInformation(info.data(), &len))
+        for (const auto& i : info)
+          if (i.Relationship == RelationProcessorCore) ++r.physical;
+    }
+    MEMORYSTATUSEX ms{};
+    ms.dwLength = sizeof(ms);
+    if (GlobalMemoryStatusEx(&ms)) r.ram_mb = ms.ullTotalPhys / (1024 * 1024);
+    ComPtr<IDXGIFactory1> factory;
+    if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
+      ComPtr<IDXGIAdapter1> adapter;
+      bool any = false;
+      for (UINT i = 0; factory->EnumAdapters1(i, &adapter) == S_OK; ++i, adapter.Reset()) {
+        DXGI_ADAPTER_DESC1 desc{};
+        adapter->GetDesc1(&desc);
+        if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
+        const unsigned long long vram = desc.DedicatedVideoMemory / (1024 * 1024);
+        const std::string name = Utf8(std::wstring(desc.Description));
+        r.gpus.emplace_back(name, vram);
+        if (!any || vram > r.main_vram_mb) { r.main_gpu = name; r.main_vram_mb = vram; }
+        any = true;
+      }
+      r.integrated = any && r.main_vram_mb < 1536;
+    }
+    if (r.integrated) r.score += 2;
+    if (r.main_vram_mb > 0 && r.main_vram_mb < 3584) r.score += 2;
+    if (r.physical > 0 && r.physical <= 4) r.score += 1;
+    if (r.ram_mb > 0 && r.ram_mb <= 8192) r.score += 1;
+    return r;
+  }();
+  return machine;
+}
+
+// Weak PC: 4 logical processors or fewer AND integrated graphics (the game lowers its automatic resolution).
 bool WeakPcDetected() {
-  SYSTEM_INFO si{};
-  GetSystemInfo(&si);
-  if (si.dwNumberOfProcessors > 4) return false;
-  ComPtr<IDXGIFactory1> factory;
-  if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) return false;
-  ComPtr<IDXGIAdapter1> adapter;
-  bool any = false;
-  for (UINT i = 0; factory->EnumAdapters1(i, &adapter) == S_OK; ++i, adapter.Reset()) {
-    DXGI_ADAPTER_DESC1 desc{};
-    adapter->GetDesc1(&desc);
-    if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
-    any = true;
-    if (desc.DedicatedVideoMemory >= (SIZE_T)1536 * 1024 * 1024) return false;
+  const Machine& m = ThisMachine();
+  return m.integrated && m.logical <= 4;
+}
+
+// 0 = none, 1 = Steam Deck, 2 = small PC. Same rules as the game's automatic resolution (an integrated GPU with
+// 4 logical processors or fewer, or all four small-PC signs at once); the Deck is never a "small PC".
+int MachineProfile() {
+  if (OnSteamDeck()) return 1;
+  const Machine& m = ThisMachine();
+  return m.integrated && (m.logical <= 4 || m.score >= 6) ? 2 : 0;
+}
+
+// ---- Deck / small-PC profile: proposed once, never applied silently ----
+struct ProfileChange { std::string what, from, to; };
+Options profile_target;
+std::vector<ProfileChange> profile_changes;
+int offer_kind = 0;  // profile being offered right now (1 Deck, 2 small PC), 0 = no offer
+bool offer_checked = false;
+
+// The settings the profile would set. A setting that is already lower than the profile's is left alone.
+void BuildProfile(int kind) {
+  const Machine& m = ThisMachine();
+  Options t = opt;
+  profile_changes.clear();
+  auto yes = [](bool v) { return std::string(v ? tr("oui") : tr("non")); };
+  auto res_text = [](int r) { return r == 0 ? std::string(tr("AUTO")) : std::to_string(r) + "p"; };
+  if (NativeAvailable()) {
+    if (!opt.native) {
+      t.native = true;
+      profile_changes.push_back({tr("Rendu natif"), yes(false), yes(true)});
+    }
+    const int want = kind == 1 ? 720 : (m.logical <= 2 ? 480 : 540);
+    // AUTO is not "lower": the profile writes the explicit value.
+    if (opt.native_resolution == 0 || opt.native_resolution > want) {
+      t.native_resolution = want;
+      profile_changes.push_back({tr("Résolution interne"), res_text(opt.native_resolution), res_text(want)});
+    }
   }
-  return any;
+  if (kind == 1) {
+    if (!opt.fullscreen) {
+      t.fullscreen = true;
+      profile_changes.push_back({tr("Plein écran"), yes(false), yes(true)});
+    }
+    if (!opt.vsync) {
+      t.vsync = true;
+      profile_changes.push_back({tr("Synchro verticale"), yes(false), yes(true)});
+    }
+    if (opt.keyboard) {
+      t.keyboard = false;
+      profile_changes.push_back({tr("Clavier à la place de la manette"), yes(true), yes(false)});
+    }
+  }
+  profile_target = t;
+}
+
+void ProfileOfferCheck() {
+  if (offer_checked) return;
+  offer_checked = true;
+  if (opt.profile_done) return;
+  const int kind = MachineProfile();
+  if (!kind) return;
+  BuildProfile(kind);
+  if (profile_changes.empty()) {  // already as low as the profile: nothing to offer
+    opt.profile_done = true;
+    SaveOptions();
+    return;
+  }
+  offer_kind = kind;
+}
+
+void ApplyProfile() {
+  opt.b_native = opt.native;
+  opt.b_native_res = opt.native_resolution;
+  opt.b_fullscreen = opt.fullscreen;
+  opt.b_vsync = opt.vsync;
+  opt.b_keyboard = opt.keyboard;
+  opt.profile_backup = true;
+  opt.native = profile_target.native;
+  opt.native_resolution = profile_target.native_resolution;
+  opt.fullscreen = profile_target.fullscreen;
+  opt.vsync = profile_target.vsync;
+  opt.keyboard = profile_target.keyboard;
+  opt.profile_done = true;
+  offer_kind = 0;
+  SaveOptions();
+  status = tr("Réglages appliqués. Tu peux les annuler dans RÉGLAGES.");
+}
+
+void UndoProfile() {
+  if (!opt.profile_backup) return;
+  opt.native = opt.b_native;
+  opt.native_resolution = opt.b_native_res;
+  opt.fullscreen = opt.b_fullscreen;
+  opt.vsync = opt.b_vsync;
+  opt.keyboard = opt.b_keyboard;
+  opt.profile_backup = false;
+  opt.profile_done = true;
+  SaveOptions();
+  status = tr("Anciens réglages restaurés.");
 }
 
 // Graphics presets: 1 performance, 2 balanced, 3 quality; 0 = custom. Performance leaves FSI off
@@ -1891,6 +2051,243 @@ void DrawTextPage(ImDrawList* d, ImVec2 o, ImVec2 area, const char* title, const
   d->AddText(ui_font, 20, {o.x + 48, o.y + 120}, kWhite, body, nullptr, area.x - 96);
 }
 
+// ---- DIAGNOSTIC: is everything in place? A report ready to paste into a GitHub issue ----
+struct DiagRow {
+  std::string label, label_en;  // label (French key, shown through tr) and the English label for the report
+  std::string value, value_en;
+  int level = 0;                // 0 fine, 1 to watch, 2 problem
+};
+std::vector<DiagRow> diag_rows;
+bool diag_dirty = true;
+std::string diag_report;
+std::string diag_note;
+
+void ReplaceNoCase(std::wstring& s, const std::wstring& needle, const std::wstring& repl) {
+  if (needle.size() < 3) return;
+  auto lower = [](std::wstring v) {
+    for (auto& c : v) c = static_cast<wchar_t>(towlower(c));
+    return v;
+  };
+  const std::wstring ln = lower(needle);
+  size_t from = 0;
+  for (;;) {
+    const size_t at = lower(s).find(ln, from);
+    if (at == std::wstring::npos) return;
+    s.replace(at, needle.size(), repl);
+    from = at + repl.size();
+  }
+}
+
+// A path for a report people paste in public: the Windows profile folder and the user name never appear.
+std::string PublicPath(const fs::path& p) {
+  std::wstring s = p.wstring();
+  wchar_t profile[MAX_PATH]{}, user[256]{};
+  const DWORD np = GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH);
+  const DWORD nu = GetEnvironmentVariableW(L"USERNAME", user, 256);
+  if (np > 0 && np < MAX_PATH) {
+    ReplaceNoCase(s, profile, L"%USERPROFILE%");
+    ReplaceNoCase(s, fs::path(profile).filename().wstring(), L"<user>");
+  }
+  if (nu > 0 && nu < 256) ReplaceNoCase(s, user, L"<user>");
+  return Utf8(s);
+}
+
+// Highest Vulkan version the loader reports, "" when vulkan-1.dll is missing.
+std::string VulkanLoaderVersion(bool& ok_for_native) {
+  ok_for_native = false;
+  const HMODULE lib = LoadLibraryW(L"vulkan-1.dll");
+  if (!lib) return {};
+  using EnumVersion = int(WINAPI*)(uint32_t*);
+  uint32_t v = 1u << 22;  // 1.0: no vkEnumerateInstanceVersion
+  if (auto fn = reinterpret_cast<EnumVersion>(GetProcAddress(lib, "vkEnumerateInstanceVersion"))) {
+    uint32_t got = 0;
+    if (fn(&got) == 0 && got) v = got;
+  }
+  FreeLibrary(lib);
+  const unsigned major = v >> 22, minor = (v >> 12) & 0x3ff;
+  ok_for_native = major > 1 || (major == 1 && minor >= 2);
+  return std::to_string(major) + "." + std::to_string(minor);
+}
+
+// "new version: 0.0.6.4" of the newest game log ("" = no log or no patch line).
+std::string TitleUpdateVersionInLog(int& install_failures) {
+  install_failures = 0;
+  const fs::path log = NewestLog(fs::file_time_type::min());
+  if (log.empty()) return {};
+  std::ifstream in(log);
+  std::string line, version;
+  while (std::getline(in, line)) {
+    if (const size_t v = line.find("new version: "); v != std::string::npos) {
+      version.clear();
+      for (size_t i = v + 13; i < line.size() && (isdigit((unsigned char)line[i]) || line[i] == '.'); ++i) version += line[i];
+    }
+    if (line.find("failed to install") != std::string::npos) ++install_failures;
+  }
+  return version;
+}
+
+void BuildDiagnostic() {
+  diag_rows.clear();
+  auto add = [](const char* label, const char* label_en, const std::string& value, const std::string& value_en, int level) {
+    diag_rows.push_back({label, label_en, value, value_en, level});
+  };
+  auto same = [&](const char* label, const char* label_en, const std::string& value, int level) {
+    add(label, label_en, value, value, level);
+  };
+  auto words = [&](const char* label, const char* label_en, const char* fr, const char* en, int level) {
+    add(label, label_en, tr(fr), en, level);
+  };
+  const Machine& m = ThisMachine();
+#ifndef WWE2K15_VERSION
+#define WWE2K15_VERSION "dev"
+#endif
+  same("Version du port", "Port version", WWE2K15_VERSION, 0);
+  same("Système", "System", std::string(RunningUnderWine() ? "Wine / Proton" : "Windows") + (OnSteamDeck() ? " (Steam Deck)" : ""), 0);
+  same("Processeur et mémoire", "CPU and memory",
+       std::to_string(m.logical) + " threads / " + std::to_string(m.physical) + " cores / " + std::to_string((m.ram_mb + 512) / 1024) + " GB RAM", 0);
+  {
+    std::string gpus;
+    for (const auto& [name, vram] : m.gpus) gpus += (gpus.empty() ? "" : "  |  ") + name + " (" + std::to_string(vram) + " MB)";
+    if (gpus.empty()) words("Carte graphique", "Graphics card", "aucune trouvée", "none found", 2);
+    else same("Carte graphique", "Graphics card", gpus, 0);
+  }
+  {
+    bool ok = false;
+    const std::string v = VulkanLoaderVersion(ok);
+    if (v.empty()) words("Vulkan", "Vulkan", "vulkan-1.dll introuvable (pilote de carte graphique à installer)", "vulkan-1.dll not found (graphics driver missing)", 2);
+    else if (!ok) add("Vulkan", "Vulkan", v + tr(" : le rendu natif demande Vulkan 1.2 ou plus (mets le pilote à jour)"), v + ": the native renderer needs Vulkan 1.2 or newer (update the driver)", 2);
+    else same("Vulkan", "Vulkan", v, 0);
+  }
+  if (!HasGame()) {
+    words("Jeu (default.xex)", "Game (default.xex)", "aucun jeu sélectionné (RÉGLAGES > PARCOURIR)", "no game selected", 2);
+  } else if (IsIso(game_data)) {
+    same("Jeu (default.xex)", "Game (default.xex)", std::string(tr("image disque : ")) + PublicPath(game_data), 0);
+    diag_rows.back().value_en = "disc image: " + PublicPath(game_data);
+  } else if (NonEmptyFile(game_data / L"default.xex")) {
+    same("Jeu (default.xex)", "Game (default.xex)", PublicPath(game_data), 0);
+  } else {
+    add("Jeu (default.xex)", "Game (default.xex)", tr("default.xex vide ou abîmé : ") + PublicPath(game_data), "default.xex empty or damaged: " + PublicPath(game_data), 2);
+  }
+  {
+    int failures = 0;
+    const std::string ver = TitleUpdateVersionInLog(failures);
+    if (!HasGame()) words("Title Update 4", "Title Update 4", "pas de jeu", "no game", 1);
+    else if (!HasTitleUpdate()) words("Title Update 4", "Title Update 4", "absente (RÉGLAGES > AJOUTER TU / DLC)", "missing (default.xexp)", 2);
+    else if (!ver.empty() && ver != "0.0.6.4") add("Title Update 4", "Title Update 4", tr("mauvaise version : ") + ver + tr(" (il faut 0.0.6.4)"), "wrong version: " + ver + " (0.0.6.4 needed)", 2);
+    else add("Title Update 4", "Title Update 4", std::string(tr("présente")) + (ver.empty() ? "" : " (" + ver + ")"), std::string("present") + (ver.empty() ? "" : " (" + ver + ")"), 0);
+    const int dlc = DlcCount();
+    add("DLC", "DLC", std::to_string(dlc) + tr(" paquet(s)") + (failures ? ", " + std::to_string(failures) + tr(" échec(s) d'installation") : std::string()),
+        std::to_string(dlc) + " package(s)" + (failures ? ", " + std::to_string(failures) + " failed to install" : std::string()), failures ? 1 : 0);
+  }
+  words("Rendu natif (wwe2k15_native.exe)", "Native renderer (wwe2k15_native.exe)", NativeAvailable() ? "présent" : "absent", NativeAvailable() ? "present" : "missing", NativeAvailable() ? 0 : 1);
+  {
+    std::error_code ec;
+    const bool dxc = fs::exists(root / L"dxcompiler.dll", ec);
+    words("dxcompiler.dll", "dxcompiler.dll", dxc ? "présent" : "absent", dxc ? "present" : "missing", dxc ? 0 : (opt.native ? 2 : 1));
+  }
+  if (NativeDeviceFailureInLog(fs::file_time_type::min()))
+    words("Dernier lancement natif", "Last native start", "échec : carte graphique ou Vulkan 1.2 (détails dans les journaux)", "failed: GPU / Vulkan 1.2 or dxcompiler.dll (see the logs)", 2);
+  {
+    const bool writable = CanWriteFolder(user_data);
+    std::string where = PublicPath(user_data);
+    if (opt.local_data) where += tr(" (dossier user_data du lanceur)");
+    std::string where_en = PublicPath(user_data) + (opt.local_data ? " (launcher user_data folder)" : "");
+    if (!user_data_denied.empty()) { where += tr(" ; Windows a refusé le dossier par défaut"); where_en += "; Windows refused the default folder"; }
+    add("Dossier de données", "Data folder", std::string(writable ? tr("écriture possible : ") : tr("ÉCRITURE REFUSÉE : ")) + where,
+        std::string(writable ? "writable: " : "WRITE DENIED: ") + where_en, writable ? (user_data_denied.empty() ? 0 : 1) : 2);
+  }
+  if (!IsAscii(root.wstring()) || !IsAscii(game_data.wstring()) || !IsAscii(user_data.wstring()))
+    words("Chemins", "Paths", "caractères spéciaux dans un chemin (accents...)", "special characters in a path (accents...)", 1);
+  {
+    std::string s = UseNative() ? "native " : "xenos ";
+    s += (opt.native && UseNative() ? (opt.native_resolution ? std::to_string(opt.native_resolution) + "p" : std::string("auto")) : std::to_string(opt.resolution) + "p");
+    s += opt.fullscreen ? ", fullscreen" : ", windowed";
+    s += opt.vsync ? ", vsync" : "";
+    if (opt.mute) s += ", muted";
+    if (opt.keyboard) s += ", keyboard";
+    same("Réglages", "Settings", s, 0);
+  }
+  {
+    const int kind = MachineProfile();
+    std::string v = kind == 1 ? "Steam Deck" : kind == 2 ? "small PC" : "-";
+    v += " (score " + std::to_string(m.score) + "/6)";
+    same("Profil détecté", "Detected profile", v, 0);
+  }
+  diag_report = "WWE 2K15 PC diagnostic\n";
+  for (const auto& r : diag_rows)
+    diag_report += std::string(r.level == 0 ? "[OK] " : r.level == 1 ? "[CHECK] " : "[PROBLEM] ") + r.label_en + ": " + r.value_en + "\n";
+  diag_dirty = false;
+}
+
+void DrawDiagnostic(ImDrawList* d, ImVec2 o, ImVec2 area) {
+  if (diag_dirty) BuildDiagnostic();
+  Panel(d, o, {o.x + area.x, o.y + area.y});
+  SectionTitle(d, {o.x + 40, o.y + 26}, tr("DIAGNOSTIC"), tr("Tout est-il en place ? À coller dans un message GitHub en cas de problème."));
+  ImGui::SetCursorScreenPos({o.x + area.x - 48 - 270 - 12 - 190, o.y + 30});
+  if (Tile("diag_copy", tr("COPIER LE RAPPORT"), {270, 44}, false, true, 18)) {
+    ImGui::SetClipboardText(diag_report.c_str());
+    diag_note = tr("Rapport copié : colle-le dans ton message. Il ne contient ni nom d'utilisateur ni dossier personnel.");
+  }
+  ImGui::SetCursorScreenPos({o.x + area.x - 48 - 190, o.y + 30});
+  if (Tile("diag_refresh", tr("ACTUALISER"), {190, 44}, false, false, 18)) {
+    diag_dirty = true;
+    diag_note.clear();
+  }
+  const float list_top = o.y + 112;
+  const float label_w = 290;
+  const float value_wrap = area.x - 96 - label_w - 30;
+  ImGui::SetCursorScreenPos({o.x + 40, list_top});
+  ImGui::BeginChild("##diag_rows", {area.x - 80, area.y - 112 - (diag_note.empty() ? 16.0f : 44.0f)});
+  ImDrawList* cd = ImGui::GetWindowDrawList();
+  for (const auto& r : diag_rows) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const ImU32 col = r.level == 0 ? IM_COL32(110, 200, 80, 255) : r.level == 1 ? kGold : IM_COL32(255, 96, 96, 255);
+    const float h = std::max(30.0f, ui_font->CalcTextSizeA(17, FLT_MAX, value_wrap, r.value.c_str()).y + 10);
+    cd->AddRectFilled({p.x + 8, p.y + 7}, {p.x + 18, p.y + 17}, col);
+    cd->AddText(ui_font, 17, {p.x + 30, p.y + 3}, kMuted, tr(r.label.c_str()));
+    cd->AddText(ui_font, 17, {p.x + 30 + label_w, p.y + 3}, r.level == 2 ? col : kWhite, r.value.c_str(), nullptr, value_wrap);
+    ImGui::Dummy({area.x - 100, h});
+  }
+  ImGui::EndChild();
+  if (!diag_note.empty()) d->AddText(ui_font, 16, {o.x + 48, o.y + area.y - 34}, kGold, diag_note.c_str(), nullptr, area.x - 96);
+}
+
+// First start on a Steam Deck or a small PC: the settings are proposed, never applied without a click.
+void DrawProfileOffer(ImDrawList* d, ImVec2 size) {
+  d->AddRectFilled({0, 0}, size, IM_COL32(0, 0, 0, 175));
+  const float w = std::min(size.x - 60, 780.0f);
+  const float h = 270 + 34.0f * (float)profile_changes.size();
+  const ImVec2 a{(size.x - w) / 2, std::max(20.0f, (size.y - h) / 2 - 20)};
+  Panel(d, a, {a.x + w, a.y + h});
+  d->AddRectFilled({a.x + 32, a.y + 30}, {a.x + 38, a.y + 66}, kRed);
+  d->AddText(title_font, 34, {a.x + 50, a.y + 26}, kWhite, offer_kind == 1 ? tr("Steam Deck détectée") : tr("Petit PC détecté"));
+  d->AddText(ui_font, 17, {a.x + 34, a.y + 84}, kMuted,
+             tr("Voici les réglages conseillés pour cette machine. Rien ne change sans ton accord, et tu pourras les annuler dans RÉGLAGES."),
+             nullptr, w - 68);
+  float y = a.y + 150;
+  for (const auto& c : profile_changes) {
+    d->AddText(ui_font, 19, {a.x + 40, y}, kWhite, c.what.c_str());
+    const std::string change = c.from + "   >   " + c.to;
+    d->AddText(ui_font, 19, {a.x + w - 40 - TextW(ui_font, 19, change.c_str()), y}, kGold, change.c_str());
+    y += 34;
+  }
+  const float by = a.y + h - 76;
+  static bool focused = false;
+  if (!focused) { ImGui::SetKeyboardFocusHere(); focused = true; }
+  ImGui::SetCursorScreenPos({a.x + 34, by});
+  if (Tile("offer_apply", tr("APPLIQUER"), {200, 48}, false, true, 18)) ApplyProfile();
+  ImGui::SetCursorScreenPos({a.x + 34 + 212, by});
+  if (Tile("offer_later", tr("PAS MAINTENANT"), {220, 48}, false, false, 18) ||
+      ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))
+    offer_kind = 0;
+  ImGui::SetCursorScreenPos({a.x + 34 + 212 + 232, by});
+  if (Tile("offer_never", tr("NE PLUS DEMANDER"), {240, 48}, false, false, 18)) {
+    opt.profile_done = true;
+    offer_kind = 0;
+    SaveOptions();
+  }
+}
+
 void DrawUi() {
   ImGuiIO& io = ImGui::GetIO();
   ImGui::SetNextWindowPos({0, 0});
@@ -1902,6 +2299,8 @@ void DrawUi() {
   ImGui::PopStyleVar();
   ImDrawList* d = ImGui::GetWindowDrawList();
   const ImVec2 size = io.DisplaySize;
+  ProfileOfferCheck();
+  const bool offer = offer_kind != 0;
 
   int idx = TabIndex();
   if (page != "CONTRÔLES") capturing_key = -1;
@@ -1910,16 +2309,25 @@ void DrawUi() {
   if ((keys_for_tabs && ImGui::IsKeyPressed(ImGuiKey_Q)) || ImGui::IsKeyPressed(ImGuiKey_GamepadL1)) idx = (idx + kTabCount - 1) % kTabCount;
   if ((keys_for_tabs && ImGui::IsKeyPressed(ImGuiKey_E)) || ImGui::IsKeyPressed(ImGuiKey_GamepadR1)) idx = (idx + 1) % kTabCount;
   if ((keys_for_tabs && ImGui::IsKeyPressed(ImGuiKey_Escape)) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) idx = 0;
-  page = kTabs[idx];
+  if (!offer) page = kTabs[idx];
+  {
+    static std::string last_page;
+    if (page != last_page) {
+      if (page == "DIAGNOSTIC") diag_dirty = true;
+      last_page = page;
+    }
+  }
 
   DrawBackground(d, size, (float)ImGui::GetTime());
-  DrawHeader(d);
+  if (!offer) DrawHeader(d);
   const ImVec2 o{44, 100};
   const ImVec2 area{size.x - 88, size.y - 100 - 64};
-  if (page == "JOUER") DrawPlay(d, o, area);
+  if (offer) DrawProfileOffer(d, size);
+  else if (page == "JOUER") DrawPlay(d, o, area);
   else if (page == "RÉGLAGES") DrawSettings(d, o, area);
   else if (page == "GRAPHISMES") DrawGraphics(d, o, area);
   else if (page == "CONTRÔLES") DrawControls(d, o, area);
+  else if (page == "DIAGNOSTIC") DrawDiagnostic(d, o, area);
   else if (page == "MODS") {
     DrawMods(d, o, area);
   } else if (page == "SAUVEGARDES") {
