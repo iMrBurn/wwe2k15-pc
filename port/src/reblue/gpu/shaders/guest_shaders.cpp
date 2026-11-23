@@ -50,6 +50,9 @@
 REXCVAR_DEFINE_BOOL(svr_preserve_inf_nan, WWE12_INF_NAN_DEFAULT, "SvR",
                     "Ask the GPU driver to keep infinities and NaN exact in game shaders (Intel "
                     "otherwise drops the Xbox-style clamps: black eyes and teeth).");
+REXCVAR_DEFINE_INT32(svr_shader_wait_ms, 2000, "SvR",
+                     "Longest wait (ms) of a draw for its run-time converted shader; when it expires the draw is skipped this frame and retried next frame (low values trade a few missing objects for no freeze on slow CPUs)")
+    .range(0, 10000);
 REXCVAR_DEFINE_BOOL(svr_wait_for_shader, true, "SvR",
                     "A draw whose shader is still converting waits for it (up to 2 s) instead of being skipped");
 
@@ -331,7 +334,7 @@ plume::RenderShader *GetOrLinkShader(GuestShader *gs, u32 specConstants) {
 #if defined(WWE2K15_RUNTIME_SHADERS)
   // Converted at run time: wait for it rather than skip the draw (see Wwe2k15WaitShader).
   if (!entry && REXCVAR_GET(svr_wait_for_shader)) {
-    Wwe2k15WaitShader(gs, 2000);
+    Wwe2k15WaitShader(gs, uint32_t(REXCVAR_GET(svr_shader_wait_ms)));
     entry = gs->shaderCacheEntry;
   }
 #endif
