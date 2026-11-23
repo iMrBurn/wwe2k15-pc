@@ -17,6 +17,7 @@ REXCVAR_DEFINE_BOOL(wwe2k15_crash_guards, true, "WWE2K15",
                     "Skip game calls that would dereference a NULL pointer (crash guards)");
 
 REX_EXTERN(__imp__sub_8253D490);
+REX_EXTERN(__imp__sub_82AAFCE8);
 
 namespace {
 
@@ -49,4 +50,52 @@ extern "C" REX_FUNC(sub_8253D490) {
     }
   }
   __imp__sub_8253D490(ctx, base);
+}
+
+// sub_82AAFCE8(this r3, cmd slot r4): runs one command of the game's display/script command list
+// (type = [[r4]], jump table of 105 types; the list is walked by sub_82AB0500 on the render
+// thread, ends on type 104 or 105). Type 43 is "call a method": it loads the 8-byte field at
+// cmd+16 (object in the low word, cmd+20) and does `obj->vtable[7](obj, [cmd+24], 0)` without
+// testing anything. Issues #39 (read 0x52) and #44 (read 0x1C), Showcase / story cutscenes: the
+// object had been freed / cleared (its vtable word is 0), so the read of guest 0x1C faults.
+// Guard 1: type 43 with a missing object, vtable or method is skipped (logged).
+// Guard 2 (issue #45, a render thread spinning at 100 % CPU in this loop for 20 s+): when the
+// same command slot is run many times in a row the list is not advancing (a corrupted size
+// field), so the command is turned into a type 104 terminator, which ends that buffer.
+extern "C" REX_FUNC(sub_82AAFCE8) {
+  if (REXCVAR_GET(wwe2k15_crash_guards) && ctx.r4.u32 >= 0x10000) {
+    const uint32_t cmd = Ld32(base, ctx.r4.u32);
+    if (cmd >= 0x10000) {
+      const uint32_t type = Ld32(base, cmd);
+      if (type == 43) {
+        const uint32_t obj = Ld32(base, cmd + 20);
+        const uint32_t vt = obj >= 0x10000 ? Ld32(base, obj) : 0;
+        const uint32_t fn = vt >= 0x10000 ? Ld32(base, vt + 28) : 0;
+        if (fn < 0x82000000 || fn >= 0x83000000) {
+          static std::atomic<uint32_t> skipped{0};
+          if (skipped.fetch_add(1) < 8)
+            REXLOG_WARN("crash guard: command-list call skipped (sub_82AAFCE8 type 43), object {:08X} "
+                        "vtable {:08X} method {:08X} cmd {:08X} lr {:08X}", obj, vt, fn, cmd,
+                        uint32_t(ctx.lr));
+          return;
+        }
+      }
+      thread_local uint32_t last_cmd = 0;
+      thread_local uint32_t repeats = 0;
+      if (cmd == last_cmd) {
+        if (++repeats == 200000) {
+          REXLOG_ERROR("crash guard: command list stuck on {:08X} (type {}), ending the buffer", cmd,
+                       type);
+          const uint32_t v = __builtin_bswap32(104);
+          std::memcpy(const_cast<uint8_t*>(base) + cmd, &v, 4);
+          repeats = 0;
+          return;
+        }
+      } else {
+        last_cmd = cmd;
+        repeats = 0;
+      }
+    }
+  }
+  __imp__sub_82AAFCE8(ctx, base);
 }
