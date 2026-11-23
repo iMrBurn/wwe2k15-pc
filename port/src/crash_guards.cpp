@@ -71,7 +71,7 @@ extern "C" REX_FUNC(sub_82AAFCE8) {
         const uint32_t obj = Ld32(base, cmd + 20);
         const uint32_t vt = obj >= 0x10000 ? Ld32(base, obj) : 0;
         const uint32_t fn = vt >= 0x10000 ? Ld32(base, vt + 28) : 0;
-        if (fn < 0x82000000 || fn >= 0x83000000) {
+        if (fn < 0x82000000 || fn >= 0x83A10000) {
           static std::atomic<uint32_t> skipped{0};
           if (skipped.fetch_add(1) < 8)
             REXLOG_WARN("crash guard: command-list call skipped (sub_82AAFCE8 type 43), object {:08X} "
